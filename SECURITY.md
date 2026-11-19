@@ -21,8 +21,10 @@ backend, OpenRouter for the optional JEV filter) using operator-supplied
 credentials in a gitignored `.env` / `config.yaml`. It is not a network-facing service.
 
 An optional ATS MCP process is launched locally over stdio and reads the shared
-database through SQLite `mode=ro` plus `query_only`; it does not bind a listener
-or expose write tools (MCP writes through `/api/v1` are planned, #154). When an operator connects it through OpenAI Secure MCP
+database through SQLite `mode=ro` plus `query_only`; it does not bind a listener.
+Its write tools (log an application, update status/notes) never touch SQLite directly:
+they call the web's loopback `/api/v1` with `ATS_API_KEY`, and without that key they
+are not offered. When an operator connects it through OpenAI Secure MCP
 Tunnel, approved ChatGPT users can read the ATS records and send returned job
 text, application notes, and other selected data to the connected model. Tunnel
 access and ChatGPT workspace policy define that additional trust boundary. The

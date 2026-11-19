@@ -46,9 +46,9 @@ flowchart LR
   current JEV `skip` on a still-`new` posting by default.
 - The web exposes a key-scoped loopback write API at `/api/v1` (bearer keys
   `ATS_API_KEY_READ_WRITE` / `ATS_API_KEY_READ`; no key configured = `503`) over the
-  same server actions the UI uses; rows it writes carry `actor`. MCP write tools that call
-  it (#154), a read-only web dashboard (#158) and the workflow text (#159) are planned
-  under epic #152.
+  same server actions the UI uses; rows it writes carry `actor`, shown as "via MCP" in
+  the web. The MCP application write tools (#154) and workflow prompts (#159) call it; a
+  read-only web dashboard (#158) and the rest of epic #152 are planned.
 
 ## Boundaries
 

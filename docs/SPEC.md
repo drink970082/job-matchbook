@@ -31,8 +31,8 @@ filter (`--jev`, §7.1) runs after the screen and narrows a reported approximate
 Ranking within `keep` stays gated (#135). The offline preselection tooling
 ([preparation plan](superpowers/plans/2026-10-27-preselection-parallel-preparation.md))
 is its provider-free foundation. Epic #152 makes MCP the main channel: the key-scoped
-loopback write API (`/api/v1`, §7.2) is shipped; MCP write tools and a read-only web
-dashboard are planned (#154, #158). #94 still needs actual unattended evidence.
+loopback write API (`/api/v1`, §7.2), the MCP application write tools over it (#154) and
+the MCP workflow prompts (#159) are shipped; a read-only web dashboard is planned (#158). #94 still needs actual unattended evidence.
 
 [ARCHITECTURE](ARCHITECTURE.md) separates target ownership from existing implementation;
 [ROADMAP](ROADMAP.md) lists feature readiness and outstanding slices;
@@ -128,9 +128,9 @@ Two pains, addressed by the two services:
   gitignored; the repo ships only `*.example` templates so a clean clone runs
   without exposing personal data.
 - **Cheap optional assistance, primary judgment in ChatGPT.** The worker supports
-  multiple screen providers and existing fit adapters; no GPU is required for discovery
-  or subscription-backed screening. Luna/medium is currently selected for standalone
-  screen-only. The optional fit default remains Sol. Personal-fit ranking and delivery
+  multiple screen providers; no GPU is required for discovery or subscription-backed
+  screening. Luna/medium is currently selected for standalone screen-only. Personal-fit
+  ranking and delivery
   are not prerequisites for reading source evidence. See PRINCIPLES 4 and ROADMAP.
 
 ---
@@ -740,8 +740,8 @@ worker modules are pure and dependency-injected; real services are wired only in
 - **`screening/` — the hard-requirements screen.** The provider-neutral package owns
   the hard-requirement engine, screen schema/rendering, location resolver, and screen
   transports. There is no fit scorer. Subscription quota telemetry is the neutral
-  `ats_worker.usage` (§7.2's quota bar reads its snapshot); `seniority.py` holds an
-  unwired seniority classifier (see `docs/PROGRESS.md`).
+  `ats_worker.usage` (§7.2's quota bar reads its snapshot); seniority is JEV's
+  `required_yoe_for_candidate` question.
 
   (1) The hard-requirements **SCREEN** is injected as one seam — `extract(prompt,
   schema) -> dict` (`screen_posting`'s `extract` kwarg) — so swapping backends is a
@@ -2347,7 +2347,7 @@ This section is the authoritative command list.
 form, the tracker-only vs. full-pipeline decision, and which settings live in
 `config.yaml` vs. the DB — and links back here for the commands themselves.
 
-**Prerequisites:** Docker + Compose (≥ 24) for the web app; Node 20+ and Python
+**Prerequisites:** Docker + Compose (≥ 24) for the web app; Node 24+ and Python
 3.11+ for local non-Docker dev/tests **and to run the worker**, which is native,
 not containerized (§6); for the hard-requirements screen, Ollama reachable — a
 local GPU, or a remote/cloud instance via `OLLAMA_HOST` — **or** one of five other

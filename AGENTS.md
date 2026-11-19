@@ -75,15 +75,6 @@ Current skills: `session-boot` (load repo state before substantive work), `onboa
 (configure the tool for a user's job hunt), `onboard-board` (add a company to the fetch
 watchlist).
 
-## Pivot delivery roles
-
-Astra/Sol owns docs, architecture, boundaries, issue planning and acceptance; it does not
-write implementation or fix review findings. All implementation goes to Luna at **max**
-effort, including tests and corrective patches. This is separate from the deployed
-Luna/**medium** screener. Follow [DEVELOPMENT](docs/DEVELOPMENT.md#agent-ownership-and-handoff)
-for branch/PR/review handoff. Issues own deliverable status/dependencies, ROADMAP owns
-order, PROGRESS owns branch claims.
-
 ## What this is
 
 A self-hosted job-source, evidence and tracking system that an AI client (ChatGPT,

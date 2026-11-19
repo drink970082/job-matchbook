@@ -66,8 +66,6 @@ of *what happened*. So, everywhere else:
 
 ## Agent conduct
 
-Model/effort ownership is in [`docs/DEVELOPMENT.md`](./docs/DEVELOPMENT.md#agent-ownership-and-handoff).
-
 - **Doc length matches substance.** `SPEC.md`/`PROGRESS.md`/`CHANGELOG.md` are
   already large and every session reloads them. Write the clause the change needs —
   no padded sections, restated summaries, or boilerplate. Same for specs and plans
@@ -83,15 +81,6 @@ Model/effort ownership is in [`docs/DEVELOPMENT.md`](./docs/DEVELOPMENT.md#agent
   its `PROGRESS.md` In-flight entry. Never merge another session's work. The rest —
   branch/PR rules and the authority split — is
   [`docs/DEVELOPMENT.md`](./docs/DEVELOPMENT.md) §7.
-
-## Pivot delivery roles
-
-Astra/Sol owns docs, architecture, boundaries, issue planning and acceptance; it does not
-write implementation or fix review findings. All implementation goes to Luna at **max**
-effort, including tests and corrective patches. This is separate from the deployed
-Luna/**medium** screener. Follow [DEVELOPMENT](docs/DEVELOPMENT.md#agent-ownership-and-handoff)
-for branch/PR/review handoff. Issues own deliverable status/dependencies, ROADMAP owns
-order, PROGRESS owns branch claims.
 
 ## What this is
 

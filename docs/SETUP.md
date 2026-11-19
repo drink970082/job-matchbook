@@ -9,7 +9,7 @@ commands; [ARCHITECTURE](ARCHITECTURE.md) distinguishes implemented paths from t
 | Requirement | Needed for |
 |---|---|
 | Docker + Compose | Containerized web/autoheal |
-| Node 20+ | Web development/tests or running web without Docker |
+| Node 24+ | Web development/tests or running web without Docker |
 | Python 3.11+ | Native worker and MCP |
 | Configured public job sources/network access | Discovery |
 | A selected screen backend | Optional screening; no model needed for fetch-only |
@@ -81,10 +81,11 @@ in ChatGPT; verify overview, pagination, full JD chunks and application records.
 No API key, tunnel identity or private profile belongs in the repo.
 
 Daily Brief instructions/background and a scheduled task are separate user-controlled
-configuration. Test an actual unattended run, not only an interactive call. MCP tools are
-read-only today; MCP writes through `/api/v1` are planned (#154). To enable the write API,
-set `ATS_API_KEY_READ_WRITE` (and optionally `ATS_API_KEY_READ`) to long random values in
-the root `.env` and restart the web container; with neither set it answers `503`.
+configuration. Test an actual unattended run, not only an interactive call. MCP write
+tools go through the web's `/api/v1`. To enable them, set `ATS_API_KEY_READ_WRITE` (and
+optionally `ATS_API_KEY_READ`) to long random values in the root `.env`, restart the web
+container, and give the MCP server the same read-write value as `ATS_API_KEY`; with no
+key the API answers `503` and MCP stays read-only.
 
 ## Where settings live
 

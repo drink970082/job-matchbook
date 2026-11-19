@@ -48,8 +48,6 @@ early as context insurance produces exactly such drafts).
 
 ## 4. Implement
 
-Implementation belongs to Luna at max effort under the ownership contract below.
-
 - Test-first (red → green → refactor); one focused commit per green step where
   practical. Product order comes from ROADMAP, branch claims from PROGRESS; consult
   ARCHITECTURE before implementing target boundaries. EVALUATION scopes model checks:
@@ -210,29 +208,19 @@ in SPEC and completion history in CHANGELOG.
 Only assign an issue when its dependencies and scoped plan are ready. `enhancement` and
 `documentation` classify issues; neither label means ready to execute. Conditional issues
 remain deferred until their stated selection/design gate is met. An implementation PR
-references its issue; close it only after the orchestrator accepts the deliverable.
+references its issue; close it only after the operator accepts the deliverable.
 Planning/documentation PRs must not auto-close future implementation tickets.
 
-## Agent ownership and handoff
+## Handoff and review
 
-- **Astra/Sol orchestrator:** owns documentation, architecture, issue decomposition,
-  contracts, scope decisions, acceptance and merge coordination. It may inspect code and
-  run checks, but does not implement production code/tests or patch review findings.
-- **Luna, max effort:** owns all implementation and corrective patches. Start from current
-  main in an isolated branch/worktree, execute one selected issue and its approved plan,
-  run relevant checks, update shipped-behavior docs and open a PR. Do not self-merge or
-  deploy. Implementation model/effort is distinct from the runtime Luna/medium screener.
-- The orchestrator supplies the issue, plan revision, dependency state, allowed changes,
-  forbidden side effects, acceptance cases and required evidence. Luna reports actual
-  commands/results, remaining risks and deviations; unresolved design changes return to
-  Astra/Sol. Findings go back to Luna for fixes, then to acceptance again.
-- A fresh Astra/Sol reviewer checks the exact PR head against the contract and evidence;
-  the author is not its own reviewer. Green CI plus acceptance allows orchestrator merge
-  under §7. Deployments and live model workloads need separately established scope.
-- The selected implementation issue may run in goal mode as requested by the operator;
-  the goal is the bounded issue/PR deliverable, not all roadmap items. A goal is created
-  only for an explicitly assigned goal-mode run. Never interpret a remaining backlog as
-  permission to start another issue, change models, spend evaluation quota or clean data.
+- Implement from current `main` in an isolated branch/worktree, one selected issue and
+  its approved plan at a time; run the relevant checks, update shipped-behavior docs and
+  open a PR. Do not self-merge or deploy.
+- The author is not its own reviewer: a fresh session checks the exact PR head against
+  the issue's contract and evidence. Green CI plus that review allows merge under §7.
+  Deployments and live model workloads need separately established scope.
+- Never read a remaining backlog as permission to start another issue, change models,
+  spend evaluation quota or clean data.
 
 ## Session kickoff template
 
@@ -257,6 +245,3 @@ Non-negotiables:
   CI green. Never force-push main.
 - Your final report must state what you did NOT verify.
 ```
-
-Agent assignment follows the ownership contract above. Astra/Sol handles orchestration;
-Luna at max effort handles implementation.

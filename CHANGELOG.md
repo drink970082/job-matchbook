@@ -14,6 +14,15 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
   skills, templates, the deploy unit and compose; the unused `DEFAULT_SCREEN_WORKERS`.
   `SCORING.md` is now the screen reference (1760 -> 863 lines); `REJECTED.md` and
   `ENGINEERING_CATALOGUE.md` lose their removed-code entries.
+- **The unwired seniority classifier** (`seniority.py`, `prompts/seniority.txt`,
+  `tools/seniority_eval.py`, `make eval-seniority`). JEV's `required_yoe_for_candidate`
+  question does this job. `candidate.years_experience` is now accepted and ignored.
+- **The Astra/Sol + Luna/max role split** from CLAUDE.md, AGENTS.md, DEVELOPMENT and
+  session-boot; DEVELOPMENT keeps a model-neutral "Handoff and review".
+
+### Changed
+
+- **Node 20 (EOL) -> Node 24 LTS** in CI and the web image (`node:24-alpine`, pinned).
 
 ### Fixed
 

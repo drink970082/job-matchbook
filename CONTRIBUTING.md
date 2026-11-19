@@ -14,7 +14,7 @@ the product overview.
 
 ## Prerequisites
 
-- Node.js 20+ and npm
+- Node.js 24+ and npm
 - Python 3.11+
 - (Optional, for the full pipeline) Docker + Docker Compose, and a screen backend:
   Ollama (the free default), or the Codex/Claude CLI, or a metered API key

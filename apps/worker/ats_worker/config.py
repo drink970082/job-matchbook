@@ -90,11 +90,10 @@ class Candidate:
     # when true, intern/co-op roles are disqualified — the 4B model is unreliable on
     # this, but the title is a clean signal. See screening.engine._is_internship.
     exclude_internships: bool = False
-    # Years of professional experience, read ONLY by the seniority classifier
-    # (seniority.py, currently unwired) to turn a bar the JD states into a verdict about
-    # THIS candidate. It is not a screen check and can never discard a posting.
-    # 0 = new grad / entry level, which is what the 2026-07-30 measurement calibrated on.
-    years_experience: int = 0
+    # ponytail: retired seniority classifier's input (JEV asks its own YOE question).
+    # Accepted and ignored so an existing config.yaml still loads; delete once no
+    # config carries the key.
+    years_experience: object | None = None
 
     def is_empty(self) -> bool:
         """True when nothing is configured, so screening stays disabled."""
@@ -334,5 +333,4 @@ def _parse_candidate(raw) -> Candidate:
         security_clearance=str(raw.get("security_clearance") or "").strip(),
         locations=locations,
         exclude_internships=bool(raw.get("exclude_internships")),
-        years_experience=_int_field(raw, "years_experience", 0),
     )

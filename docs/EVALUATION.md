@@ -36,13 +36,12 @@ private data. Ranking within `keep` is not activated (#135).
 | Tool / target | Use | Status |
 |---|---|---|
 | `make eval-screen` / `tools/screen_eval.py` | Screen fact/verdict accuracy; zero false disqualification in any draw, recall reported | Manual, provider-using; needs the private `apps/worker/eval/` corpus |
-| `make eval-seniority` / `tools/seniority_eval.py` | The unwired seniority classifier against stored strong-model labels | Diagnostic only; its labels were written by the removed fit scorer |
-| `--selftest` on those tools | Gate/parser/rule checks without model calls | Does not certify model quality |
+| `--selftest` on that tool | Gate/parser/rule checks without model calls | Does not certify model quality |
 | `preselection_profile.py`, `preselection_replay.py`, `preselection_evaluation.py` | Allowlisted profile rendering, provider-free grouped replay and aggregate shadow reports | Offline tooling; synthetic fixtures; no quality claim |
 | `backfill_descriptions.py` | Explicit JD hydration maintenance | Data-quality tool |
 
 Tool paths are relative to `apps/worker/tools`. The eval corpora are gitignored, so a
-fresh clone cannot run `eval-screen` or `eval-seniority` beyond `--selftest`.
+fresh clone cannot run `eval-screen` beyond `--selftest`.
 
 ## Corpus inventory and interpretation
 

@@ -31,10 +31,11 @@ feature is implemented; see the [feature readiness matrix](docs/ROADMAP.md#featu
 - **Assist optionally:** hard-requirement screening (local Ollama by default, or a
   CLI/API backend) and the paid JEV keep/skip filter (OpenRouter).
 - **Write API:** a key-scoped loopback `/api/v1` for applications and the watchlist,
-  off until a key is set. MCP write tools on top of it are planned (#154).
+  off until a key is set. MCP write tools (log an application, update status/notes)
+  call it when the MCP server has `ATS_API_KEY`.
 
 A scheduled assistant task must be configured and tested separately for unattended daily
-delivery. MCP tools are read-only today. Cross-day deduplication is best-effort until a
+delivery. Without `ATS_API_KEY` the MCP server is read-only. Cross-day deduplication is best-effort until a
 persistent delivery ledger exists.
 
 No auto-apply, no public multi-tenant service and no CAPTCHA workarounds. Private

@@ -33,9 +33,9 @@ session's claimed branches are there. Rules in
 - Write your own entry when you start; remove it when the work lands.
 
 Read the selected GitHub issue and linked batch plan as well as the branch claims.
-Issues own scope/dependencies/status; ROADMAP owns order. Astra/Sol plans and accepts;
-Luna at max effort implements. Do not start a conditional issue or invent an unassigned
-implementation task from the roadmap. See DEVELOPMENT's agent ownership contract.
+Issues own scope/dependencies/status; ROADMAP owns order. Do not start a conditional
+issue or invent an unassigned implementation task from the roadmap. See DEVELOPMENT's
+"Handoff and review".
 
 ## 2. Classify the task — `DEVELOPMENT.md` §2
 

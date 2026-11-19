@@ -15,7 +15,7 @@ issues own scope and status.
 |---|---|---|
 | Board/feed discovery and JD hydration | Shipped | Core; improve coverage and evidence quality |
 | Applications, history, CSV and watchlist UI | Shipped | Core; preserve data and manual workflows |
-| MCP read tools and full-text chunks | Shipped (ten read-only tools) | Core; becomes the main channel under #152 |
+| MCP read tools, full-text chunks, application write tools and workflow prompts | Shipped (writes need `ATS_API_KEY`, #154/#159) | Core; becomes the main channel under #152 |
 | All-jobs inventory with advisory screening | Shipped | Preserve the safe inventory and application-action boundaries |
 | Standalone Luna/medium screening | Shipped, operator-selected | Retain as low-cost assistance |
 | JEV keep/skip filter | Deployed (`--jev`, #139); `skip` hidden by default in MCP | Drain the pre-filter backlog; ranking stays gated under #135 |
@@ -27,7 +27,7 @@ issues own scope and status.
 
 | Order | Deliverable | Dependencies | State |
 |---|---|---|---|
-| 1 | [#152 AI-orchestrated ATS](https://github.com/drink970082/job-matchbook/issues/152): #154 MCP application writes, #155 triage override, #156 watchlist tools, #157 preferences/profile in the DB, #158 read-only web dashboard, #159 workflow text in MCP | #153 (merged) | In flight |
+| 1 | [#152 AI-orchestrated ATS](https://github.com/drink970082/job-matchbook/issues/152): #155 triage override, #156 watchlist tools, #157 preferences/profile in the DB, #158 read-only web dashboard, #159 workflow text in MCP | #153 (merged) | In flight |
 | 2 | [#94 Scheduled Daily Brief](https://github.com/drink970082/job-matchbook/issues/94) | Deployed tunnel and account/workspace task access | Unattended acceptance outstanding |
 | 3 | [#135 JEV ranking -> MCP](https://github.com/drink970082/job-matchbook/issues/135) | Keep/skip filter (#139) deployed | Ranking activation gated |
 | Conditional | [#95 Delivery ledger](https://github.com/drink970082/job-matchbook/issues/95) | #94; observed repeats | Deferred |

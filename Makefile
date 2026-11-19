@@ -10,7 +10,7 @@ COUNT  := 40                                 # rows for seed-dev
 
 .PHONY: help install setup doctor dev build lint test test-web test-worker \
         test-integration test-e2e test-coverage check-schema check-privacy up down health db-push seed-dev \
-        eval-screen eval-seniority
+        eval-screen
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) \
@@ -64,9 +64,6 @@ test-coverage: ## Run both suites with coverage (gated by thresholds)
 
 eval-screen: ## Optional live screen eval; backend-dependent allowance/cost. Gate: zero false disqualification; see docs/EVALUATION.md
 	cd $(WORKER) && PYTHONPATH=. $(PY) tools/screen_eval.py
-
-eval-seniority: ## Optional live seniority diagnostic against model labels; see docs/EVALUATION.md for limits and cost
-	cd $(WORKER) && PYTHONPATH=. $(PY) tools/seniority_eval.py
 
 check-schema: ## Fail if worker schema.sql drifts from prisma/schema.prisma
 	node tools/check_schema_drift.mjs

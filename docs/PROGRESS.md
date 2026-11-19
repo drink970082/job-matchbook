@@ -18,13 +18,9 @@ behavior. Completed work belongs in CHANGELOG, not this queue.
 
 - **Fit-scorer residue — unclaimed** `[SCORE · S]`. The scorer is gone (#149, #150);
   what is left needs a decision, not a branch:
-  (1) `seniority.py` + `prompts/seniority.txt` + `make eval-seniority` are kept but
-  unwired — fold the classifier into the screen or delete it, undecided.
-  (2) `onboard-me`'s profile/résumé interview still describes inputs for the retired fit
-  scorer; rewrite once JEV settles what it reads.
-  (3) `fit_profile` stays an accepted-and-ignored `config.yaml` key; delete it once no
-  config carries the block.
-  (4) Columns nothing writes any more — `job_postings.score`, `notify_attempts`,
+  (1) `fit_profile` and `candidate.years_experience` stay accepted-and-ignored
+  `config.yaml` keys; delete them once no config carries them.
+  (2) Columns nothing writes any more — `job_postings.score`, `notify_attempts`,
   `deprioritized_at` — and the web's score filter / Matched buckets that read them. The
   web half waits for #158.
 
@@ -56,8 +52,6 @@ before changing them. No older research authorization schedules new provider cal
 
 [ROADMAP](ROADMAP.md) links every issue and dependency. Issues own status; this file
 owns active branch claims. Documentation plans do not launch agents or deploy services.
-Astra/Sol owns architecture/docs/acceptance; all implementation/fixes go to Luna/max.
-The current runtime Luna/medium screening configuration is a separate concern.
 
 ## Current implementation limitations
 
@@ -71,7 +65,7 @@ The current runtime Luna/medium screening configuration is a separate concern.
   screen-only/new posting is not guaranteed open.
 - Imported/manual applications may have no posting link. Deduplicate against the
   applications table, not only `application_id`.
-- No persistent Brief delivery ledger; MCP write tools are in flight (#154). Cross-day deduplication is
+- No persistent Brief delivery ledger. Cross-day deduplication is
   best-effort; background task/tunnel access still needs workflow-level acceptance.
 - Optional model quality remains bounded by corpus provenance. Luna/medium screening
   lacks an effort-identified accuracy run; legacy fit labels include unsupported inputs.

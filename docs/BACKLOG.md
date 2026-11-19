@@ -38,8 +38,7 @@ ideas. Recommendation history (#95) is conditional on observed repeats.
   clearance limitations remain relevant when changing the screen. Read SCORING and
   REJECTED before revisiting them.
 - More screen providers and cache experiments require a demonstrated need and a specific
-  evaluation question. The unwired seniority classifier (`seniority.py`) is either folded
-  into the screen or deleted — undecided.
+  evaluation question.
 
 ## Deferred extensions
 
