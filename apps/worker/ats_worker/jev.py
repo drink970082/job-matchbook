@@ -1,7 +1,8 @@
 """JEV keep/skip filter: two native OpenRouter JEV questions per screened posting.
 
 A posting is `skip` when the preference question (policy C) answers `weak` OR the
-required-YOE side question answers `three_plus`; everything else is `keep`, including
+required-YOE side question answers `three_plus` or `above_candidate` (YOE_SKIP);
+everything else is `keep`, including
 `unknown`. The verdict only hides a row from the MCP default list; it never changes
 `pipeline_status`. Measured basis: docs/SPEC.md §7.1 "JEV keep/skip filter".
 
@@ -69,11 +70,14 @@ class JevInputs:
                         "yoe_context": sha(self.yoe_context.encode())}))
 
 
-def _pack(text: str, name: str, required_question: str) -> dict:
+def _pack(text: str, name: str, required_question: str, skip_keys: set[str]) -> dict:
+    """`decide` skips on `skip_keys`; a pack without one would silently keep everything."""
     value = json.loads(text)
-    ids = {q.id for q in jev_question_set_from_value(value).questions}
-    if required_question not in ids:
-        raise ValueError(f"{name} lacks the {required_question!r} question")
+    questions = {q.id: q for q in jev_question_set_from_value(value).questions}
+    q = questions.get(required_question)
+    if q is None or q.question_type != "choice" or not skip_keys & set(dict(q.choice_criteria)):
+        raise ValueError(f"{name} needs a choice question {required_question!r} with a "
+                         f"{' or '.join(repr(k) for k in sorted(skip_keys))} criterion")
     return value
 
 
@@ -95,8 +99,8 @@ def read_files(directory: str | Path) -> dict[str, str]:
 def inputs_from_texts(texts: dict[str, str]) -> JevInputs:
     return JevInputs(
         profile_text=texts["profile_text"],
-        c_pack=_pack(texts["c_pack"], "question-pack.json", PREFERENCE_Q),
-        yoe_pack=_pack(texts["yoe_pack"], "yoe-pack.json", YOE_Q),
+        c_pack=_pack(texts["c_pack"], "question-pack.json", PREFERENCE_Q, {"weak"}),
+        yoe_pack=_pack(texts["yoe_pack"], "yoe-pack.json", YOE_Q, set(YOE_SKIP)),
         yoe_context=texts["yoe_context"].strip(),
     )
 
@@ -118,12 +122,19 @@ def request_body(posting: dict, pack: dict, candidate_context: str) -> bytes:
     return enc({"model": REQUESTED_MODEL, "questions": _wire(pack), "state": state})
 
 
+# The YOE skip criteria: `three_plus` is the measured fixed 3-year floor (the operator's
+# pack); `above_candidate` compares the posting against the years in yoe-context.txt, so
+# the filter fits any experience level. Adding a key moves no existing verdict, so
+# RULE_VERSION (and every stored policy hash) stays.
+YOE_SKIP = {"three_plus": "required_yoe_3_plus", "above_candidate": "required_yoe_above_candidate"}
+
+
 def decide(preference: str, required_yoe: str) -> tuple[str, list[str]]:
     reasons = []
     if preference == "weak":
         reasons.append("preference_weak")
-    if required_yoe == "three_plus":
-        reasons.append("required_yoe_3_plus")
+    if required_yoe in YOE_SKIP:
+        reasons.append(YOE_SKIP[required_yoe])
     return ("skip" if reasons else "keep"), reasons
 
 

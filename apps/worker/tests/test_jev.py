@@ -58,6 +58,8 @@ def fake_post(preference="plausible", yoe="not_stated", calls=None):
     ("weak", "under_3", "skip", ["preference_weak"]),
     ("plausible", "three_plus", "skip", ["required_yoe_3_plus"]),
     ("weak", "three_plus", "skip", ["preference_weak", "required_yoe_3_plus"]),
+    ("plausible", "above_candidate", "skip", ["required_yoe_above_candidate"]),
+    ("plausible", "within_candidate", "keep", []),
 ])
 def test_decide_skips_only_weak_preference_or_three_plus_years(preference, yoe, verdict, reasons):
     assert jev.decide(preference, yoe) == (verdict, reasons)
@@ -128,6 +130,18 @@ def test_load_inputs_requires_both_questions(tmp_path):
     assert loaded.yoe_context == "ctx" and loaded.c_pack == C_PACK
     (tmp_path / "yoe-pack.json").write_text(json.dumps(C_PACK))
     with pytest.raises(ValueError, match="required_yoe_for_candidate"):
+        jev.load_inputs(tmp_path)
+    renamed = json.loads(json.dumps(C_PACK))
+    renamed["questions"][0]["criteria"]["poor"] = renamed["questions"][0]["criteria"].pop("weak")
+    (tmp_path / "yoe-pack.json").write_text(json.dumps(YOE_PACK))
+    (tmp_path / "question-pack.json").write_text(json.dumps(renamed))
+    with pytest.raises(ValueError, match="'weak'"):    # would silently keep everything
+        jev.load_inputs(tmp_path)
+    (tmp_path / "question-pack.json").write_text(json.dumps(C_PACK))
+    no_skip = json.loads(json.dumps(YOE_PACK))
+    no_skip["questions"][0]["criteria"].pop("three_plus")
+    (tmp_path / "yoe-pack.json").write_text(json.dumps(no_skip))
+    with pytest.raises(ValueError, match="'above_candidate' or 'three_plus'"):
         jev.load_inputs(tmp_path)
 
 
@@ -642,3 +656,47 @@ def test_cli_jev_limit_default_depends_on_backend(backend, limit, monkeypatch, t
     run.main(["--once", "--config", str(cfg), "--db", str(tmp_path / "x.db"),
               "--jev", "--jev-backend", backend])
     assert seen["jev_limit"] == limit and seen["jev_backend"] == backend
+
+
+# --- the committed example packs (jev.example/) run on a fresh checkout ----------
+
+EXAMPLE_DIR = __import__("pathlib").Path(__file__).resolve().parents[1] / "jev.example"
+
+
+def test_example_packs_run_through_extract_from_a_fresh_db(monkeypatch, tmp_path):
+    conn = _screened_db(tmp_path, ["a", "b"])
+
+    class Cfg:
+        jev_dir = str(EXAMPLE_DIR)
+    picks = {"preference": "strong", "required_yoe_for_candidate": "above_candidate"}
+    run._run_jev_extract(conn, Cfg(), extract=lambda p, s: {k: picks[k] for k in s["properties"]},
+                         limit=5, model="extract:test", now=NOW)
+    rows = _rows(conn)
+    assert len(rows) == 2 and all(r["verdict"] == "skip" for r in rows.values())
+    assert json.loads(rows["a"]["reasons_json"]) == ["required_yoe_above_candidate"]
+    assert db.get_jev_profile(conn) is not None          # seeded from the example dir
+
+
+def test_example_packs_validate_on_the_native_path():
+    inputs = jev.load_inputs(EXAMPLE_DIR)
+
+    def post(raw):
+        body = json.loads(raw)
+        pack = inputs.c_pack if "preference" in body["questions"] else inputs.yoe_pack
+        pick = {"preference": "strong", "required_yoe_for_candidate": "within_candidate"}
+        return _reply(pack["questions"], pick), Decimal("0.0001")
+    out = jev.assess(make_posting("a"), inputs=inputs, post=post, resolved_model=MODEL)
+    assert out["verdict"] == "keep"
+
+
+def test_invalid_stored_profile_skips_the_stage_with_a_repair_hint(tmp_path, capsys):
+    conn = _screened_db(tmp_path, ["a"])
+    no_skip = json.loads(json.dumps(YOE_PACK))
+    no_skip["questions"][0]["criteria"].pop("three_plus")
+    db.seed_jev_profile(conn, {"profile_text": "{}", "c_pack": json.dumps(C_PACK),
+                               "yoe_pack": json.dumps(no_skip), "yoe_context": "c"}, now=NOW)
+
+    class Cfg:
+        jev_dir = None
+    assert run._jev_inputs(conn, Cfg(), now=NOW) is None
+    assert "DELETE FROM jev_profile" in capsys.readouterr().out

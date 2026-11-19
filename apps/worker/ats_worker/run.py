@@ -359,7 +359,14 @@ def _jev_inputs(conn, cfg, *, now: str):
     if files is not None and files != texts:
         print("[jev] jev_dir files differ from the stored JEV profile; using the stored one "
               "(change it with the MCP set_jev_profile tool)")
-    return jev.inputs_from_texts(texts)
+    try:
+        return jev.inputs_from_texts(texts)
+    except ValueError as exc:
+        # Packs are seed-only, so editing jev_dir cannot repair a stored row: say how.
+        print(f"[jev] the stored JEV profile is invalid ({exc}); skipping the JEV filter. "
+              "Fix the packs in jev_dir, then DELETE FROM jev_profile so the next pass "
+              "re-seeds from them")
+        return None
 
 
 def _candidate_dict(c) -> dict:

@@ -1,0 +1,16 @@
+{
+  "version": "example-yoe-vs-candidate-v1",
+  "questions": [
+    {
+      "id": "required_yoe_for_candidate",
+      "type": "choice",
+      "instructions": "Find the minimum years of professional experience the posting REQUIRES for a candidate with the education in candidate_context, and compare it with the candidate's own years stated there. If the posting gives different floors per degree, use the one matching that education; for a range, use the lower bound. Preferred or nice-to-have experience does not count.",
+      "criteria": {
+        "within_candidate": "The required minimum is at or below the candidate's years of experience.",
+        "above_candidate": "The required minimum is above the candidate's years of experience.",
+        "not_stated": "The posting states no required years of experience.",
+        "unclear": "Years are mentioned but the requirement for this candidate cannot be determined."
+      }
+    }
+  ]
+}

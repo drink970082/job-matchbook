@@ -13,7 +13,7 @@ commands; [ARCHITECTURE](ARCHITECTURE.md) distinguishes implemented paths from t
 | Python 3.11+ | Native worker and MCP |
 | Configured public job sources/network access | Discovery |
 | A selected screen backend | Optional screening; no model needed for fetch-only |
-| OpenRouter key + private `jev_dir` inputs | Optional JEV keep/skip filter |
+| A `jev_dir` (start from `apps/worker/jev.example/`) + OpenRouter key or a screen backend | Optional JEV keep/skip filter |
 | MCP SDK extra, absolute `ATS_DB_PATH`, tunnel/plugin connection | An AI assistant reading local ATS data |
 | `ATS_API_KEY_READ_WRITE` / `ATS_API_KEY_READ` in the root `.env` | The loopback write API `/api/v1` (off without a key) |
 
@@ -62,16 +62,47 @@ explicit unlimited mode with one worker; this bounded example is not a deploymen
 
 ## Path C2 — optional JEV keep/skip filter
 
-Set `jev_dir` in `config.yaml` (four private input files, see `config.yaml.example`)
-and `OPENROUTER_API_KEY` in `apps/worker/.env`, then add the flags to a screening run:
+Start from the committed example packs and make them yours (the worker copies them into
+the DB once; after that edit the profile with MCP `set_jev_profile`):
 
 ```bash
-python -m ats_worker.run --screen-only ... --jev --jev-limit 300 --jev-max-usd 0.10 --once
+cd apps/worker
+mkdir -p resume/jev && cp jev.example/* resume/jev/   # resume/ is gitignored
+# edit resume/jev/profile-binding.json and yoe-context.txt; set jev_dir: resume/jev
 ```
 
-Calls are metered; `--jev-max-usd` caps settled spend per pass. Verdicts live in
-`job_jev_assessments`; MCP `list_jobs` hides a current `skip` by default. Without the key
-the stage logs a line and is skipped.
+`jev_dir` is relative to the worker's working directory (`apps/worker`).
+
+Then pick the keep/skip backend (`--jev-backend` / `JEV_BACKEND`):
+
+- `openrouter-native` (default) — metered OpenRouter calls, needs `OPENROUTER_API_KEY`,
+  `--jev-max-usd` caps settled spend per pass. SPEC's measurements are for the
+  operator's private packs; the example packs are unmeasured on either backend.
+- `extract` — the screen backend answers the same packs (no OpenRouter key; it receives
+  your profile). Unvalidated; `--jev-limit` (default 40 postings) is the only cap.
+
+```bash
+python -m ats_worker.run --screen-only ... --jev --once                       # native
+python -m ats_worker.run --screen-only ... --jev --jev-backend extract --once # extract
+```
+
+Verdicts live in `job_jev_assessments`; MCP `list_jobs` hides a current `skip` by
+default. Native without the key logs a line and skips the stage.
+
+State your years of experience in `yoe-context.txt`: the example experience question
+skips a posting whose required minimum is above them.
+
+**What works with what you have** (screen = hard requirements; keep/skip = `--jev`):
+
+| You have | Screen (`SCREEN_BACKEND`) | Keep/skip |
+|---|---|---|
+| nothing | `none` (deterministic gates only, low recall on sponsorship) | off |
+| a GPU, or any Ollama host | `ollama` (default, free) | `extract` |
+| ChatGPT subscription | `codex` (`codex login`) | `extract` |
+| Claude subscription | `claude-code` (`claude` logged in) | `extract` |
+| an API key (OpenAI, Gemini, ...) | `api` + `SCREEN_MODEL` + `SCREEN_API_KEY` (+ `SCREEN_API_BASE_URL` for non-OpenAI), metered | `extract` |
+| a local OpenAI-compatible server (LM Studio, vLLM) | `api` + `SCREEN_MODEL` + `SCREEN_API_BASE_URL`, no key | `extract` |
+| an OpenRouter key | `api` + `SCREEN_API_BASE_URL=https://openrouter.ai/api/v1` + `SCREEN_API_KEY` + `SCREEN_MODEL`, metered | `openrouter-native` (same key as `OPENROUTER_API_KEY`) or `extract` |
 
 ## Path D — AI-assistant access (MCP)
 

@@ -824,8 +824,10 @@ worker modules are pure and dependency-injected; real services are wired only in
   calls (`typesafe/jev-1.13`): the preference question pack with the approved profile,
   and a one-question required-experience pack with education/experience facts only. The
   verdict is `skip` when preference is `weak` or the applicable mandatory experience
-  floor is `three_plus` years (the route matching the candidate's degree; ranges use
-  the lower bound); everything else, including `unknown`, is `keep`. One latest row per
+  floor (the route matching the candidate's degree; ranges use the lower bound) answers
+  a `jev.YOE_SKIP` key: `three_plus` (a fixed 3-year floor, the operator's measured
+  pack) or `above_candidate` (above the years stated in the experience context, the
+  example pack); everything else, including `unknown`, is `keep`. One latest row per
   posting lives in `job_jev_assessments`; `pipeline_status` and screen state are never
   touched. An operator override (`job_triage_overrides`, set through MCP
   `override_triage`) is read-side only: JEV still assesses the posting and never reads or
@@ -868,6 +870,19 @@ worker modules are pure and dependency-injected; real services are wired only in
   (default 40 postings here, not 300), an explicit `--jev-max-usd` is refused, and no
   OpenRouter key is needed. Refused with `--screen-backend none`. **UNVALIDATED**: the
   measured basis above is native-only.
+
+  **Pack format** (`jev_dir`, four files; a synthetic set is committed as
+  `apps/worker/jev.example/`). `profile-binding.json` and `yoe-context.txt` are sent
+  verbatim as candidate context; the profile must be a JSON object (web/MCP
+  `set_jev_profile` rejects anything else). The two packs
+  are `{"version": str, "questions": [...]}`; each question is `{"id", "type",
+  "instructions"}` plus `criteria` — an object of `key: description` for `choice`, an
+  ordered list of labels for `score`, none for `noul` (`ranking/native.py` validates).
+  `question-pack.json` must hold a `choice` question `preference` whose keys include
+  `weak`; `yoe-pack.json` must hold `required_yoe_for_candidate` whose keys include
+  `three_plus` or `above_candidate` (`jev._pack` refuses a pack without them). The
+  example YOE pack uses `above_candidate`, so it fits any experience level once
+  `yoe-context.txt` states the candidate's years. The example packs are unmeasured. Other questions are answered and stored but do not change the verdict.
 
   **Import boundary.** No fit module exists to import, and no résumé is loaded.
   Provider-free review-batch, rehearsal, profile, and replay imports are guarded in fresh
@@ -2251,7 +2266,7 @@ automated coverage — those rely on code review or the human in the loop, not a
 | Standalone screen assessment times are sampled after each provider result on the DB thread and passed from `run.py` | `tests/test_screen_pipeline.py::test_screen_saves_sample_clock_after_each_result_on_the_db_thread`, `tests/test_run.py::test_run_once_defaults_codex_to_luna_medium` |
 | Synthetic assessment projection compares the complete opaque identity, keeps freshness separate from latest attempt, preserves saved results after malformed or failed attempts, bounds/redacts the view, matches ASCII timestamp and boundary-truncation behavior across Python/TypeScript, and labels shortened text in the panel | `worker/tests/test_preselection_view.py::test_fixture_cli_keeps_saved_success_when_latest_attempt_state_is_unhashable`, `web/src/lib/__tests__/assessment-view.test.ts`, `web/src/components/__tests__/AssessmentPanel.test.tsx` |
 | Worker SQL fixture ↔ `schema.prisma`, including `job_screenings`, in sync | `test_schema_sync.py` + `tools/check_schema_drift.mjs` (CI) |
-| JEV: skip only on weak preference or a 3+ year floor; caps, re-queue on policy/source change, unknown charge stops the pass; MCP default hides only current skips | `test_jev.py`, `test_mcp_repository.py::test_jev_filter_*` |
+| JEV: skip only on weak preference or a YOE skip key (`three_plus` / `above_candidate`); caps, re-queue on policy/source change, unknown charge stops the pass; MCP default hides only current skips | `test_jev.py`, `test_mcp_repository.py::test_jev_filter_*` |
 | No private file (`.env` / résumé / db / `config.yaml`) tracked by git | `tools/check_privacy.mjs` (+ `--self-test`; CI) |
 
 ---
