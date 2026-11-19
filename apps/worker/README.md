@@ -37,8 +37,20 @@ Most sources take a single-token `slug`. `workday` packs three parts as
 `tenant/datacenter/site` (it does a cheap list call then one detail call per
 posting for the description).
 
-Add a board by writing one `fetch/<source>.py` adapter (`parse_jobs` + `fetch`)
-and registering it in `fetch/ADAPTERS` (and in `config.VALID_SOURCES`).
+Add a board (most new companies need only a watchlist row via the `onboard-board`
+skill, not an adapter):
+
+1. `fetch/<source>.py` with `SOURCE`, `parse_jobs` and `fetch` (or `fetch_one` for a
+   feed-only source).
+2. One `ADAPTERS` line in `fetch/__init__.py`; add it to `RECIPE_SOURCES`,
+   `STUB_GATE_SOURCES` or `STUB_GATE_NOW_SOURCES` there only if its `fetch` takes
+   that kwarg.
+3. If it is watchlist-capable: `config.VALID_SOURCES` (and `RECIPE_SOURCES` if it
+   takes a recipe), mirrored in the web's `src/lib/constants.ts`.
+4. A row in the SPEC source-coverage matrix.
+
+`test_source_enums_sync.py` fails CI if the source lists in steps 2-4 disagree; a
+missing stub-gate entry is not caught and only costs a skipped optimization.
 
 ## Config-time inputs (you provide)
 
