@@ -40,17 +40,20 @@ posting for the description).
 Add a board (most new companies need only a watchlist row via the `onboard-board`
 skill, not an adapter):
 
-1. `fetch/<source>.py` with `SOURCE`, `parse_jobs` and `fetch` (or `fetch_one` for a
-   feed-only source).
-2. One `ADAPTERS` line in `fetch/__init__.py`; add it to `RECIPE_SOURCES`,
-   `STUB_GATE_SOURCES` or `STUB_GATE_NOW_SOURCES` there only if its `fetch` takes
-   that kwarg.
+1. `fetch/<source>.py` with `SOURCE` and `fetch` (lists a board), `fetch_one` (one job
+   by id, for a feed-only source), or both.
+2. In `fetch/__init__.py`: the `from . import (...)` list, `__all__` and one `ADAPTERS` line; add
+   it to `RECIPE_SOURCES`, `STUB_GATE_SOURCES` or `STUB_GATE_NOW_SOURCES` only if its
+   `fetch` takes that kwarg.
 3. If it is watchlist-capable: `config.VALID_SOURCES` (and `RECIPE_SOURCES` if it
    takes a recipe), mirrored in the web's `src/lib/constants.ts`.
-4. A row in the SPEC source-coverage matrix.
+4. If the discovery feed should reach it (always, for a feed-only source): a host
+   route in `feed/resolve.py:resolve_url`.
+5. A row in the SPEC source-coverage matrix.
 
-`test_source_enums_sync.py` fails CI if the source lists in steps 2-4 disagree; a
-missing stub-gate entry is not caught and only costs a skipped optimization.
+`test_source_enums_sync.py` fails CI if the source lists in steps 2, 3 and 5 disagree.
+Nothing checks step 4 (a feed-only adapter without a route is dead code) or a missing
+stub-gate entry (that only costs a skipped optimization).
 
 ## Config-time inputs (you provide)
 

@@ -55,7 +55,7 @@
   `feed/resolve.py:resolve_url`, a URL-pattern parser, not a registry — Pinpoint has
   an adapter and a watchlist row but no host route — so a `feed_enabled: bool` would
   eventually disagree with the parser silently. The real gap the proposal was
-  reaching for is narrower and is the SPEC-matrix test in the entry above. A narrower
+  reaching for is narrower and is the SPEC source-matrix test (`test_spec_matrix_matches_adapters`). A narrower
   variant (#175: a dependency-free `sources.py` flag table, no feed field, deriving
   `config.VALID_SOURCES`) was also turned down on count (1): it saves one duplicated
   tuple in `config.py` for a new file and test; the README checklist covers the gap.
