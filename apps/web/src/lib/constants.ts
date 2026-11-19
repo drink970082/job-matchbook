@@ -15,6 +15,11 @@ export const STATUSES = [
   'Ghosted',
 ] as const
 
+// Who made a write: the web UI or the MCP server (through /api/v1). Stamped on
+// applications (creation) and status_history (each change); schema default is 'web'.
+export const ACTORS = ['web', 'mcp'] as const
+export type Actor = (typeof ACTORS)[number]
+
 // The vocabulary the CHARTS key on: every real status plus 'No Response', the
 // pseudo-status getStatusFlow synthesizes for an application that never left
 // 'Applied' (see actions.ts). It is deliberately not a real status — nothing is ever

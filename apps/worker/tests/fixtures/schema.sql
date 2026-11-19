@@ -12,7 +12,8 @@ CREATE TABLE "applications" (
     "category" TEXT,
     "status" TEXT NOT NULL,
     "notes" TEXT,
-    "last_updated" TEXT
+    "last_updated" TEXT,
+    "actor" TEXT NOT NULL DEFAULT 'web'
 );
 
 CREATE TABLE "job_postings" (
@@ -91,6 +92,7 @@ CREATE TABLE "status_history" (
     "application_id" INTEGER NOT NULL,
     "status" TEXT NOT NULL,
     "timestamp" TEXT NOT NULL,
+    "actor" TEXT NOT NULL DEFAULT 'web',
     CONSTRAINT "status_history_application_id_fkey" FOREIGN KEY ("application_id") REFERENCES "applications" ("id") ON DELETE CASCADE ON UPDATE NO ACTION
 );
 

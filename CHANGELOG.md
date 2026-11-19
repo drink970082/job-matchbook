@@ -9,6 +9,13 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 
 ### Added
 
+- **Key-scoped loopback write API** (`/api/v1/*`, #153). Thin route handlers over the
+  existing `lib/actions.ts` application and watchlist actions, for the MCP server.
+  Bearer key from `ATS_API_KEY_READ_WRITE` / `ATS_API_KEY_READ`; no key = `503`. New
+  additive column `actor` (`web`/`mcp`, default `web`) on `applications` and
+  `status_history`. `updateApplicationDetails` now leaves an omitted field unchanged
+  (the UI sends every field, so its behavior is the same).
+
 - **JEV keep/skip filter** (`--jev`). After the screen, two OpenRouter JEV questions
   per screened posting mark it `skip` on a weak preference or a 3+ year mandatory
   experience floor; the MCP `list_jobs` default now hides those and reports how many
