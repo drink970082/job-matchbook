@@ -12,8 +12,9 @@ description: >-
 
 # Boot a working session
 
-`SPEC.md` (33k tok) and `PROGRESS.md` (~12k tok, down from ~28k before the 2026-07-30
-split) are too big to read whole, every session. Read in this order and stop at the point the task doesn't go past.
+`SPEC.md` (~50k tok) is too big to read whole, every session; `PROGRESS.md` (~2k tok) is
+small enough to read whole. Read in this order and stop at the point the task doesn't go
+past.
 
 `PROGRESS.md` is the live delta only. Its catalogue lives in two files you load on
 demand, never by default: `docs/BACKLOG.md` (open work that is neither in flight nor
@@ -22,7 +23,7 @@ block's entry before proposing a redesign of that block).
 
 ## 1. Claim first — `PROGRESS.md` "In flight"
 
-Read that section (`## In flight`, ~2.4k tok) before touching code. Every other
+Read that section (`## In flight`) before touching code. Every other
 session's claimed branches are there. Rules in
 [`docs/DEVELOPMENT.md`](../../../docs/DEVELOPMENT.md) §7 "Claiming work":
 
@@ -44,13 +45,13 @@ gate, which means the fork goes to the user before you build.
 ## 3. Read only the SPEC sections the change touches
 
 For product/architecture work, also read `docs/ARCHITECTURE.md` and `docs/ROADMAP.md`.
-ATS supplies job evidence/tools/tracking; ChatGPT owns primary judgment. Optional
-screen and fit remain supported. Read `docs/EVALUATION.md` for the checks relevant to
-model work; deferred corpus/fit experiments do not block unrelated source/MCP/UI changes.
-
+ATS supplies job evidence/tools/tracking; the AI client owns primary judgment over MCP.
+The worker screens hard requirements and, under `--jev`, runs the keep/skip filter; the
+old fit scorer is removed. Read `docs/EVALUATION.md` for the checks relevant to model
+work; deferred corpus experiments do not block unrelated source/MCP/UI changes.
 
 `SPEC.md` is a capability map with numbered sections — grep for the component
-(`§6` deployment, `§7.1` scoring backends, `§9` behaviors & invariants) rather than
+(`§6` deployment, `§7.1` worker + screen backends, `§9` behaviors & invariants) rather than
 reading front to back. A change to a §9 behavior/invariant must update that clause
 *and* its invariant→test traceability row in the same commit.
 
@@ -59,7 +60,7 @@ reading front to back. A change to a §9 behavior/invariant must update that cla
 Consult it when the work reaches a genuine fork, not preemptively. The four-way
 uncertainty policy (keep · fail loud · circuit break · retry) is the part most often
 needed and most often misread: "err toward keep" is one row of four, and applying it
-to a systemic condition is the error that has recurred five times in this repo.
+to a systemic condition is the error this repo has repeated most.
 
 ## 5. Before you finish — `DEVELOPMENT.md` §5 and §6
 

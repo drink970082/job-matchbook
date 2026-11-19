@@ -76,14 +76,12 @@ class Company:
 
 @dataclass(frozen=True)
 class Candidate:
-    """The candidate's hard-requirement facts, used ONLY by the local screen (never
-    by the Claude fit score, which reads the résumé + profile). The screen decides
+    """The candidate's hard-requirement facts, used ONLY by the screen. It decides
     disqualification in CODE: work authorization and location gate deterministically
     off the JD text / posting location, internships off the title, and degree /
     clearance compare the candidate's constraint against a fact the 4B model only
     *extracts* from the JD (the model never makes the pass/fail call). Everything
-    empty = no screen call, no disqualification. Skills/identity for FIT scoring live
-    in the résumé, not here."""
+    empty = no screen call, no disqualification. Skills and fit are not here."""
     highest_degree: str = ""
     work_authorization: str = ""
     security_clearance: str = ""
@@ -123,7 +121,7 @@ class Feed:
 class Config:
     companies: list[Company] = field(default_factory=list)
     # Optional coarse pre-filter: keep a posting only if its TITLE contains one of
-    # these (case-insensitive). Empty = keep all and let the scorer decide.
+    # these (case-insensitive). Empty = keep all.
     title_filter: list[str] = field(default_factory=list)
     # Optional negative title pre-filter: DROP a posting whose title contains one of
     # these (case-insensitive) — the complement of title_filter. Empty = drop none.
@@ -205,7 +203,7 @@ def load_config(source) -> Config:
         # TIGHTER than the configured cadence — 5 gives 0,5,10,15,20 and then 4 hours to
         # the next midnight slot. Worse, anything above 24 collapses to a single `hour=0`,
         # so `schedule_hours: 48` ("every other day", legal until now) silently becomes
-        # DAILY: a 2x change in paid fit-scorer spend from a file nobody edited. Fail at
+        # DAILY: a 2x change in paid provider spend from a file nobody edited. Fail at
         # load, before the daemon is up.
         raise ConfigError(
             f"schedule_hours must divide 24 evenly (got {schedule_hours}); passes run on "
@@ -238,8 +236,7 @@ def _int_field(data: dict, key: str, default: int) -> int:
 def _reject_unknown_keys(data: dict, cls, where: str) -> None:
     """Fail loud on an unrecognised key so a stale or typo'd field can't silently
     no-op — e.g. the removed top-level `threshold`, which used to be read and now
-    isn't. (Candidate `years_experience` was such a key and came BACK on 2026-07-31:
-    the free seniority pre-ordering reads it.) Allowed keys are the dataclass fields, so
+    isn't. Allowed keys are the dataclass fields, so
     this can't drift from the schema. Mirrors the `filters` migration guard above."""
     allowed = {f.name for f in fields(cls)}
     unknown = sorted(k for k in data if k not in allowed)

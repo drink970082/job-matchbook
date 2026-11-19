@@ -53,7 +53,7 @@ Implementation belongs to Luna at max effort under the ownership contract below.
 - Test-first (red → green → refactor); one focused commit per green step where
   practical. Product order comes from ROADMAP, branch claims from PROGRESS; consult
   ARCHITECTURE before implementing target boundaries. EVALUATION scopes model checks:
-  retaining a scorer does not require live model evals for unrelated docs/source/tool work.
+  unrelated docs/source/tool work owes no live model eval.
 - Hold the structural invariants while coding: worker modules stay pure + dependency-
   injected (wiring only in `run.py`); web mutations go through Server Actions; the
   worker issues no DDL. Conventions: [`../CONTRIBUTING.md`](../CONTRIBUTING.md).
@@ -67,7 +67,7 @@ review is a separate gate on *merging*, not a second verification of the change.
 
 | Change touches | Must run | Pass bar |
 |---|---|---|
-| Worker code | `make test-worker` | Suite green; logic changes also run `make test-coverage` (worker floor 85) |
+| Worker code | `make test-worker` | Suite green; logic changes also run `make test-coverage` (worker floor `fail_under` in `apps/worker/pyproject.toml`) |
 | Web code | `make test-web` + `make lint` | Suite green, lint clean |
 | Cross-service / pipeline-stage behavior | `make test-integration` | Green |
 | `schema.prisma` | `make check-schema`; **back up `db/applications.db` before destructive changes** (no migration history) | Guard green |
@@ -133,8 +133,7 @@ same unit. When your work lands, the entry leaves.
 
 `main` is the only long-lived branch and is always releasable. **Everything goes through
 a PR, including a one-line doc fix** — a repository rule rejects a direct push to `main`
-outright (`push declined due to repository rule violations`), so the older "small doc
-fixes may go straight to main" line was advice the remote does not accept. Never force-push `main`.
+outright (`push declined due to repository rule violations`). Never force-push `main`.
 Releasing is an explicit, separate act — [`CONTRIBUTING.md`](../CONTRIBUTING.md)
 "Branching and releases".
 
@@ -260,5 +259,4 @@ Non-negotiables:
 ```
 
 Agent assignment follows the ownership contract above. Astra/Sol handles orchestration;
-Luna at max effort handles implementation. This overrides older model-agnostic or
-Claude-specific implementation defaults for the pivot workstream.
+Luna at max effort handles implementation.

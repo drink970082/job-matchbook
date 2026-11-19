@@ -9,7 +9,7 @@
       "files": [
         ".claude/skills/onboard-me/evals/fixtures/finance_resume.txt"
       ],
-      "expected_output": "A full guided setup: writes apps/worker/resume/personal_profile.txt with all six sections (STAGE, TARGET priority order, ANTI-TARGETS, POSITIONING, INTERESTS, CAVEATS), PE ranked above IB and sales&trading/ops as anti-targets; writes apps/worker/resume/resume.txt from the fixture's real text; fills config.yaml candidate block (needs visa sponsorship, Master's, NYC+remote, exclude_internships true); sets finance categories in the DB with an Others catch-all; delegates the Databricks add to the onboard-board flow (greenhouse platform, no new adapter); ends by presenting `python -m ats_worker.run --once`. Never edits score.txt.",
+      "expected_output": "A full guided setup: writes apps/worker/resume/personal_profile.txt with all six sections (STAGE, TARGET priority order, ANTI-TARGETS, POSITIONING, INTERESTS, CAVEATS), PE ranked above IB and sales&trading/ops as anti-targets; writes apps/worker/resume/resume.txt from the fixture's real text; fills config.yaml candidate block (needs visa sponsorship, Master's, NYC+remote, exclude_internships true); sets finance categories in the DB with an Others catch-all; delegates the Databricks add to the onboard-board flow (greenhouse platform, no new adapter); ends by presenting `python -m ats_worker.run --once`. Never edits screen.txt.",
       "assertions": [
         {
           "name": "profile_file_written",
@@ -48,8 +48,8 @@
           "text": "The run ends by presenting `python -m ats_worker.run --once` as the activation step."
         },
         {
-          "name": "score_txt_untouched",
-          "text": "apps/worker/ats_worker/prompts/score.txt was not modified."
+          "name": "screen_txt_untouched",
+          "text": "apps/worker/ats_worker/prompts/screen.txt was not modified."
         }
       ]
     },
@@ -73,8 +73,8 @@
           "text": "The config.yaml candidate block was NOT written/edited."
         },
         {
-          "name": "score_txt_untouched",
-          "text": "apps/worker/ats_worker/prompts/score.txt was not modified."
+          "name": "screen_txt_untouched",
+          "text": "apps/worker/ats_worker/prompts/screen.txt was not modified."
         }
       ]
     },
@@ -85,7 +85,7 @@
       "files": [
         ".claude/skills/onboard-me/evals/fixtures/design_resume.docx"
       ],
-      "expected_output": "Writes apps/worker/resume/personal_profile.txt (all six sections; STAGE reflects senior/~7yr; TARGET is design-systems / staff-lead IC design; ANTI-TARGETS covers agency/client-services and marketing/visual design) and extracts the .docx into apps/worker/resume/resume.txt as clean text. Does the profile + résumé only — no categories, watchlist, or .env, since that's all the user asked for. Never edits score.txt.",
+      "expected_output": "Writes apps/worker/resume/personal_profile.txt (all six sections; STAGE reflects senior/~7yr; TARGET is design-systems / staff-lead IC design; ANTI-TARGETS covers agency/client-services and marketing/visual design) and extracts the .docx into apps/worker/resume/resume.txt as clean text. Does the profile + résumé only — no categories, watchlist, or .env, since that's all the user asked for. Never edits screen.txt.",
       "assertions": [
         {
           "name": "profile_file_written",
@@ -112,8 +112,8 @@
           "text": "The run does profile + résumé only; it does NOT set categories, add watchlist boards, or write .env."
         },
         {
-          "name": "score_txt_untouched",
-          "text": "apps/worker/ats_worker/prompts/score.txt was not modified."
+          "name": "screen_txt_untouched",
+          "text": "apps/worker/ats_worker/prompts/screen.txt was not modified."
         }
       ]
     },
@@ -123,7 +123,7 @@
       "prompt": "onboard me",
       "files": [],
       "note": "Discriminating case for the conversational path: the user's whole message is 'onboard me' with zero context. Correct behavior is to ASK (walk them through it) — NOT to invent a persona, targets, résumé, or companies and write personal files from made-up data. Unlike evals 0-2, this run is allowed to ask questions and stop.",
-      "expected_output": "Follows the skill's adaptive Step 1: recognizes there is nothing to work with and asks the user for their targets/stage/dealbreakers/résumé/companies (conversationally), then stops awaiting answers. Does NOT fabricate a profile, does NOT set categories or a watchlist from invented data, does NOT run the pipeline, and never touches score.txt.",
+      "expected_output": "Follows the skill's adaptive Step 1: recognizes there is nothing to work with and asks the user for their targets/stage/dealbreakers/résumé/companies (conversationally), then stops awaiting answers. Does NOT fabricate a profile, does NOT set categories or a watchlist from invented data, does NOT run the pipeline, and never touches screen.txt.",
       "assertions": [
         {
           "name": "asks_not_fabricates",
@@ -138,27 +138,27 @@
           "text": "No categories row and no watchlist rows were written from made-up data (categories empty, watched_companies empty)."
         },
         {
-          "name": "score_txt_untouched",
-          "text": "apps/worker/ats_worker/prompts/score.txt was not modified."
+          "name": "screen_txt_untouched",
+          "text": "apps/worker/ats_worker/prompts/screen.txt was not modified."
         }
       ]
     },
     {
       "id": 4,
-      "name": "fresh-checkout-no-telegram-remote-ollama",
+      "name": "fresh-checkout-remote-ollama",
       "prompt": "I just cloned this repo fresh and want it running for my job hunt. Two things about my setup: I don't have a Telegram account and don't want push alerts — I'm happy just checking the web UI. And this laptop has no NVIDIA GPU, but I do have Ollama running on my home server at http://192.168.1.50:11434 . I have a ChatGPT Plus subscription. About me: mid-level finance, ~4 years, equity research moving to the buy-side; #1 target private equity, then investment banking. Not sales & trading or back-office. I need visa sponsorship, NYC or fully remote, Master's, no clearance, no internships. My résumé is .claude/skills/onboard-me/evals/fixtures/finance_resume.txt . Get the checkout ready and set me up, but don't launch the pipeline.",
       "files": [
         ".claude/skills/onboard-me/evals/fixtures/finance_resume.txt"
       ],
-      "expected_output": "Runs Step 0 (`make setup` then `make doctor`) before/early in the setup and reads the status lines rather than treating every row as mandatory. Accepts that Telegram is optional and proceeds without it, telling the user matches appear in the Discovered Jobs tab. Sets OLLAMA_HOST to the remote server URL instead of insisting on a local GPU. Uses the codex fit backend given the ChatGPT subscription. Then does the normal profile/resume/config/categories work and stops before launching the pipeline. Fabricates no secrets.",
+      "expected_output": "Runs Step 0 (`make setup` then `make doctor`) before/early in the setup and reads the status lines rather than treating every row as mandatory. Tells the user there are no push alerts to configure (the tool has none) and that screened jobs appear in the web Discovered Jobs tab. Sets OLLAMA_HOST to the remote server URL instead of insisting on a local GPU. May offer SCREEN_BACKEND=codex given the ChatGPT subscription, but keeps the remote Ollama as the screen backend. Then does the normal profile/resume/config/categories work and stops before launching the pipeline. Fabricates no secrets.",
       "assertions": [
         {
           "name": "step0_consults_doctor",
           "text": "The run determines prerequisites by running Step 0's tooling — `make doctor` (and/or `make setup`) — and reasons from its status lines, rather than asserting prerequisites from memory or hand-probing with ad-hoc curl / `codex doctor` commands. (Sandbox note: `make setup`'s npm/pip installs may legitimately be skipped or fail offline; consulting `make doctor` is the behavior under test.)"
         },
         {
-          "name": "telegram_treated_as_optional",
-          "text": "The run does NOT tell the user Telegram is required or block setup on it; it proceeds without TELEGRAM_BOT_TOKEN/TELEGRAM_CHAT_ID and notes matches still appear in the web Discovered Jobs tab."
+          "name": "no_telegram_setup",
+          "text": "The run does NOT ask for or write TELEGRAM_BOT_TOKEN/TELEGRAM_CHAT_ID (the tool has no Telegram alerts) and notes screened jobs appear in the web Discovered Jobs tab."
         },
         {
           "name": "remote_ollama_accepted",
@@ -173,8 +173,8 @@
           "text": "apps/worker/resume/resume.txt contains the fixture's real resume content (e.g. 'Equity Research') and NOT the 'TEMPLATE plain-text resume' placeholder text."
         },
         {
-          "name": "score_txt_untouched",
-          "text": "apps/worker/ats_worker/prompts/score.txt was not modified."
+          "name": "screen_txt_untouched",
+          "text": "apps/worker/ats_worker/prompts/screen.txt was not modified."
         }
       ]
     }

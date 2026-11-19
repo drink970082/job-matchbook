@@ -16,16 +16,17 @@ behavior. Completed work belongs in CHANGELOG, not this queue.
   `unassessed` and is shown. Rollback = drop `--jev` from
   `ats-worker.service.d/20-screen-only.conf` and restart; the table is additive.
 
-- **Retire the old fit scorer — `refactor/screen-off-score-facades` (#149) then
-  `refactor/remove-fit-scorer`** `[SCORE · L]`. JEV replaces it; `preselection/`, `mcp/`,
-  `screening/`, `ranking/` are JEV's and untouched. Both steps are in review; a pass is
-  now fetch -> screen. Open after merge:
+- **Fit-scorer residue — unclaimed** `[SCORE · S]`. The scorer is gone (#149, #150);
+  what is left needs a decision, not a branch:
   (1) `seniority.py` + `prompts/seniority.txt` + `make eval-seniority` are kept but
   unwired — fold the classifier into the screen or delete it, undecided.
   (2) `onboard-me`'s profile/résumé interview still describes inputs for the retired fit
   scorer; rewrite once JEV settles what it reads.
   (3) `fit_profile` stays an accepted-and-ignored `config.yaml` key; delete it once no
   config carries the block.
+  (4) Columns nothing writes any more — `job_postings.score`, `notify_attempts`,
+  `deprioritized_at` — and the web's score filter / Matched buckets that read them. The
+  web half waits for #158.
 
 - **Daily Brief instructions for issue #94 — unattended acceptance remains open**
   [ORCH · M · branch docs/issue-94-daily-brief]. Public task instructions, an interactive
@@ -70,7 +71,7 @@ The current runtime Luna/medium screening configuration is a separate concern.
   screen-only/new posting is not guaranteed open.
 - Imported/manual applications may have no posting link. Deduplicate against the
   applications table, not only `application_id`.
-- No persistent Brief delivery ledger or MCP writes. Cross-day deduplication is
+- No persistent Brief delivery ledger; MCP write tools are in flight (#154). Cross-day deduplication is
   best-effort; background task/tunnel access still needs workflow-level acceptance.
 - Optional model quality remains bounded by corpus provenance. Luna/medium screening
   lacks an effort-identified accuracy run; legacy fit labels include unsupported inputs.
@@ -83,7 +84,7 @@ artifacts. No live eval was run for the pivot. Subscription-backed Luna assistan
 acceptable; its allowance is finite, and old strong-fit token/cache measurements are not
 current Luna/medium budget forecasts. The roadmap does not require draining every row.
 
-A worker pass is fetch -> screen. Current operational mode is in
+A worker pass is fetch -> screen, plus the JEV keep/skip filter under `--jev`. Current operational mode is in
 [SPEC §6](SPEC.md#6-architecture). Use fresh telemetry before making workload decisions.
 
 ## Other work

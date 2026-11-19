@@ -27,15 +27,15 @@ walks the order):
 - **[`docs/DEVELOPMENT.md`](./docs/DEVELOPMENT.md)** — the session rail: task
   classification, verify-gate evidence table, definition of done, team protocol.
 - **[`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md)** and
-  **[`docs/ROADMAP.md`](./docs/ROADMAP.md)** — approved ChatGPT-first ownership,
-  feature readiness and product order. ATS supplies sources/tools/tracking; screen
-  remains optional assistance. Targets are not shipped capabilities.
-- **[`docs/EVALUATION.md`](./docs/EVALUATION.md)** — relevant checks and private-corpus
-  limitations. No broad scorer eval is owed for unrelated source/MCP/UI/docs work;
-  provider runs need scoped authorization. Preserve screen tools/tests and private artifacts.
-- **[`docs/SCORING.md`](./docs/SCORING.md)** — retained optional subsystem contracts
-  and measured failure modes. Read before touching the screen prompt or its evals; the fit scorer it describes is retired.
-  It is not the product queue.
+  **[`docs/ROADMAP.md`](./docs/ROADMAP.md)** — ownership boundaries (an AI client
+  orchestrates over MCP; epic #152) and product order. Targets are not shipped
+  capabilities.
+- **[`docs/EVALUATION.md`](./docs/EVALUATION.md)** — which check a change owes, and
+  private-corpus limits. Unrelated source/MCP/UI/docs work owes no live model eval;
+  provider runs need scoped authorization.
+- **[`docs/SCORING.md`](./docs/SCORING.md)** — the screen subsystem contracts and the
+  measured constraints on LLM judges. Read before touching a screen prompt, JEV, or an
+  eval.
 
 Keep them current: when you change behavior, in the **same commit** update the
 matching section of `SPEC.md` (capabilities/behavior), `PROGRESS.md` (close the gap
@@ -66,7 +66,7 @@ of *what happened*. So, everywhere else:
 
 ## Agent conduct
 
-Effort levels are in [`docs/DEVELOPMENT.md`](./docs/DEVELOPMENT.md).
+Model/effort ownership is in [`docs/DEVELOPMENT.md`](./docs/DEVELOPMENT.md#agent-ownership-and-handoff).
 
 - **Doc length matches substance.** `SPEC.md`/`PROGRESS.md`/`CHANGELOG.md` are
   already large and every session reloads them. Write the clause the change needs —
@@ -95,18 +95,19 @@ order, PROGRESS owns branch claims.
 
 ## What this is
 
-A ChatGPT-first job-source, evidence and tracking system with optional hard-requirements
-screening. The old fit scorer and Telegram alerts are removed; review ranking is the JEV
-track. See docs/ARCHITECTURE.md for target/current boundaries.
+A self-hosted job-source, evidence and tracking system that an AI client (ChatGPT,
+Claude, Codex) drives over MCP. **Two services and an MCP server, one shared SQLite
+database:**
 
-A self-hosted, semi-automated job-application system — **two services, one shared
-SQLite database**:
-
-- **`apps/web`** — Next.js 14 + Prisma tracker UI (applications, KPIs, charts,
-  Discovered Jobs queue).
 - **`apps/worker`** — Python 3.11 pipeline: fetch (board adapters + generic
-  custom/browser recipe executors) → screen (Ollama default, or a CLI/API backend).
-  Human applies by hand.
+  custom/browser recipe executors) -> screen hard requirements (Ollama default, or a
+  CLI/API backend) -> optional `--jev` keep/skip filter (OpenRouter, paid). Also hosts
+  the MCP server (`ats_worker/mcp/`).
+- **`apps/web`** — Next.js 14 + Prisma tracker UI, plus the key-scoped loopback
+  `/api/v1` write API the MCP server calls. Becoming a read-only dashboard except
+  Applications (#158).
+
+A human applies by hand. The old fit scorer and Telegram alerts are removed.
 
 ## Run / test / build
 
@@ -119,8 +120,8 @@ Run `make help` from the repo root — every target is self-documenting.
   Status/category enums live in `apps/web/src/lib/constants.ts`.
 - **Worker modules are pure + dependency-injected.** Real services are wired only
   in `ats_worker/run.py`; tests mock everything (no network/keys). Keep it that way.
-- **Web:** mutations go through Server Actions (`lib/actions.ts`); run `make lint`
-  before pushing.
+- **Web:** mutations go through Server Actions (`lib/actions.ts`); the `/api/v1`
+  route handlers are thin wrappers over them. Run `make lint` before pushing.
 - **Branches:** never force-push `main`.
 - **Privacy:** never commit `.env`, `resume/`, `config.yaml`, or `db/` — enforced by
   `.gitignore`, `make check-privacy` in CI, and a PreToolUse hook.
