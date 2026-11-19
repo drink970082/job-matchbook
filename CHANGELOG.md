@@ -9,6 +9,9 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 
 ### Added
 
+- **Web shows MCP writes**: the application history dialog marks an MCP-created
+  application and MCP status changes (`actor='mcp'`).
+
 - **MCP workflow text** (#159): server instructions name the apply/status-update
   sequences, and MCP prompts `daily_brief`, `log_application`, `update_from_email`
   (the last two only when writes are enabled).

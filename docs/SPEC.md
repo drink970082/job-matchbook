@@ -1404,7 +1404,8 @@ worker modules are pure and dependency-injected; real services are wired only in
   (scope `read_write`) or `ATS_API_KEY_READ` (scope `read`); neither set -> `503`
   (disabled, never open), missing/wrong key -> `401`, read key on a write -> `403`, an
   action's `{success:false}` -> `400` with the action's own error text. No route
-  deletes an application or history row.
+  deletes an application or history row. The application history dialog marks an
+  MCP-created application "logged via MCP" and each MCP status row "via MCP".
 - **`lib/actions.ts`** — all mutations and aggregations as Server Actions (return
   shape `{ success, ... }` or `{ data, total }`). Key actions:
   - *Applications:* `getApplications` (paginated; filters: status, historical

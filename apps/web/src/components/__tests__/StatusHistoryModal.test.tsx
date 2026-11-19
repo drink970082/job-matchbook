@@ -32,6 +32,20 @@ describe('StatusHistoryModal', () => {
     const getDeleteButtons = () =>
         screen.getAllByRole('button').filter((b) => b.textContent?.trim() === '')
 
+    it('marks rows and applications written through MCP', () => {
+        const props = makeProps()
+        render(<StatusHistoryModal {...props}
+            application={{ ...mockApplication, actor: 'mcp' }}
+            history={[{ id: 33, status: 'Offer', timestamp: '2023-02-01', actor: 'mcp' }, ...mockHistory]} />)
+        expect(screen.getByText('logged via MCP')).toBeInTheDocument()
+        expect(screen.getAllByText(/· via MCP/)).toHaveLength(1)
+    })
+
+    it('shows no MCP mark on web-written rows', () => {
+        render(<StatusHistoryModal {...makeProps()} />)
+        expect(screen.queryByText(/via MCP/)).toBeNull()
+    })
+
     it('should render history items', () => {
         render(<StatusHistoryModal {...makeProps()} />)
         expect(screen.getAllByText('Applied').length).toBeGreaterThan(0)

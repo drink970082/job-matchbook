@@ -28,11 +28,13 @@ interface StatusHistoryModalProps {
         application_url?: string | null
         date_applied?: string
         notes?: string | null
+        actor?: string
     }
     history: Array<{
         id: number
         status: string
         timestamp: string
+        actor?: string
     }>
     onAddStatus: (data: { status: string; date: string }) => void
     onDeleteHistory: (id: number) => void
@@ -151,6 +153,7 @@ export function StatusHistoryModal({
             <div>
                 History for {application.company_name} — {application.job_title}
                 {application.category && <span className="ml-2 px-1.5 py-0.5 rounded text-xs bg-secondary text-secondary-foreground">{application.category}</span>}
+                {application.actor === 'mcp' && <span className="ml-2 text-xs font-normal text-muted-foreground">logged via MCP</span>}
             </div>
             <Button size="sm" variant="outline" onClick={() => setIsEditing(true)}>Edit</Button>
         </div>
@@ -181,6 +184,7 @@ export function StatusHistoryModal({
                                                 <div className="font-semibold text-sm">{item.status}</div>
                                                 <div className="text-xs text-muted-foreground">
                                                     {new Date(item.timestamp).toLocaleDateString()}
+                                                    {item.actor === 'mcp' && ' · via MCP'}
                                                 </div>
                                             </div>
                                         </div>
