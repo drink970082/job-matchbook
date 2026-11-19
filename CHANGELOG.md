@@ -33,6 +33,10 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 
 ### Added
 
+- **Triage override through MCP (#155)**: `override_triage(job_id, keep|skip|clear)`
+  via `/api/v1/jobs/{id}/triage`, stored in a new `job_triage_overrides` table and
+  audited in `audit_log`. `list_jobs`/`get_job` report the effective JEV status, the
+  model's and the override; an override lapses when the posting's content changes.
 - **MCP source tools (#156)**: `list_sources` (watchlist + 30-day posting counts),
   `add_source` and `remove_source` through `/api/v1/watchlist`. Watchlist adds and
   removes from web or MCP land in a new `audit_log` table with the full row; the

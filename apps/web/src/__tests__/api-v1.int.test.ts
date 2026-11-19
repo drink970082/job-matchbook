@@ -8,6 +8,7 @@ import { PATCH as patchApplication } from '@/app/api/v1/applications/[id]/route'
 import { POST as postStatus } from '@/app/api/v1/applications/[id]/status/route'
 import { POST as postApplied } from '@/app/api/v1/jobs/[id]/applied/route'
 import { POST as addWatch } from '@/app/api/v1/watchlist/route'
+import { POST as setTriage, DELETE as clearTriage } from '@/app/api/v1/jobs/[id]/triage/route'
 import { DELETE as removeWatch } from '@/app/api/v1/watchlist/[id]/route'
 import { addWatchedCompany, getWatchlistActivity, removeWatchedCompany, updateApplicationStatus } from '@/lib/actions'
 import { prisma, resetDb } from '@/test-utils/db'
@@ -170,4 +171,39 @@ test('an unknown status on create is a 400, not a silent Applied', async () => {
     expect(res.status).toBe(400)
     expect((await res.json()).error).toBe('Invalid status')
     expect(await prisma.applications.count()).toBe(0)
+})
+
+test('triage override: set, replace and clear, each audited with actor=mcp', async () => {
+    const job = await prisma.job_postings.create({ data: makeJobPosting({ pipeline_status: 'new', source_content_revision: 3 }) })
+    const set = await setTriage(req({ decision: 'keep', reason: 'operator wants it' }, RW), params(job.id))
+    expect(set.status).toBe(200)
+    const row = await prisma.job_triage_overrides.findUniqueOrThrow({ where: { job_posting_id: job.id } })
+    expect([row.decision, row.reason, row.actor, row.source_content_revision]).toEqual(['keep', 'operator wants it', 'mcp', 3])
+    expect((await setTriage(req({ decision: 'skip' }, RW), params(job.id))).status).toBe(200)
+    expect((await prisma.job_triage_overrides.findUniqueOrThrow({ where: { job_posting_id: job.id } })).decision).toBe('skip')
+    const cleared = await clearTriage(req(undefined, RW, 'DELETE'), params(job.id))
+    expect(cleared.status).toBe(200)
+    expect(await prisma.job_triage_overrides.count()).toBe(0)
+    const log = await prisma.audit_log.findMany({ orderBy: { id: 'asc' } })
+    expect(log.map((l) => [l.actor, l.action, l.entity, l.entity_id])).toEqual([
+        ['mcp', 'add', 'job_triage_overrides', job.id],
+        ['mcp', 'update', 'job_triage_overrides', job.id],
+        ['mcp', 'remove', 'job_triage_overrides', job.id],
+    ])
+    // A replace or clear keeps the row it overwrote.
+    expect(JSON.parse(log[1].payload).before.decision).toBe('keep')
+    expect(JSON.parse(log[2].payload).decision).toBe('skip')
+})
+
+test('triage override rejects a bad decision, a missing job and a clear with nothing set', async () => {
+    const job = await prisma.job_postings.create({ data: makeJobPosting() })
+    const bad = await setTriage(req({ decision: 'maybe' }, RW), params(job.id))
+    expect([bad.status, (await bad.json()).error]).toEqual([400, 'decision must be keep or skip'])
+    const missing = await setTriage(req({ decision: 'keep' }, RW), params(999))
+    expect([missing.status, (await missing.json()).error]).toEqual([400, 'Job 999 not found'])
+    const none = await clearTriage(req(undefined, RW, 'DELETE'), params(job.id))
+    expect([none.status, (await none.json()).error]).toEqual([400, `Job ${job.id} has no triage override`])
+    const long = await setTriage(req({ decision: 'keep', reason: 'x'.repeat(501) }, RW), params(job.id))
+    expect(long.status).toBe(400)
+    expect(await prisma.audit_log.count()).toBe(0)
 })

@@ -1012,3 +1012,79 @@ def test_jev_skip_from_an_older_policy_is_stale_and_shown(db_path):
         conn.execute("UPDATE app_settings SET value='p2' WHERE key='jev_current_policy_sha256'")
     items = repo.list_jobs()["items"]
     assert [r["id"] for r in items] == [old] and items[0]["jev"]["status"] == "stale"
+
+
+def _insert_override(conn, job_id, decision, *, revision=None, reason="operator call"):
+    conn.execute(
+        "INSERT INTO job_triage_overrides(job_posting_id,decision,reason,actor,"
+        "source_content_revision,created_at) VALUES(?,?,?,'mcp',?,'2026-11-18T10:00:00Z')",
+        (job_id, decision, reason, revision))
+
+
+def test_triage_override_wins_survives_reassessment_and_lapses_on_new_content(db_path):
+    from ats_worker import db as worker_db
+    with sqlite3.connect(db_path) as conn:
+        restored = _job(conn, title="restored")
+        hidden = _job(conn, title="hidden")
+        _insert_jev(conn, restored, verdict="skip", reasons=["preference_weak"])
+        _insert_jev(conn, hidden, verdict="keep")
+        _insert_override(conn, restored, "keep")
+        _insert_override(conn, hidden, "skip")
+    repo = ReadOnlyATSRepository(db_path)
+
+    listed = {r["id"]: r["jev"] for r in repo.list_jobs(limit=100)["items"]}
+    assert set(listed) == {restored}
+    assert listed[restored]["status"] == "keep" and listed[restored]["model_status"] == "skip"
+    assert listed[restored]["reasons"] == ["preference_weak"]
+    assert listed[restored]["override"] == {
+        "decision": "keep", "reason": "operator call", "actor": "mcp",
+        "set_at": "2026-11-18T10:00:00Z", "applies": True}
+    assert [r["id"] for r in repo.list_jobs(jev="skip")["items"]] == [hidden]
+    counts = {row["status"]: row["count"]
+              for row in repo.get_ats_overview()["jev_filter_counts"]["counts"]}
+    assert counts["keep"] == 1 and counts["skip"] == 1
+    assert repo.get_job(restored)["jev"]["override"]["applies"] is True
+
+    # A JEV re-assessment of the same content keeps the override in force.
+    with sqlite3.connect(db_path) as conn:
+        conn.row_factory = sqlite3.Row
+        assert worker_db.save_jev(conn, restored, state="complete", verdict="skip",
+                                  reasons=["preference_weak"], result={}, error_category=None,
+                                  model="fake-jev", policy_sha="p", cost_usd="0", now="2026-11-19T00:00:00Z")
+    assert repo.get_job(restored)["jev"]["status"] == "keep"
+
+    # New posting content: the override no longer applies and the model verdict is back.
+    with sqlite3.connect(db_path) as conn:
+        conn.execute("UPDATE job_postings SET source_content_revision=2 WHERE id=?", (restored,))
+    detail = repo.get_job(restored)["jev"]
+    assert detail["override"]["applies"] is False and detail["status"] == "stale"
+
+    # Clearing an override restores the model verdict.
+    with sqlite3.connect(db_path) as conn:
+        conn.execute("DELETE FROM job_triage_overrides WHERE job_posting_id=?", (hidden,))
+    detail = repo.get_job(hidden)["jev"]
+    assert detail["status"] == "keep" and detail["override"] is None
+
+
+def test_override_on_a_legacy_null_revision_survives_an_unchanged_refresh(db_path):
+    from ats_worker import db as worker_db
+    from tests._helpers import LATER, NOW, make_posting
+    with sqlite3.connect(db_path) as conn:
+        conn.row_factory = sqlite3.Row
+        worker_db.upsert_postings(conn, [make_posting("legacy")], now=NOW)
+        job = conn.execute("SELECT id FROM job_postings").fetchone()[0]
+        # A pre-revision row: what 4.5k production postings still look like.
+        conn.execute("UPDATE job_postings SET source_content_revision=NULL WHERE id=?", (job,))
+        _insert_jev(conn, job, verdict="skip")
+        _insert_override(conn, job, "keep")  # recorded with the NULL revision
+    repo = ReadOnlyATSRepository(db_path)
+    assert repo.get_job(job)["jev"]["status"] == "keep"
+    with sqlite3.connect(db_path) as conn:
+        conn.row_factory = sqlite3.Row
+        # The detail refresh re-observes unchanged content and backfills NULL -> 1.
+        assert worker_db.save_source_observation(
+            conn, job, expected_source="greenhouse", expected_external_id="legacy",
+            observation={"state": "available", "posting": make_posting("legacy")}, now=LATER)
+        assert conn.execute("SELECT source_content_revision FROM job_postings").fetchone()[0] == 1
+    assert repo.get_job(job)["jev"]["override"]["applies"] is True
+    assert repo.get_job(job)["jev"]["status"] == "keep"
