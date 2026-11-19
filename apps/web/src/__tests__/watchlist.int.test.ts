@@ -65,3 +65,12 @@ test('getWatchedCompanies counts each board\'s postings fetched in the last 30 d
     const { data } = await getWatchedCompanies()
     expect(data.map((c) => [c.slug, c.postings_30d])).toEqual([['acme', 2], ['quiet', 0]])
 })
+
+test('a board added after the latest fetch is pending, not dead (#208)', async () => {
+    await prisma.job_postings.create({ data: makeJobPosting({ source: 'lever', company_slug: 'other',
+        source_last_seen_at: '2026-01-01T00:00:00.000Z', created_at: new Date().toISOString() }) })
+    await prisma.watched_companies.create({ data: makeWatchedCompany({ source: 'greenhouse', slug: 'old', name: 'Old', created_at: '2025-12-01T00:00:00.000Z' }) })
+    await addWatchedCompany({ source: 'greenhouse', slug: 'new', name: 'New' })
+    const { data } = await getWatchedCompanies()
+    expect(data.map((r) => [r.name, r.pending, r.postings_30d])).toEqual([['New', true, 0], ['Old', false, 0]])
+})

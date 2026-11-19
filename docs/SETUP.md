@@ -185,7 +185,7 @@ interactive call.
 | Setting | Location | Lifecycle |
 |---|---|---|
 | Collection filters, candidate facts, schedule | Private `config.yaml` | Existing intake/screen semantics; edit and restart intentionally |
-| Watchlist | Config seed, then DB | After initial seed, manage through MCP (`add_source`/`remove_source`) or the onboard-board skill; the web Sources tab shows it read-only; config edits do not replace DB rows |
+| Watchlist | Config seed, then DB | After initial seed, manage it in the web Sources tab (paste a careers URL, remove), through MCP (`add_source`/`remove_source`), or with the onboard-board skill for custom/browser recipes; config edits do not replace DB rows |
 | Provider selection/secrets | Private `.env` and CLI flags | Choose an explicit mode; metered providers are opt-in |
 | Private résumé/profile | `apps/worker/resume/` | Read by the worker only through `jev_dir` (JEV inputs); otherwise private onboarding material |
 | Primary personal judgment rubric | ChatGPT task/project or accessible user-controlled document | Keep current and available to each run; memory is not a versioned config |

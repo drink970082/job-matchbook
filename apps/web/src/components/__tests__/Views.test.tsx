@@ -1,14 +1,12 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { ApplicationsView } from '@/components/ApplicationsView'
 import { JobsView } from '@/components/JobsView'
-import { SourcesTab } from '@/components/SourcesTab'
 import { ActivityTab } from '@/components/ActivityTab'
 import { Onboarding } from '@/components/Onboarding'
 import * as applicationActions from '@/lib/application-actions'
 import * as jobActions from '@/lib/job-actions'
 import * as watchlistActions from '@/lib/watchlist-actions'
 import * as activityActions from '@/lib/activity-actions'
-import * as unresolvedActions from '@/lib/unresolved-actions'
 
 // Smoke tests of the per-route views (#211): each page renders its own view.
 // Stub the server actions (no real Prisma) and the recharts-based charts (jsdom
@@ -21,7 +19,6 @@ jest.mock('@/lib/job-actions')
 jest.mock('@/lib/preference-actions')
 jest.mock('@/lib/category-actions')
 jest.mock('@/lib/activity-actions')
-jest.mock('@/lib/unresolved-actions')
 jest.mock('@/components/SankeyChart', () => ({ SankeyChart: () => <div data-testid="sankey" /> }))
 jest.mock('@/components/TimelineHeatmap', () => ({ TimelineHeatmap: () => <div data-testid="heatmap" /> }))
 jest.mock('@/components/CategoryDonut', () => ({ CategoryDonut: () => <div data-testid="donut" /> }))
@@ -40,7 +37,6 @@ beforeEach(() => {
         statusChanges: [],
         changes: [{ id: 9, at: '2026-11-19T00:00:00Z', actor: 'web', action: 'update', entity: 'jev_profile', entity_id: 1, label: 'JEV profile v2' }],
     })
-    ;(unresolvedActions.getUnresolvedFeeds as jest.Mock).mockResolvedValue({ data: [], total: 0 })
 })
 
 const appProps = {
@@ -122,14 +118,6 @@ test('overlapping inventory requests never show stale rows under newer filters',
     await waitFor(() => expect(screen.getByText('B result')).toBeInTheDocument())
     expect(screen.queryByText('A result')).not.toBeInTheDocument()
     expect(screen.queryByText('Old page row')).not.toBeInTheDocument()
-})
-
-test('the Sources view lists watched boards with 30-day postings and offers no add or remove', () => {
-    render(<SourcesTab sources={[{ id: 1, source: 'greenhouse', slug: 'acme', name: 'Acme', postings_30d: 12 }]} unresolved={[]} />)
-    expect(screen.getByText('Acme')).toBeInTheDocument()
-    expect(screen.getByText('12')).toBeInTheDocument()
-    expect(screen.queryByPlaceholderText(/board slug/i)).toBeNull()
-    expect(screen.queryByRole('button', { name: /^(Add|Remove|Re-add)$/i })).toBeNull()
 })
 
 test('the Activity view marks MCP writes', async () => {

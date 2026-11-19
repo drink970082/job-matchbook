@@ -5,12 +5,21 @@ test.beforeEach(async () => {
     await seed()
 })
 
-test('Sources and Activity are read-only views of what the worker fetches and who wrote what', async ({ page }) => {
+test('Sources adds a board from a careers URL and removes one after a confirm', async ({ page }) => {
     await page.goto('/sources')
     await expect(page.locator('tr', { hasText: 'Acme Robotics' })).toBeVisible()
-    await expect(page.getByText('BigCo')).toBeVisible()
-    await expect(page.getByPlaceholder(/board slug/i)).toHaveCount(0)
-    await expect(page.getByRole('button', { name: /^(Add|Remove|Re-add)$/ })).toHaveCount(0)
+    await expect(page.getByText('Unresolved feed listings')).toHaveCount(0)
+
+    await page.getByLabel('Careers or job URL').fill('https://www.acme.com/careers')
+    await expect(page.getByText(/needs a custom recipe/)).toBeVisible()
+    await page.getByLabel('Careers or job URL').fill('https://jobs.lever.co/hooli-labs')
+    await expect(page.getByLabel('Company name')).toHaveValue('Hooli Labs')
+    await page.getByRole('button', { name: 'Add board' }).click()
+    await expect(page.locator('tr', { hasText: 'Hooli Labs' })).toContainText('Pending first fetch')
+
+    page.once('dialog', (d) => d.accept())
+    await page.getByRole('button', { name: 'Remove Hooli Labs' }).click()
+    await expect(page.locator('tr', { hasText: 'Hooli Labs' })).toHaveCount(0)
 
     await page.getByRole('link', { name: 'Activity' }).click()
     await expect(page).toHaveURL(/\/activity$/)

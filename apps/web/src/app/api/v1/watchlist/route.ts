@@ -5,8 +5,9 @@ export const dynamic = 'force-dynamic'
 
 export function POST(req: Request) {
     return write(req, (b) => addWatchedCompany({
-        source: str(b, 'source') ?? '',
-        slug: str(b, 'slug') ?? '',
+        url: str(b, 'url'),
+        source: str(b, 'source'),
+        slug: str(b, 'slug'),
         name: str(b, 'name') ?? '',
         recipe: str(b, 'recipe'),
     }, 'mcp'))

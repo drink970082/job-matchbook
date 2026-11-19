@@ -393,3 +393,16 @@ async def test_set_jev_profile_sends_the_text_verbatim(tmp_path):
         ("PUT", "/api/v1/jev-profile", {"form": {
             "open_to": ["Data"], "experience": [{"title": "SWE", "company": "Acme", "years": 2}]}}),
     ]
+
+
+@pytest.mark.anyio
+async def test_add_source_by_url_sends_the_url_for_web_resolution(tmp_path):
+    writer, session = _client(FakeResponse(200, {"data": {"id": 4}}))
+    server = create_server(ReadOnlyATSRepository(bootstrap_db(tmp_path / "m.db")), writer)
+    async with Client(server, raise_exceptions=True) as client:
+        await client.call_tool("add_source", {"url": "https://jobs.lever.co/acme", "name": "Acme"})
+        both = await client.call_tool("add_source", {"url": "https://jobs.lever.co/acme", "source": "lever",
+                                                     "slug": "acme", "name": "Acme"})
+        neither = await client.call_tool("add_source", {"name": "Acme"})
+    assert both.is_error and neither.is_error
+    assert [c["json"] for c in session.calls] == [{"url": "https://jobs.lever.co/acme", "name": "Acme"}]

@@ -101,7 +101,7 @@ database:**
   the MCP server (`ats_worker/mcp/`).
 - **`apps/web`** — Next.js 14 + Prisma tracker UI, plus the key-scoped loopback
   `/api/v1` write API the MCP server calls. A dashboard, read-only except Applications,
-  Settings and the Discovered Jobs "Not interested" override.
+  Settings, Sources add/remove and the Discovered Jobs "Not interested" override.
 
 A human applies by hand. The old fit scorer and Telegram alerts are removed.
 

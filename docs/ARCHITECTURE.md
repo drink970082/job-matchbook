@@ -49,7 +49,8 @@ flowchart LR
   `ATS_API_KEY_READ_WRITE` / `ATS_API_KEY_READ`; no key configured = `503`) over the
   same server actions the UI uses; rows it writes carry `actor`, shown as "via MCP" in
   the web. The MCP write tools call it. The web dashboard is read-only except Applications,
-  Settings (#158) and the Discovered Jobs "Not interested" triage skip (#207); the rest of epic #152 is #157.
+  Settings (#158), the Discovered Jobs "Not interested" triage skip (#207) and Sources
+  add/remove (#208); the rest of epic #152 is #157.
 
 ## Boundaries
 

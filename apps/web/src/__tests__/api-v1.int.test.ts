@@ -310,3 +310,14 @@ test('jev profile form: a free-text profile needs the whole form; then partial u
     expect(row.version).toBe(3)
     expect((await put({ open_to: ['Data'] }))[1].data.unchanged).toBe(true)  // same bytes
 })
+
+test('watchlist add by careers URL resolves through the shared resolver (#208)', async () => {
+    const res = await addWatch(req({ url: 'https://relx.wd3.myworkdayjobs.com/en-US/relx/job/X_R1', name: 'RELX' }, RW))
+    expect(res.status).toBe(200)
+    expect(await prisma.watched_companies.findFirstOrThrow()).toMatchObject({ source: 'workday', slug: 'relx/wd3/relx', name: 'RELX' })
+    const custom = await addWatch(req({ url: 'https://www.acme.com/careers', name: 'Acme' }, RW))
+    expect(custom.status).toBe(400)
+    expect((await custom.json()).error).toMatch(/custom recipe .* onboard-board skill/)
+    const both = await addWatch(req({ url: 'https://jobs.lever.co/x', source: 'lever', slug: 'x', name: 'X' }, RW))
+    expect(both.status).toBe(400)
+})

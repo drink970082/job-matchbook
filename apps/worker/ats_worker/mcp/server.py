@@ -490,16 +490,25 @@ def _add_write_tools(server: MCPServer, repo: ReadOnlyATSRepository, writer: ATS
 
     @server.tool(annotations=_WRITE)
     def add_source(
-        source: Annotated[str, Field(min_length=1, max_length=40,
-                                     description="Known ATS board, e.g. greenhouse, lever, ashby, workday.")],
-        slug: Annotated[str, Field(min_length=1, max_length=300,
-                                   description="Board identifier from the careers URL.")],
         name: Annotated[str, Field(min_length=1, max_length=300)],
+        url: Annotated[str | None, Field(max_length=2000,
+                                         description="The company's careers or job URL; the web resolves it to a board.")] = None,
+        source: Annotated[str | None, Field(max_length=40,
+                                            description="Known ATS board, e.g. greenhouse, lever, ashby, workday.")] = None,
+        slug: Annotated[str | None, Field(max_length=300,
+                                          description="Board identifier from the careers URL.")] = None,
     ) -> dict[str, Any]:
         """Add a company board to the watchlist; the worker fetches it from its next pass.
-        Known-ATS boards only (custom/browser recipes are set up outside MCP). Fails with
-        the web UI's message on an unknown source, an invalid slug, or a duplicate."""
-        return {"source": write("POST", "/api/v1/watchlist", {"source": source, "slug": slug, "name": name})}
+        Give the careers/job `url` (preferred: the web resolves it with the same resolver
+        as the Sources tab) or `source` + `slug`, not both. Known-ATS boards only; a site
+        that needs a custom recipe fails with that message (use the onboard-board skill).
+        Fails with the web UI's message on an unknown source, an invalid slug, or a duplicate."""
+        if url and (source or slug):
+            raise ValueError("give url, or source and slug, not both")
+        if not url and not (source and slug):
+            raise ValueError("give url, or both source and slug")
+        body = {"url": url, "name": name} if url else {"source": source, "slug": slug, "name": name}
+        return {"source": write("POST", "/api/v1/watchlist", body)}
 
     @server.tool(annotations=_REMOVE)
     def remove_source(source_id: Annotated[int, Field(ge=1, description="id from list_sources.")]) -> dict[str, Any]:

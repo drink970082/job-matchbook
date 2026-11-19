@@ -35,6 +35,12 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 
 ### Changed
 
+- **Sources is writable (#208)**: add a board by pasting its careers or job URL (resolved
+  by `lib/board-url.ts`, which MCP `add_source(url=...)` now shares through
+  `/api/v1/watchlist`; one fixture runs in both suites), remove with a confirm, search,
+  Source filter, sortable columns, 25 per page, and "Pending first fetch" / "No postings
+  in 30 days" flags. The Unresolved feed listings card, `UnresolvedFeedsTable` and
+  `getUnresolvedFeeds` are removed; `feed_unresolved` stays readable through MCP.
 - **Discovered Jobs is a job board (#207)**: one "postings for you" list - JEV keep, or
   hard-requirement passes when no JEV is configured, never applied, closed or
   not-interested postings - with title, company, location, posted age and Apply / Mark
