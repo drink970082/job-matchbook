@@ -4,7 +4,7 @@ import { Dashboard } from '@/components/Dashboard'
 import * as applicationActions from '@/lib/application-actions'
 import * as jobActions from '@/lib/job-actions'
 import * as watchlistActions from '@/lib/watchlist-actions'
-import * as promotionActions from '@/lib/promotion-actions'
+import * as activityActions from '@/lib/activity-actions'
 import * as unresolvedActions from '@/lib/unresolved-actions'
 
 // Smoke test of Dashboard's own wiring (tabs, KPI grid, the table views).
@@ -17,7 +17,7 @@ jest.mock('@/lib/watchlist-actions')
 jest.mock('@/lib/job-actions')
 jest.mock('@/lib/preference-actions')
 jest.mock('@/lib/category-actions')
-jest.mock('@/lib/promotion-actions')
+jest.mock('@/lib/activity-actions')
 jest.mock('@/lib/unresolved-actions')
 jest.mock('@/components/SankeyChart', () => ({ SankeyChart: () => <div data-testid="sankey" /> }))
 jest.mock('@/components/StatusFunnel', () => ({ StatusFunnel: () => <div data-testid="funnel" /> }))
@@ -31,9 +31,14 @@ beforeEach(() => {
     ;(jobActions.getJobPostings as jest.Mock).mockResolvedValue({ data: [], total: 0 })
     ;(jobActions.getJobStageCounts as jest.Mock).mockResolvedValue({ keep: 4, jev_skip: 9, unassessed: 0, screen_rejected: 0, rule_rejected: 0, other: 0 })
     ;(applicationActions.getApplications as jest.Mock).mockResolvedValue({ data: [], total: 0 })
-    ;(watchlistActions.getWatchlistActivity as jest.Mock).mockResolvedValue({ data: [] })
-    ;(watchlistActions.getWatchedCompanies as jest.Mock).mockResolvedValue({ data: [], total: 0 })
-    ;(promotionActions.getPromotionSuggestions as jest.Mock).mockResolvedValue({ data: [] })
+    ;(watchlistActions.getWatchedCompanies as jest.Mock).mockResolvedValue({ data: [
+        { id: 1, source: 'greenhouse', slug: 'acme', name: 'Acme', postings_30d: 12 },
+    ], total: 1 })
+    ;(activityActions.getRecentActivity as jest.Mock).mockResolvedValue({
+        applications: [{ id: 5, company_name: 'Acme', job_title: 'Engineer', date_applied: '2026-11-18', actor: 'mcp' }],
+        statusChanges: [],
+        changes: [{ id: 9, at: '2026-11-19T00:00:00Z', actor: 'web', action: 'update', entity: 'jev_profile', entity_id: 1, label: 'JEV profile v2' }],
+    })
     ;(unresolvedActions.getUnresolvedFeeds as jest.Mock).mockResolvedValue({ data: [], total: 0 })
 })
 
@@ -129,11 +134,22 @@ test('overlapping inventory requests never show stale rows under newer filters',
     expect(screen.queryByText('Old page row')).not.toBeInTheDocument()
 })
 
-test('switching to the Watchlist tab shows the watchlist add form', async () => {
+test('the Sources tab lists watched boards with 30-day postings and offers no add or remove', async () => {
     const user = userEvent.setup()
     render(<Dashboard {...props} />)
-    await user.click(screen.getByRole('button', { name: /Watchlist/i }))
-    // The watchlist add row's distinctive inputs.
-    expect(screen.getByPlaceholderText(/board slug/i)).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: /^Add$/i })).toBeInTheDocument()
+    await user.click(await screen.findByRole('button', { name: /^Sources/ }))
+    expect(await screen.findByText('Acme')).toBeInTheDocument()
+    expect(screen.getByText('12')).toBeInTheDocument()
+    expect(screen.queryByPlaceholderText(/board slug/i)).toBeNull()
+    expect(screen.queryByRole('button', { name: /^(Add|Remove|Re-add)$/i })).toBeNull()
+})
+
+test('the Activity tab loads recent writes on open and marks MCP writes', async () => {
+    const user = userEvent.setup()
+    render(<Dashboard {...props} />)
+    await user.click(screen.getByRole('button', { name: /^Activity/ }))
+    expect(await screen.findByText('Acme - Engineer')).toBeInTheDocument()
+    expect(screen.getByText('via MCP')).toBeInTheDocument()
+    expect(screen.getByText('update JEV profile v2')).toBeInTheDocument()
+    expect(activityActions.getRecentActivity).toHaveBeenCalledTimes(1)
 })

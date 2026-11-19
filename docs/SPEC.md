@@ -1441,7 +1441,7 @@ worker modules are pure and dependency-injected; real services are wired only in
   MCP-created application "logged via MCP" and each MCP status row "via MCP".
 - **`lib/*-actions.ts`** — all mutations and aggregations as Server Actions, one
   `'use server'` file per domain (`application-`, `analytics-`, `csv-`, `watchlist-`,
-  `job-`, `preference-`, `category-`, `promotion-`, `unresolved-actions.ts`); shared
+  `job-`, `preference-`, `category-`, `unresolved-`, `activity-actions.ts`); shared
   sync helpers live in `action-helpers.ts`, which is not `'use server'` so they are not
   public endpoints (return shape `{ success, ... }` or `{ data, total }`). Key actions:
   - *Applications:* `getApplications` (paginated; filters: status, historical
@@ -1477,18 +1477,20 @@ worker modules are pure and dependency-injected; real services are wired only in
     not prove model invocation. Missing standalone evidence alone does not establish that
     screening never ran. Raw `screen_outcome` and the five-value standalone filter are
     unchanged; candidates are not presented as qualified.
-  - *Watchlist:* `getWatchedCompanies` (name asc), `addWatchedCompany` (validates
+  - *Watchlist:* `getWatchedCompanies` (name asc, each row with `postings_30d`: postings
+    with that `source` + `company_slug` created in the last 30 days, the MCP
+    `list_sources` figure); the dashboard has no watchlist writes — `addWatchedCompany` (validates
     `source ∈ VALID_SOURCES`, dedups `(source, slug)`, and rejects a `slug` outside
     `[A-Za-z0-9._/-]` or containing `..`/leading-trailing-doubled `/` — the slug is
     interpolated into a fetch URL host/path by the worker, so this blocks
     host-injection metacharacters while still allowing multi-part slugs like
-    workday's `tenant/dc/site`), `removeWatchedCompany`.
-  - *Promotion / unresolved* (`lib/promotion-actions.ts` /
-    `lib/unresolved-actions.ts`): `getPromotionSuggestions` (raw-SQL
-    aggregate over `job_postings` by `(source, company_slug)`, watchlist-capable sources
-    only, excluding watched + dismissed; signal in §9), `dismissPromotion`;
-    `getUnresolvedFeeds` (groups
-    `feed_unresolved` by host + reason). Approve reuses `addWatchedCompany`.
+    workday's `tenant/dc/site`) and `removeWatchedCompany` back the MCP write API only.
+  - *Unresolved* (`lib/unresolved-actions.ts`): `getUnresolvedFeeds` (groups
+    `feed_unresolved` by host + reason).
+  - *Activity* (`lib/activity-actions.ts`): `getRecentActivity(limit=15)` — the newest
+    applications (id order; they carry no creation stamp), `status_history` rows (with the
+    date the change happened) and `audit_log` rows (write time, with a one-line label per
+    entity), each with its `actor`.
   - *CSV:* `exportApplicationsCSV`, `importApplicationsCSV` (hand-rolled RFC-4180
     parser; validates status against `STATUSES`; keeps category free-form; dedups).
 - **`lib/db.ts`** — process-singleton Prisma client (avoids dev hot-reload
@@ -1504,8 +1506,9 @@ worker modules are pure and dependency-injected; real services are wired only in
   are not listed), `LOW_CONTEXT_MAX_DESCRIPTION_LENGTH`
   (200; below this trimmed-`description` length the table labels a row "Short JD"), `getStatusColor`. **Edit here
   to extend statuses/sources (categories are edited in-app, not here).**
-- **`components/`** — `Dashboard` (Applications ↔ Discovered Jobs ↔ Watchlist ↔
-  Unresolved tabs, each delegated to a `*Tab` wrapper), `ApplicationTable` (inline status edit), `KPIGrid`,
+- **`components/`** — `Dashboard` (Applications ↔ Discovered Jobs ↔ Sources ↔
+  Activity tabs, each delegated to a `*Tab` wrapper; only Applications, Settings and
+  Mark Applied write), `ApplicationTable` (inline status edit), `KPIGrid`,
   `StatusHistoryModal`, `AddApplicationForm`, `DiscoveredJobsTable` (the funnel: stage tabs
   Keep (default) / Unassessed / JEV skip / Screen rejected / Rule rejected / Applied-closed
   / All, each with its count from `getJobStageCounts`; filters are controlled by
@@ -1521,10 +1524,11 @@ worker modules are pure and dependency-injected; real services are wired only in
   picker behind the Import CSV button, with the column contract — required columns,
   `YYYY-MM-DD` dates, the exact `status` vocabulary, dedup-skips-never-overwrites —
   stated inline; guards on the `.csv` extension, not the MIME type, since Excel on
-  Windows reports a CSV as `application/vnd.ms-excel`), `WatchlistTable`
-  (list + add/remove watched companies), `PromotionSuggestions` (approve/dismiss feed→
-  watchlist suggestions, shown in the Watchlist tab), `UnresolvedFeedsTable` (read-only
-  backlog), `QuotaBar` (subscription quota bar on the Discovered Jobs view — polls
+  Windows reports a CSV as `application/vnd.ms-excel`), `SourcesTab` (read-only: watched
+  boards with `postings_30d`, then `UnresolvedFeedsTable`, the unresolved backlog; boards
+  are added and removed through MCP), `ActivityTab` (`getRecentActivity` on open: new
+  applications, status changes, and source/override/settings changes, MCP writes marked
+  "via MCP"), `QuotaBar` (subscription quota bar on the Discovered Jobs view — polls
   `/api/quota`, one bar per window with % + "resets in Nd Hh" + "as of"; reflects
   the last captured snapshot, not a live reading. **Labels itself by backend** from the
   snapshot, so switching backends relabels the bar instead of showing the other
@@ -1585,7 +1589,7 @@ model job_postings {
   id              Int           @id @default(autoincrement())
   source          String        // any VALID_SOURCES board (11 watchlist-capable) or feed-only oracle|jobvite
   external_id     String        // id returned by the board
-  company_slug    String?       // board slug this posting came from (promotion grouping; null on legacy rows)
+  company_slug    String?       // board slug this posting came from (per-board grouping: Sources postings_30d, MCP list_sources; null on legacy rows)
   company_name    String
   job_title       String
   location        String?
@@ -1709,7 +1713,7 @@ model feed_unresolved {          // feed listings not resolvable to a board (bac
   @@index([reason])
 }
 
-model promotion_dismissed {      // companies the user dismissed from suggestions
+model promotion_dismissed {      // retired suggestions' dismissals; nothing reads or writes it now
   id          Int    @id @default(autoincrement())
   source      String
   slug        String
@@ -1936,7 +1940,7 @@ Triage evidence with duplicate object members at its root, screen map, or check 
   collapse warning naming the split. (Canary self-tests and proactive banner alerting are
   deferred — see PROGRESS.) These sources are **feed-only**: they
   cannot enumerate a board, so they are absent from `VALID_SOURCES` (not
-  watch-listable) and excluded from promotion suggestions.
+  watch-listable).
 
 **Watchlist** (`watched_companies`):
 
@@ -1945,23 +1949,9 @@ Triage evidence with duplicate object members at its root, screen map, or check 
   once** from `config.companies` (idempotent); thereafter config edits are ignored
   (`--import-companies` forces a re-seed). Dedup on `(source, slug)`.
 - **Adds and removes are audited.** `addWatchedCompany`/`removeWatchedCompany` write
-  an `audit_log` row (actor, full row as JSON) in the same transaction. The Watchlist
-  tab lists the latest 20 as "Recent watchlist changes" ("via MCP" when `actor='mcp'`),
-  with **Re-add** on a removal whose `(source, slug)` is not watched again. The worker
-  never reads `audit_log`.
-
-**Promotion suggestions** (`lib/promotion-actions.ts`):
-
-- **Suggest, never auto-promote.** `getPromotionSuggestions` groups `job_postings` by
-  `(source, company_slug)` (non-null slug only, and **only watchlist-capable sources**
-  — `source ∈ VALID_SOURCES`, so feed-only sources like oracle/jobvite are never
-  suggested, since approving one would be rejected by `addWatchedCompany`),
-  **excluding** companies already in `watched_companies` or `promotion_dismissed`, and
-  surfaces those with
-  `count(pipeline_status ∈ {notified,applied}) ≥ 2` **or**
-  `count(applied) ≥ 1`, ranked by applied then high-score count. Approve is the user
-  calling `addWatchedCompany`; `dismissPromotion` records `(source, slug)` (idempotent)
-  to suppress it. The watchlist only ever grows by an explicit human action.
+  an `audit_log` row (actor, full row as JSON) in the same transaction; the Activity tab
+  lists them, and the payload keeps what a re-add through MCP needs. The worker never
+  reads `audit_log`.
 
 **Web ↔ pipeline seam** (`lib/job-actions.ts`):
 
@@ -2180,7 +2170,7 @@ automated coverage — those rely on code review or the human in the loop, not a
 | A **blind** live backend (nothing usable: not a dict, or neither a `screen` object nor any requirement key) is a `provider_error`, not a verdict; the FLAT shape the 4B emits ~1 call in 100 is a real verdict and is honoured, byte-identical to the nested shape — so it cannot discard on the phrase floor and cannot record breaker successes; the narrow scope is pinned on the other side, where an empty `screen` dict is an answer and keeps the floor | `test_screen.py` (`test_a_blind_response_is_a_provider_error_not_a_verdict`, `test_an_empty_screen_object_is_a_verdict_and_keeps_the_floor`, `test_the_flat_shape_is_a_verdict_and_is_honoured`, `test_the_flat_shape_and_the_schema_shape_agree`, `test_the_observed_flat_response_is_kept_not_discarded`) |
 | `mark_failed` → terminal `failed` + `attempts+1` (fetch/score paths) | `test_db.py` |
 | Discovered Jobs funnel: each posting in exactly one stage, keep by default, per-stage counts, effective JEV status identical in Web and MCP, Mark Applied scoped to its view, retired filter keys rejected | `web/src/__tests__/jev-status-parity.int.test.ts`, `worker/tests/test_jev_status_parity.py` (shared `jev-status-cases.json`), `web/src/__tests__/inventory-contract.int.test.ts` |
-| Discovered Jobs is read-only except Mark Applied (no server-action import in its components; no discard/reopen/bulk export) | `web/src/__tests__/readonly-dashboard.test.ts`, `web/e2e/discovered.spec.ts` |
+| Discovered Jobs, Sources and Activity are read-only except Mark Applied (no server-action import in their components; the Dashboard wires only reads plus `markJobApplied`; no discard/reopen/bulk export); Sources `postings_30d`; Activity lists by actor | `web/src/__tests__/readonly-dashboard.test.ts`, `watchlist.int.test.ts`, `activity.int.test.ts`, `web/e2e/discovered.spec.ts`, `web/e2e/sources-activity.spec.ts` |
 | `markJobApplied` atomic create + back-link + dedup | `actions.test.ts`, `actions.int.test.ts` (real-Prisma tx) |
 | `updateApplicationStatus` validates `STATUSES`, appends history | `actions.test.ts`, `actions.int.test.ts` |
 | `deleteHistoryItem` recomputes current status | `actions.int.test.ts` |
@@ -2198,7 +2188,6 @@ automated coverage — those rely on code review or the human in the loop, not a
 | The feed re-runs the age gate on the BOARD's `posted_at` before upsert, so a fresh-per-feed evergreen req is not stored older than `max_age_days` | `test_feed_pipeline.py` (`test_run_feed_re_gates_on_the_boards_date_not_the_feeds`) |
 | An unreadable lock fails loud; a contender never names a dead pid as the holder, but does name a live one | `test_run.py` (`test_an_unreadable_lock_fails_loud_instead_of_degrading`, `test_a_contender_never_names_a_dead_pid_as_the_holder`, `test_a_contender_names_the_holder_when_the_pid_is_live`) |
 | `run_feed` keeps only surfaced ids, records unresolved, skips existing, isolates a bad board, stamps `company_slug` | `test_feed_pipeline.py`, `test_feed_simplify.py` |
-| Promotion suggestions (signal, exclude watched/dismissed + feed-only sources) + dismiss | `web/src/__tests__/promotion.test.ts`, `promotion.int.test.ts` |
 | Unresolved-feed grouping by host+reason | `web/src/__tests__/unresolved.test.ts`, `unresolved.int.test.ts` |
 | Watchlist DB helpers (import idempotent, record_unresolved upsert, existing ids) | `test_watchlist_db.py` |
 | Watchlist auto-seed-on-empty + feed wiring in `run_once` | `test_run.py` |
