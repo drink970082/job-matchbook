@@ -32,7 +32,7 @@ Ranking within `keep` stays gated (#135). The offline preselection tooling
 ([preparation plan](superpowers/plans/2026-10-27-preselection-parallel-preparation.md))
 is its provider-free foundation. Epic #152 makes MCP the main channel: the key-scoped
 loopback write API (`/api/v1`, §7.2), the MCP application write tools over it (#154) and
-the MCP workflow prompts (#159) are shipped; a read-only web dashboard is planned (#158). #94 still needs actual unattended evidence.
+the MCP workflow prompts (#159) are shipped; a web dashboard read-only except Applications and Settings is planned (#158). #94 still needs actual unattended evidence.
 
 [ARCHITECTURE](ARCHITECTURE.md) separates target ownership from existing implementation;
 [ROADMAP](ROADMAP.md) lists feature readiness and outstanding slices;

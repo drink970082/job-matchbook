@@ -37,7 +37,8 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
     useEffect(() => {
         if (!open) return
         setSettings(null)
-        getSettings().then((s) => {
+        getSettings().catch((e) => { toast.error(`Could not load settings: ${e.message}`); return null }).then((s) => {
+            if (!s) return
             setSettings(s)
             setDegree(s.preferences?.highest_degree ?? '')
             setAuth(s.preferences?.work_authorization ?? '')
@@ -52,27 +53,40 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
     const done = (result: { success: boolean; error?: string; data?: any }, what: string) => {
         if (!result.success) return toast.error(result.error)
         toast.success(result.data?.unchanged ? `${what}: nothing changed` : `${what} saved`)
-        getSettings().then(setSettings)
+        getSettings().then(setSettings).catch(() => {})
     }
 
-    const saveRequirements = async () => {
+    const run = async (write: () => Promise<any>, what: string) => {
         setSaving(true)
-        const result = await setCandidatePreferences({
-            highest_degree: degree, work_authorization: auth, security_clearance: clearance,
-            locations: locations.split('\n'), exclude_internships: noInterns,
-        })
-        setSaving(false)
-        done(result, 'Hard requirements')
+        try {
+            done(await write(), what)
+        } catch (e: any) {
+            toast.error(e.message)
+        } finally {
+            setSaving(false)
+        }
     }
+
+    const saveRequirements = () => run(() => setCandidatePreferences({
+        highest_degree: degree, work_authorization: auth, security_clearance: clearance,
+        locations: locations.split('\n'), exclude_internships: noInterns,
+    }), 'Hard requirements')
 
     const saveProfile = async () => {
-        const n = settings?.reassessOnChange ?? 0
+        const stored = settings?.jev
+        if (!stored) return
+        // A textarea normalizes line endings, so compare modulo CR; an edit that only
+        // dropped CRs is no change, and the stored bytes (the policy hash input) stay.
+        const lf = (t: string) => t.replace(/\r\n?/g, '\n')
+        const profileChanged = lf(profile) !== lf(stored.profile_text)
+        if (!profileChanged && yoe.trim() === stored.yoe_context) {
+            toast.success('JEV profile: nothing changed')
+            return
+        }
+        const n = settings.reassessOnChange
         const usd = (n * USD_PER_ASSESSMENT).toFixed(2)
         if (!window.confirm(`A changed JEV profile re-assesses ${n} recent postings on the next worker pass (paid, about USD ${usd}). Save?`)) return
-        setSaving(true)
-        const result = await setJevProfile({ profile_text: profile, yoe_context: yoe })
-        setSaving(false)
-        done(result, 'JEV profile')
+        await run(() => setJevProfile({ profile_text: profileChanged ? profile : stored.profile_text, yoe_context: yoe }), 'JEV profile')
     }
 
     return (

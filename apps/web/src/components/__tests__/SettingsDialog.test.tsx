@@ -17,6 +17,7 @@ const SETTINGS = {
 }
 
 beforeEach(() => {
+    jest.clearAllMocks()
     jest.mocked(getSettings).mockResolvedValue(SETTINGS as any)
     jest.mocked(setCandidatePreferences).mockResolvedValue({ success: true, data: { unchanged: false } } as any)
     jest.mocked(setJevProfile).mockResolvedValue({ success: true, data: { unchanged: false } } as any)
@@ -44,6 +45,28 @@ describe('SettingsDialog', () => {
         fireEvent.click(screen.getByRole('button', { name: 'Save JEV profile' }))
         await waitFor(() => expect(setJevProfile).toHaveBeenCalledWith({ profile_text: '{"profile":{"a":1}}', yoe_context: 'MS.' }))
         confirm.mockRestore()
+    })
+
+    it('an unchanged JEV profile (even with CRLF stored) neither confirms nor writes', async () => {
+        jest.mocked(getSettings).mockResolvedValue({ ...SETTINGS, jev: { ...SETTINGS.jev, profile_text: '{\r\n"profile":{}}' } } as any)
+        const confirm = jest.spyOn(window, 'confirm')
+        render(<SettingsDialog open onOpenChange={() => {}} />)
+        const box = await screen.findByLabelText('Profile (JSON)')
+        fireEvent.change(box, { target: { value: '{\n"profile":{}}' } })
+        fireEvent.click(screen.getByRole('button', { name: 'Save JEV profile' }))
+        expect(confirm).not.toHaveBeenCalled()
+        expect(setJevProfile).not.toHaveBeenCalled()
+        confirm.mockRestore()
+    })
+
+    it('saves requirements when none are stored yet', async () => {
+        jest.mocked(getSettings).mockResolvedValue({ preferences: null, jev: null, reassessOnChange: 0 } as any)
+        render(<SettingsDialog open onOpenChange={() => {}} />)
+        fireEvent.change(await screen.findByLabelText('Highest degree'), { target: { value: 'PhD' } })
+        fireEvent.click(screen.getByRole('button', { name: 'Save requirements' }))
+        await waitFor(() => expect(setCandidatePreferences).toHaveBeenCalledWith({
+            highest_degree: 'PhD', work_authorization: '', security_clearance: '', locations: [''], exclude_internships: false,
+        }))
     })
 
     it('explains the missing JEV profile instead of offering an empty editor', async () => {
