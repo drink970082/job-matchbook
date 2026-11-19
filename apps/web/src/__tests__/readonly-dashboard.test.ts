@@ -1,7 +1,7 @@
 /**
  * #158 acceptance: Discovered Jobs, Sources and Activity are read-only, except Mark
- * Applied (an Applications write, the operator's call). Their components import no
- * server action; their pages wire exactly these reads and that one write.
+ * Applied (an Applications write) and Not interested (a triage skip override, #207).
+ * Their components import no server action; their pages wire exactly these.
  */
 import { readFileSync } from 'node:fs'
 import path from 'node:path'
@@ -10,15 +10,15 @@ const src = (f: string) => readFileSync(path.join(__dirname, '..', f), 'utf8')
 const valueImportsFromActions = (code: string) =>
     [...code.matchAll(/^import\s+(?!type\b)\{([^}]*)\}\s+from\s+'@\/lib\/[a-z-]*actions'/gm)].map((m) => m[1].trim())
 
-test.each(['components/DiscoveredJobsTable.tsx', 'components/DiscoveredJobsTab.tsx', 'components/JobDetailModal.tsx',
+test.each(['components/DiscoveredJobsTable.tsx', 'components/JobDetailModal.tsx',
     'components/SourcesTab.tsx', 'components/ActivityTab.tsx', 'components/UnresolvedFeedsTable.tsx'])(
     '%s imports no server action', (file) => {
         expect(valueImportsFromActions(src(file))).toEqual([])
     })
 
-test('the Jobs view wires only reads and Mark Applied from the job actions', () => {
+test('the Jobs view wires only reads, Mark Applied and Not interested from the job actions', () => {
     const line = src('components/JobsView.tsx').match(/^import \{([^}]*)\} from '@\/lib\/job-actions'/m)
-    expect(line?.[1].split(',').map((s) => s.trim()).sort()).toEqual(['getJobPostings', 'getJobStageCounts', 'markJobApplied'])
+    expect(line?.[1].split(',').map((s) => s.trim()).sort()).toEqual(['clearTriageOverride', 'getJobPostings', 'markJobApplied', 'setTriageOverride'])
 })
 
 test('job-actions exports no pipeline-status mutation besides markJobApplied', async () => {

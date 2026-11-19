@@ -6,7 +6,7 @@ import path from 'node:path'
 // (used_percent / resets_at per window, read from the provider's own usage endpoint —
 // codex's /backend-api/codex/usage or Claude Code's /api/oauth/usage). The snapshot
 // records WHICH backend it describes so the bar can label itself. The Discovered
-// Jobs tab renders it as a usage bar (components/DiscoveredJobsTab.tsx). See
+// Activity tab renders it as a usage bar (components/QuotaBar.tsx, #210). See
 // docs/SPEC.md §7.2.
 export const dynamic = 'force-dynamic' // never cache; read the file every request
 

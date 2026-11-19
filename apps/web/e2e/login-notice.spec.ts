@@ -9,7 +9,7 @@ test('Codex login notice appears and clears after the next healthy snapshot', as
             limits: [], plan_type: null, as_of: null,
         },
     }))
-    await page.goto('/jobs')
+    await page.goto('/activity')
     await expect(page.getByRole('status')).toContainText('Codex login needs attention')
     await expect(page.getByText('codex login --device-auth', { exact: true })).toBeVisible()
     authRequired = false

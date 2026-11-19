@@ -13,14 +13,19 @@ import { JOB_STAGES, type JobStage, type JobStageFilter } from '@/lib/job-stages
 export type { JobStage, JobStageFilter }
 
 // The funnel stages and their meaning: lib/job-stages.ts.
-export type JobSort = 'posted' | 'created'
+export type JobSort = 'posted' // newest posted only (#207); no fit or fetched order
 export type JobSearchScope = 'metadata' | 'all_text'
 
+// 'for_you' (the default) is the Discovered Jobs view (#207); the funnel stages stay for
+// the parity tests and the MCP routes' `{stage: 'all'}` scope.
+export type JobView = JobStageFilter | 'for_you'
+
 export interface JobPostingsFilter {
-    stage?: JobStageFilter
+    stage?: JobView
     search?: string
     searchScope?: JobSearchScope
     screenOutcome?: ScreenOutcome
+    postedSince?: string // YYYY-MM-DD, the viewer's local cutoff date (inclusive)
     page?: number
     size?: number
     sort?: JobSort
@@ -28,9 +33,9 @@ export interface JobPostingsFilter {
 
 export type JobViewScope = Omit<JobPostingsFilter, 'page' | 'size'>
 
-const JOB_SORTS: readonly JobSort[] = ['posted', 'created']
+const JOB_SORTS: readonly JobSort[] = ['posted']
 const JOB_SEARCH_SCOPES: readonly JobSearchScope[] = ['metadata', 'all_text']
-const JOB_FILTER_KEYS = new Set(['stage', 'search', 'searchScope', 'screenOutcome', 'page', 'size', 'sort'])
+const JOB_FILTER_KEYS = new Set(['stage', 'search', 'searchScope', 'screenOutcome', 'postedSince', 'page', 'size', 'sort'])
 const MAX_JOB_SEARCH_CHARS = 200
 
 function validateJobPostingsFilter(filter: unknown, allowPaging = true): asserts filter is JobPostingsFilter {
@@ -44,8 +49,12 @@ function validateJobPostingsFilter(filter: unknown, allowPaging = true): asserts
             throw new Error('Page and size are not valid mutation scope filters')
         }
     }
-    if (value.stage !== undefined && value.stage !== 'all' && !(JOB_STAGES as readonly unknown[]).includes(value.stage)) {
+    if (value.stage !== undefined && value.stage !== 'all' && value.stage !== 'for_you'
+        && !(JOB_STAGES as readonly unknown[]).includes(value.stage)) {
         throw new Error('Unsupported job stage')
+    }
+    if (value.postedSince !== undefined && (typeof value.postedSince !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value.postedSince))) {
+        throw new Error('postedSince must be a YYYY-MM-DD date')
     }
     if (value.sort !== undefined && (typeof value.sort !== 'string' || !JOB_SORTS.includes(value.sort as JobSort))) {
         throw new Error('Unsupported job sort')
@@ -259,6 +268,22 @@ const STAGE_SQL = `CASE (${TRIAGE_STATUS_SQL})
         ELSE ${STAGE_AFTER_TRIAGE_SQL} END
     ELSE ${STAGE_AFTER_TRIAGE_SQL} END`
 
+// "Postings for you" (#207): not applied, not closed at the source, not marked not
+// interested; then JEV keep when JEV is configured (a profile and at least one
+// assessment), else passed the hard requirements, so a fresh install without JEV does
+// not see an empty page. The mode subqueries are uncorrelated, so SQLite runs them once.
+const JEV_MODE_SQL = `(EXISTS (SELECT 1 FROM jev_profile) AND EXISTS (SELECT 1 FROM job_jev_assessments))`
+const FOR_YOU_SQL = `(p.pipeline_status='new' AND p.source_state<>'closed'
+    AND NOT (${OVERRIDE_APPLIES_SQL} AND o.decision='skip')
+    AND CASE WHEN ${JEV_MODE_SQL} THEN (${STAGE_SQL})='keep'
+        ELSE (${TRIAGE_STATUS_SQL})='candidate' END)`
+
+// Which "for you" mode is active, for the one line above the list.
+export async function getJobsMode(): Promise<'jev' | 'screen'> {
+    const rows = await prisma.$queryRaw<Array<{ jev: number | bigint }>>(Prisma.sql`SELECT ${Prisma.raw(JEV_MODE_SQL)} AS jev`)
+    return Number(rows[0]?.jev ?? 0) ? 'jev' : 'screen'
+}
+
 function jevReasons(raw: unknown): string[] {
     try {
         const parsed = typeof raw === 'string' ? JSON.parse(raw) : null
@@ -277,9 +302,11 @@ function jobsWhereSql(filter: JobPostingsFilter): Prisma.Sql {
     const search = checkedSearch(filter.search)
     const searchScope = filter.searchScope ?? 'metadata'
     const screenOutcome = checkedScreenOutcome(filter.screenOutcome)
-    const stage = filter.stage ?? 'keep'
+    const stage = filter.stage ?? 'for_you'
     const clauses: Prisma.Sql[] = [Prisma.sql`p.pipeline_status <> 'removed'`]
-    if (stage !== 'all') clauses.push(Prisma.sql`(${Prisma.raw(STAGE_SQL)}) = ${stage}`)
+    if (stage === 'for_you') clauses.push(Prisma.raw(FOR_YOU_SQL))
+    else if (stage !== 'all') clauses.push(Prisma.sql`(${Prisma.raw(STAGE_SQL)}) = ${stage}`)
+    if (filter.postedSince) clauses.push(Prisma.sql`p.posted_at >= ${filter.postedSince}`)
     if (search) {
         const pattern = escapeLikeLiteral(search)
         const bodyClause = searchScope === 'all_text'
@@ -320,15 +347,13 @@ type RawInventoryPosting = Prisma.job_postingsGetPayload<{}> & {
     override_set_at: string | null
 }
 
-// Newest first by default (no score order: the fit score is retired).
+// Newest posted first by default (no fit order, #207).
 export async function getJobPostings(params: JobPostingsFilter = {}) {
     validateJobPostingsFilter(params)
     const page = Math.max(0, Math.floor(params.page ?? 0))
     const size = Math.min(100, Math.max(1, Math.floor(params.size ?? 25)))
     const where = jobsWhereSql(params)
-    const orderSql = params.sort === 'posted'
-        ? Prisma.raw('p.posted_at DESC, p.id DESC')
-        : Prisma.raw('p.created_at DESC, p.id DESC')
+    const orderSql = Prisma.raw('p.posted_at DESC, p.id DESC')
     const [rows, countRows] = await Promise.all([
         prisma.$queryRaw<RawInventoryPosting[]>(Prisma.sql`
             SELECT p.*,
@@ -400,23 +425,12 @@ export async function getJobPostings(params: JobPostingsFilter = {}) {
     return { data, total: Number(countRows[0]?.total ?? 0) }
 }
 
-// Per-stage counts for the funnel filter, over the same base predicate as the list.
-export async function getJobStageCounts() {
-    const rows = await prisma.$queryRaw<Array<{ stage: JobStage; n: number | bigint }>>(Prisma.sql`
-        SELECT (${Prisma.raw(STAGE_SQL)}) AS stage, COUNT(*) AS n ${Prisma.raw(FROM_SQL)}
-        WHERE p.pipeline_status <> 'removed' GROUP BY stage
-    `)
-    const counts = Object.fromEntries(JOB_STAGES.map((s) => [s, 0])) as Record<JobStage, number>
-    for (const r of rows) counts[r.stage] = Number(r.n)
-    return counts
-}
-
-// The Jobs nav badge: postings in the default (keep) view first fetched in the last 24h.
+// The Jobs nav badge: "postings for you" first fetched in the last 24h.
 export async function getNewJobsCount() {
     const since = new Date(Date.now() - 86_400_000).toISOString()
     const rows = await prisma.$queryRaw<Array<{ n: number | bigint }>>(Prisma.sql`
         SELECT COUNT(*) AS n ${Prisma.raw(FROM_SQL)}
-        WHERE (${Prisma.raw(STAGE_SQL)}) = 'keep' AND p.created_at >= ${since}
+        WHERE ${Prisma.raw(FOR_YOU_SQL)} AND p.created_at >= ${since}
     `)
     return Number(rows[0]?.n ?? 0)
 }

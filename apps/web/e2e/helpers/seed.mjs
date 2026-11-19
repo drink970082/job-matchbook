@@ -5,11 +5,9 @@
 import { PrismaClient } from '@prisma/client'
 import { DATABASE_URL } from './db-path.mjs'
 
-// One posting per Discovered Jobs stage (#158): Acme passed the screen and JEV kept it
-// (Keep, the default view), Globex passed the screen and JEV skipped it (JEV skip),
-// Recent Synthetic was never screened or assessed (Unassessed), Initech failed the
-// screen (Screen rejected), and the 30 older legacy `scored` rows have moved on
-// (Applied / closed). `screening` and `jev` are created as related rows in seed().
+// A JEV profile exists, so Discovered Jobs is in JEV mode (#207): only Acme (passed the
+// screen, JEV keep) is "for you". Globex (JEV skip), Recent Synthetic (never screened
+// or assessed), Initech (failed the screen) and the 30 legacy `scored` rows are not. `screening` and `jev` are created as related rows in seed().
 export const POSTINGS = [
     {
         source: 'synthetic', external_id: 'e2e-inventory-new', company_slug: 'inventory-new', company_name: 'Recent Synthetic Systems',
@@ -111,6 +109,8 @@ async function clear(prisma) {
     await prisma.feed_unresolved.deleteMany()
     await prisma.app_settings.deleteMany()
     await prisma.app_settings.create({ data: CATEGORIES })
+    await prisma.job_triage_overrides.deleteMany()
+    await prisma.jev_profile.deleteMany()
 }
 
 export async function seed(url = DATABASE_URL) {
@@ -118,6 +118,8 @@ export async function seed(url = DATABASE_URL) {
     try {
         await clear(prisma)
         await prisma.applications.create({ data: EXISTING_APPLICATION })
+        await prisma.jev_profile.create({ data: { id: 1, profile_text: '{}', c_pack: '{}', yoe_pack: '{}',
+            yoe_context: '', actor: 'config', updated_at: '2026-01-01T00:00:00.000Z' } })
         for (const { screening, jev, ...p } of POSTINGS) {
             const row = await prisma.job_postings.create({ data: p })
             if (screening) {
@@ -156,6 +158,18 @@ export async function seedEmpty(url = DATABASE_URL) {
     const prisma = client(url)
     try {
         await clear(prisma)
+    } finally {
+        await prisma.$disconnect()
+    }
+}
+
+// A triage override on a seeded posting, as MCP override_triage would write it.
+export async function addOverride(companyName, decision, url = DATABASE_URL) {
+    const prisma = client(url)
+    try {
+        const p = await prisma.job_postings.findFirstOrThrow({ where: { company_name: companyName } })
+        await prisma.job_triage_overrides.create({ data: { job_posting_id: p.id, decision, actor: 'mcp',
+            source_content_revision: p.source_content_revision, created_at: '2026-01-04T00:00:00.000Z' } })
     } finally {
         await prisma.$disconnect()
     }

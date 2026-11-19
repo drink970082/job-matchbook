@@ -1,10 +1,10 @@
 'use client'
 
-import { useCallback, useEffect, useRef, useState } from 'react'
-import { getJobPostings, getJobStageCounts, markJobApplied } from '@/lib/job-actions'
+import { useCallback, useRef, useState } from 'react'
+import { clearTriageOverride, getJobPostings, markJobApplied, setTriageOverride } from '@/lib/job-actions'
 import type { JobViewScope } from '@/lib/job-actions'
-import { DiscoveredJobsTab } from './DiscoveredJobsTab'
-import type { JobTableFilters } from './DiscoveredJobsTable'
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { DiscoveredJobsTable, type JobTableFilters } from './DiscoveredJobsTable'
 import { JobDetailModal } from './JobDetailModal'
 import { ApplyCategoryDialog } from './ApplyCategoryDialog'
 import { toast } from 'sonner'
@@ -12,27 +12,22 @@ import { toast } from 'sonner'
 // Page size for the Discovered Jobs table (must match the /jobs page's initial load,
 // which calls getJobPostings with the action's default size).
 const JOB_PAGE_SIZE = 25
-const DEFAULT_JOB_FILTERS: JobTableFilters = {
-    stage: 'keep',
-    search: '',
-    searchScope: 'metadata',
-    sort: 'created',
-}
+const DEFAULT_JOB_FILTERS: JobTableFilters = { search: '', searchScope: 'metadata' }
 
 interface JobsViewProps {
     initialJobPostings: any[]
     totalJobPostings: number
     categoryOptions: string[]
+    mode: 'jev' | 'screen'
 }
 
 // The /jobs page: the Discovered Jobs table, JD modal and the Mark-applied flow.
-export function JobsView({ initialJobPostings, totalJobPostings, categoryOptions }: JobsViewProps) {
+export function JobsView({ initialJobPostings, totalJobPostings, categoryOptions, mode }: JobsViewProps) {
     const [jobPostings, setJobPostings] = useState<any[]>(initialJobPostings)
     const [totalJobs, setTotalJobs] = useState(totalJobPostings)
     const [jobsLoading, setJobsLoading] = useState(false)
     const [jobsError, setJobsError] = useState(false)
     const [jobFilters, setJobFilters] = useState<JobTableFilters>(DEFAULT_JOB_FILTERS)
-    const [jobCounts, setJobCounts] = useState<Record<string, number> | undefined>(undefined)
     const [jobPage, setJobPage] = useState(0)
     const [selectedJob, setSelectedJob] = useState<any>(null)
     const [isJobDetailOpen, setIsJobDetailOpen] = useState(false)
@@ -49,6 +44,13 @@ export function JobsView({ initialJobPostings, totalJobPostings, categoryOptions
         try {
             const { data, total } = await getJobPostings({ ...filters, page, size: JOB_PAGE_SIZE })
             if (version !== jobRequestVersion.current) return
+            // The last row of a later page was hidden or applied: step back to the new last page.
+            const last = Math.max(0, Math.ceil(total / JOB_PAGE_SIZE) - 1)
+            if (data.length === 0 && page > last) {
+                jobViewRef.current = { filters, page: last }
+                setJobPage(last)
+                return requestJobPostings(filters, last)
+            }
             setJobPostings(data)
             setTotalJobs(total)
             setJobsLoading(false)
@@ -67,10 +69,6 @@ export function JobsView({ initialJobPostings, totalJobPostings, categoryOptions
         const current = jobViewRef.current
         await requestJobPostings(filters ?? current.filters, page ?? current.page)
     }
-
-    useEffect(() => {
-        getJobStageCounts().then(setJobCounts).catch(() => {})
-    }, [])
 
     const handleJobFilterChange = useCallback((newFilters: JobTableFilters) => {
         jobViewRef.current = { filters: newFilters, page: 0 }
@@ -106,18 +104,54 @@ export function JobsView({ initialJobPostings, totalJobPostings, categoryOptions
         const result = await markJobApplied(applyJob.id, category, applyJob.__viewScope)
         if (result.success) {
             toast.success('Marked as applied')
-            getJobStageCounts().then(setJobCounts).catch(() => {})
             setApplyJob(null)
             setSelectedJob(null)
             await refreshJobPostings()
         } else {
             toast.error(result.error)
+            // E.g. the first JEV pass changed which postings are "for you" since this loaded.
+            setApplyJob(null)
+            await refreshJobPostings()
         }
     }
 
+    // Not interested (#207): a triage skip override, actor web, with Undo.
+    // Undo restores an override that applied before (e.g. an MCP keep), else clears it.
+    const hiding = useRef(new Set<number>())
+    const handleNotInterested = async (id: number) => {
+        if (hiding.current.has(id)) return
+        hiding.current.add(id)
+        const before = jobPostings.find((j: any) => j.id === id)?.jev?.override
+        try {
+            const result = await setTriageOverride(id, 'skip', 'Not interested (web)')
+            if (!result.success) return toast.error(result.error)
+            await refreshJobPostings()
+        } finally {
+            hiding.current.delete(id)
+        }
+        toast.success('Hidden: not interested', {
+            action: { label: 'Undo', onClick: async () => {
+                const undo = before?.applies
+                    ? await setTriageOverride(id, before.decision, before.reason ?? undefined)
+                    : await clearTriageOverride(id)
+                if (!undo.success) return toast.error(undo.error)
+                await refreshJobPostings()
+            } },
+        })
+    }
+
     return (
-        <div className="space-y-6">
-            <DiscoveredJobsTab
+        <Card>
+            <CardHeader className="pb-3">
+                <CardTitle className="text-lg">Discovered Jobs</CardTitle>
+                <p className="text-sm text-muted-foreground">
+                    {mode === 'jev'
+                        ? 'Postings JEV marked keep. JEV assesses postings from the last 7 days only, so older ones are not listed.'
+                        : 'No JEV profile is set up: showing postings that passed your hard requirements.'}
+                </p>
+            </CardHeader>
+            <CardContent>
+            <DiscoveredJobsTable
                 data={jobPostings}
                 total={totalJobs}
                 page={jobPage}
@@ -127,9 +161,9 @@ export function JobsView({ initialJobPostings, totalJobPostings, categoryOptions
                 loadError={jobsError}
                 onPageChange={handleJobPageChange}
                 onFilterChange={handleJobFilterChange}
-                counts={jobCounts}
                 onMarkApplied={handleMarkApplied}
                 onViewJD={handleViewJD}
+                onNotInterested={handleNotInterested}
             />
 
             {selectedJob && (
@@ -152,6 +186,7 @@ export function JobsView({ initialJobPostings, totalJobPostings, categoryOptions
                 onConfirm={handleConfirmApply}
                 onClose={() => setApplyJob(null)}
             />
-        </div>
+            </CardContent>
+        </Card>
     )
 }

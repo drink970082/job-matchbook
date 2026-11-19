@@ -9,7 +9,8 @@ test.beforeEach(async () => {
 
 test('the discovered queue shows an empty state when there are no postings', async ({ page }) => {
     await page.goto('/jobs')
-    await expect(page.getByText('No jobs in inventory yet.')).toBeVisible()
+    await expect(page.getByText('No postings for you yet.')).toBeVisible()
+    await expect(page.getByText(/passed your hard requirements/)).toBeVisible()
 })
 
 test('/ lands on Applications, each tab is its own route, and a fresh install shows the setup checklist', async ({ page }) => {
