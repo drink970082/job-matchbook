@@ -57,8 +57,8 @@ def seed_new(conn, ids, *, description=None):
 
 
 def seed_scored(conn, scores, *, detail=None, description=None):
-    """scores: the external ids to seed (a dict's values are ignored; the score column
-    is gone). Leaves those rows in 'scored'.
+    """scores: the external ids to seed (a dict's values are ignored). Leaves those
+    rows in 'scored'.
 
     Only touches the rows it seeds (matched by external_id), so it composes with
     other seed helpers in the same db without clobbering their rows. Rows inherit

@@ -126,7 +126,7 @@ def test_null_location_round_trips(db_path):
 
 def test_get_by_status_orders_by_id(db_path):
     conn = db.connect(db_path)
-    seed_scored(conn, {"a": 90, "b": 90, "c": 40}, detail={})
+    seed_scored(conn, ["a", "b", "c"], detail={})
     rows = db.get_by_status(conn, "scored")
     assert [r["external_id"] for r in rows] == ["a", "b", "c"]
 

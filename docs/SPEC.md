@@ -724,15 +724,14 @@ worker modules are pure and dependency-injected; real services are wired only in
   unscored states, no fit assessment or application link, oldest attempted first),
   `save_source_observation` (transactionally rechecks eligibility and exact identity;
   records inconclusive/closed/available outcomes; changes assessment inputs only after
-  validation), `get_by_status` (selects rows by pipeline status, best-scored first),
+  validation), `get_by_status` (selects rows by pipeline status, oldest first),
   `mark_expired`, `touch`. Watchlist + feed
   helpers: `get_watchlist` (skips a `custom`/`browser` row with malformed recipe JSON,
   but keeps a platform-source row — it fetches without a recipe), `count_watchlist`,
   `import_watchlist` (idempotent), `record_unresolved` (upsert on `url`),
   `delete_unresolved` (clears a row once its posting is re-ingested),
   `existing_external_ids`. Standalone screening selects fresh eligible rows using the
-  existing queue order: undemoted rows first, then recency and descending id within each
-  priority group. Provider errors follow oldest-attempt-first; successful results stay cached until an
+  existing queue order: most recently updated first, then descending id. Provider errors follow oldest-attempt-first; successful results stay cached until an
   explicit one-shot re-screen, and `save_screening` re-checks eligibility inside a
   transaction before writing. Issues no DDL.
 - **`screening/` — the hard-requirements screen.** The provider-neutral package owns
@@ -1332,7 +1331,9 @@ worker modules are pure and dependency-injected; real services are wired only in
   confirmed source state, seen/attempt/check times, safe error category, content revision,
   and independent fit/screen freshness (`not_assessed`, `current`, `stale`, `unknown`, or
   `provider_error`). A failed newer attempt does not replace the last conclusive check.
-  They also expose a derived `triage_summary` with one of `rule_disqualified`,
+  `get_job` and `get_ats_record` return no fit-scorer columns once the deployed DB is
+  pushed (#174); `promotion_dismissed` is no longer an entity. `list_jobs` rows also
+  expose a derived `triage_summary` with one of `rule_disqualified`,
   `screen_disqualified`, `candidate`, or `needs_review`, plus bounded reason and
   provenance. `list_jobs` accepts an optional `triage_status` filter, evaluated before
   pagination and included in cursor scope. `get_ats_overview.job_triage_counts` partitions

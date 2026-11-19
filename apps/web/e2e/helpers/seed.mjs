@@ -22,7 +22,7 @@ export const POSTINGS = [
             'view and includes operating production services, writing design documents, reviewing ' +
             'code, mentoring engineers, and partnering with security and product teams. ' +
             'SYNTHETIC FULL JD END.',
-        score: null, score_detail: null,
+        score_detail: null,
         pipeline_status: 'new', created_at: '2026-01-03T00:00:00.000Z',
     },
     {
@@ -33,7 +33,7 @@ export const POSTINGS = [
             'We are looking for a Backend Engineer to design, build, and operate backend ' +
             "systems using Python and AWS. You'll partner with the platform team to scale " +
             'services, write tests, and ship production code that supports our core product.',
-        score: null, score_detail: null, source_content_revision: 1,
+        score_detail: null, source_content_revision: 1,
         pipeline_status: 'new', created_at: '2026-01-02T00:00:00.000Z',
         screening: '{"disqualified":false,"screen":{"location":{"pass":true}}}',
         jev: { verdict: 'keep', reasons_json: '[]' },
@@ -46,7 +46,7 @@ export const POSTINGS = [
             'Train and deploy machine learning models for production workloads, working ' +
             'across the full lifecycle from data pipelines to monitoring. You will ' +
             'collaborate with backend and data teams to ship reliable, well-tested models at scale.',
-        score: null, score_detail: null, source_content_revision: 1,
+        score_detail: null, source_content_revision: 1,
         pipeline_status: 'new', created_at: '2026-01-01T00:00:00.000Z',
         screening: '{"disqualified":false,"screen":{"location":{"pass":true}}}',
         jev: { verdict: 'skip', reasons_json: '["preference_weak"]' },
@@ -55,7 +55,7 @@ export const POSTINGS = [
         source: 'ashby', external_id: 'e2e-3', company_slug: 'initech', company_name: 'Initech Cloud',
         job_title: 'Platform Engineer', location: 'Austin',
         job_url: 'https://initech.example/jobs/3', description: 'Run the platform.',
-        score: null, score_detail: null,
+        score_detail: null,
         pipeline_status: 'discarded', created_at: '2026-01-01T00:00:00.000Z',
         screening: '{"disqualified":true,"disqualification_reason":"degree: requires a PhD","screen":{"degree":{"pass":false,"note":"requires a PhD"}}}',
     },
@@ -141,7 +141,7 @@ export async function seed(url = DATABASE_URL) {
                 job_title: `Synthetic Engineer ${String(i).padStart(2, '0')}`,
                 location: 'Remote', job_url: `https://synthetic.example/jobs/old-${i}`,
                 description: `Synthetic older listing ${i}.`,
-                score: 72, score_detail: null, pipeline_status: 'scored',
+                score_detail: null, pipeline_status: 'scored',
                 created_at: `2025-12-${String(31 - Math.floor((i - 1) / 1)).padStart(2, '0')}T00:00:00.000Z`,
             } })
         }
