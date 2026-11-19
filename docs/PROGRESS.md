@@ -8,11 +8,6 @@ behavior. Completed work belongs in CHANGELOG, not this queue.
 
 ## In flight
 
-- **Triage override — deployed, acceptance open** `[MCP · S]` (#155, epic #152).
-  `job_triage_overrides` is pushed to production; web and the MCP tunnel run it. Open:
-  in ChatGPT, "restore that one" on a JEV skip (`list_jobs jev='skip'`) makes it listed
-  under the default keep filter. The Web/Python parity test is carried on #158.
-
 - **MCP source tools — deployed, acceptance open** `[MCP · S]` (#156, epic #152).
   `audit_log` is pushed to production, web and the MCP tunnel run the new code. Open:
   in ChatGPT, "track company X" adds a known-ATS board, the next worker pass fetches
