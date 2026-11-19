@@ -6,7 +6,7 @@ import types
 import pytest
 
 from ats_worker.screening import backends as backends_screen
-from ats_worker.model_errors import ModelResponseError as ScoreError
+from ats_worker.screening.errors import ModelResponseError as ScoreError
 
 
 def _fake_anthropic(captured, text='{"screen": {}}'):

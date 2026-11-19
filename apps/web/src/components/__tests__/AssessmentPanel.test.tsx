@@ -9,7 +9,7 @@ describe('isolated synthetic assessment panel', () => {
     it('renders the real Python CLI projection through TypeScript validation', () => {
         const result = spawnSync('python3', [
             '-m',
-            'ats_worker.preselection_view_cli',
+            'ats_worker.preselection.view_cli',
             '--fixture',
             'tests/fixtures/preselection_assessment_contract.json',
             '--case',
@@ -35,7 +35,7 @@ describe('isolated synthetic assessment panel', () => {
     it('visibly labels every shortened field in the real bounded CLI projection', () => {
         const result = spawnSync('python3', [
             '-m',
-            'ats_worker.preselection_view_cli',
+            'ats_worker.preselection.view_cli',
             '--fixture',
             'tests/fixtures/preselection_assessment_contract.json',
             '--case',

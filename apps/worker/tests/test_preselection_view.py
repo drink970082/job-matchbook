@@ -9,7 +9,7 @@ from pathlib import Path
 
 import pytest
 
-from ats_worker.preselection_view import project_assessment_view
+from ats_worker.preselection.view import project_assessment_view
 
 
 WORKER_ROOT = Path(__file__).resolve().parents[1]
@@ -21,7 +21,7 @@ def test_fixture_cli_projects_current_synthetic_assessment_to_bounded_view():
         [
             sys.executable,
             "-m",
-            "ats_worker.preselection_view_cli",
+            "ats_worker.preselection.view_cli",
             "--fixture",
             str(FIXTURE),
             "--case",
@@ -124,7 +124,7 @@ def test_fixture_cli_keeps_saved_success_when_latest_attempt_state_is_unhashable
         [
             sys.executable,
             "-m",
-            "ats_worker.preselection_view_cli",
+            "ats_worker.preselection.view_cli",
             "--fixture",
             str(FIXTURE),
             "--case",
@@ -147,8 +147,8 @@ def test_fixture_cli_keeps_saved_success_when_latest_attempt_state_is_unhashable
 def test_projection_and_cli_import_without_runtime_or_provider_modules():
     code = """
 import sys
-import ats_worker.preselection_view
-import ats_worker.preselection_view_cli
+import ats_worker.preselection.view
+import ats_worker.preselection.view_cli
 for forbidden in ('requests', 'sqlite3', 'ats_worker.run', 'ats_worker.config', 'ats_worker.score'):
     assert forbidden not in sys.modules, forbidden
 """

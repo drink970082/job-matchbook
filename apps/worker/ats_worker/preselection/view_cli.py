@@ -9,7 +9,7 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from .preselection_view import project_assessment_view
+from .view import project_assessment_view
 
 _CASE_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")
 

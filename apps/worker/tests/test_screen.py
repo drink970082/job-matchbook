@@ -10,7 +10,7 @@ import requests
 from ats_worker.screening import engine as screen_engine
 from ats_worker.screening import prompts as screen_prompts
 from ats_worker import screening
-from ats_worker.model_errors import ModelResponseError
+from ats_worker.screening.errors import ModelResponseError
 
 
 class FakeResponse:

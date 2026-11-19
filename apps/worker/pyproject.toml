@@ -20,9 +20,10 @@ branch = true
 # Single source of truth for the coverage floor: both `make test-coverage` and CI
 # read it (CI does NOT pass --cov-fail-under), so the gate is identical and the
 # ratchet lives in one place. Bump as coverage grows. (run.main()/cron + the lazy
-# real-adapter bodies are legitimately uncovered by the hermetic suite.) 84, not 85:
-# removing the near-fully-covered fit scorer took ~1 point off the total; the
-# uncovered remainder is mostly preselection/shadow.py and mcp/server.py (JEV).
+# real-adapter bodies are legitimately uncovered by the hermetic suite.) The total
+# assumes requirements-mcp.txt is installed, as CI does: without it the two MCP
+# protocol test files skip and the total drops about 1.5 points, below the floor.
+# The uncovered remainder is mostly preselection/shadow.py and mcp/server.py.
 fail_under = 84
 show_missing = true
 exclude_lines = [

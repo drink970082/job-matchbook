@@ -1,7 +1,7 @@
 """Active standalone screening seam, independent of legacy fit scoring."""
 from __future__ import annotations
 
-from ats_worker.model_errors import ModelResponseError
+from .errors import ModelResponseError
 
 from .backends import (
     DEFAULT_CLAUDE_SCREEN_MODEL, DEFAULT_CODEX_SCREEN_MODEL,

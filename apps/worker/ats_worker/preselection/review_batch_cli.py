@@ -8,7 +8,7 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from ats_worker.review_batch import (
+from .review_batch import (
     ReviewBatchError,
     build_review_batch,
     page_review_batch,

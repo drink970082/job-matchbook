@@ -704,7 +704,7 @@ worker modules are pure and dependency-injected; real services are wired only in
     to an internal target is refused mid-chain (→ unresolvable/`None`). Same
     `get_redirect_safe` guards the `custom` recipe fetch; the `browser` executor validates
     each navigation URL and discards a render whose post-redirect `page.url` is non-public.
-- **`review_batch.py` / `review_batch_cli.py` — offline fixed-batch preparation.** Consume
+- **`preselection/review_batch.py` / `preselection/review_batch_cli.py` — offline fixed-batch preparation.** Consume
   only an explicitly marked synthetic pool, injected cutoff/resume window and complete
   caller policy. The pure engine filters confirmed applications/manual terminal actions
   and confirmed source closure, routes unknown/stale evidence to unresolved work, groups
@@ -1348,8 +1348,8 @@ worker modules are pure and dependency-injected; real services are wired only in
   writing. An onboarding prompt waits on preferences moving into the DB (#157).
   MCP protocol tests are mandatory in CI, which installs the optional pinned SDK.
 
-- **Offline synthetic assessment projection** (`preselection_view.py`,
-  `preselection_view_cli.py`). Given an explicitly supplied, schema-1 synthetic snapshot,
+- **Offline synthetic assessment projection** (`preselection/view.py`,
+  `preselection/view_cli.py`). Given an explicitly supplied, schema-1 synthetic snapshot,
   project a bounded view with separate assessment and latest-attempt states. Compare
   source revision/content identity, context, rubric/policy/question/prompt/schema, input
   variant and provider/model identity; stale or incomplete evidence is never a
@@ -1360,8 +1360,8 @@ worker modules are pure and dependency-injected; real services are wired only in
   visibly labels every displayed shortened value. The explicit fixture CLI has no
   config/profile/database defaults and is not wired into `run.py`, inventory or MCP.
 
-- **Offline synthetic preselection rehearsal** (`preselection_rehearsal.py`,
-  `preselection_rehearsal_cli.py`). An explicit scenario, assessment fixture, candidate
+- **Offline synthetic preselection rehearsal** (`preselection/rehearsal.py`,
+  `preselection/rehearsal_cli.py`). An explicit scenario, assessment fixture, candidate
   pool fixture and output path drive the real assessment projection and review-batch
   modules through a fixture-backed read adapter. The report records page and per-job JD
   completeness/error evidence, characters, injected elapsed time, source/application
@@ -2130,7 +2130,7 @@ CI guard (`tools/check_schema_drift.mjs`, `make check-schema`).
   `_run_scheduler` installs the handler that record wants (`basicConfig`, INFO,
   timestamped) in the daemon branch only, so a bare import still configures nothing.
 
-**Provider-free review-batch replay.** The offline `review_batch.py` path accepts only
+**Provider-free review-batch replay.** The offline `preselection/review_batch.py` path accepts only
 an explicit synthetic schema-1 pool. Its policy requires K and allocations whose sum is
 K, a deterministic tie rule, seed, role/age/retry/overload parameters, and candidate,
 replacement, work and time caps. New arrivals use an explicit UTC half-open

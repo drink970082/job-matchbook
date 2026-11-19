@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pytest
 
-from ats_worker.review_batch import (
+from ats_worker.preselection.review_batch import (
     ReviewBatchError,
     build_review_batch,
     greedy_role_coverage,
@@ -541,7 +541,7 @@ def test_real_cli_revalidation_preserves_an_unchanged_duplicate_state_conflict(t
 
     def run(action):
         completed = subprocess.run(
-            [sys.executable, "-m", "ats_worker.review_batch_cli", "--action", action,
+            [sys.executable, "-m", "ats_worker.preselection.review_batch_cli", "--action", action,
              "--state", str(state_path), "--fixture", str(fixture_path),
              *(["--elapsed-seconds", "0"] if action == "revalidate" else [])],
             cwd=worker_root, env=env, text=True, capture_output=True, check=False,
@@ -645,7 +645,7 @@ def test_revalidation_work_cap_counts_candidate_search_and_sorting():
 
 
 def test_revalidation_time_cap_short_circuits_before_candidate_validation(monkeypatch):
-    import ats_worker.review_batch as review_batch
+    import ats_worker.preselection.review_batch as review_batch
 
     scoped_policy = policy(
         ranked_slots=1, audit_slots=0, unresolved_slots=0,
@@ -689,7 +689,7 @@ def test_real_cli_persisted_revalidation_keeps_history_and_cumulative_caps(tmp_p
         fixture_path.write_text(json.dumps(fixture(candidates, policy=scoped_policy)))
 
     def run(action, elapsed=None):
-        args = [sys.executable, "-m", "ats_worker.review_batch_cli", "--action", action,
+        args = [sys.executable, "-m", "ats_worker.preselection.review_batch_cli", "--action", action,
                 "--state", str(state_path)]
         if action in {"create", "revalidate"}:
             args.extend(["--fixture", str(fixture_path)])
@@ -751,7 +751,7 @@ def test_real_cli_processes_empty_small_and_over_200_synthetic_pools(tmp_path, c
     fixture_path.write_text(json.dumps(value))
     env = {**os.environ, "PYTHONPATH": str(worker_root)}
     completed = subprocess.run(
-        [sys.executable, "-m", "ats_worker.review_batch_cli", "--action", "create",
+        [sys.executable, "-m", "ats_worker.preselection.review_batch_cli", "--action", "create",
          "--fixture", str(fixture_path), "--state", str(state_path)],
         cwd=worker_root,
         env=env,
@@ -770,7 +770,7 @@ def test_real_cli_processes_empty_small_and_over_200_synthetic_pools(tmp_path, c
 def test_cli_requires_explicit_fixture_and_state_paths(tmp_path):
     worker_root = Path(__file__).parents[1]
     completed = subprocess.run(
-        [sys.executable, "-m", "ats_worker.review_batch_cli"],
+        [sys.executable, "-m", "ats_worker.preselection.review_batch_cli"],
         cwd=worker_root,
         text=True,
         capture_output=True,
@@ -788,7 +788,7 @@ def test_cli_errors_do_not_echo_synthetic_private_text(tmp_path):
     fixture_path.write_text(json.dumps(value))
     env = {**os.environ, "PYTHONPATH": str(worker_root)}
     completed = subprocess.run(
-        [sys.executable, "-m", "ats_worker.review_batch_cli", "--action", "create",
+        [sys.executable, "-m", "ats_worker.preselection.review_batch_cli", "--action", "create",
          "--fixture", str(fixture_path), "--state", str(state_path)],
         cwd=worker_root,
         env=env,
@@ -842,8 +842,8 @@ def guarded_path_open(self, *args, **kwargs):
     return original_path_open(self, *args, **kwargs)
 Path.open = guarded_path_open
 
-import ats_worker.review_batch
-import ats_worker.review_batch_cli
+import ats_worker.preselection.review_batch
+import ats_worker.preselection.review_batch_cli
 bad = set(forbidden).intersection(sys.modules)
 assert not bad, bad
 '''
@@ -860,7 +860,7 @@ def test_committed_fixture_runs_real_projection_and_keeps_text_out_of_the_view(t
     state_path = tmp_path / "fixture-state.json"
     env = {**os.environ, "PYTHONPATH": str(worker_root)}
     completed = subprocess.run(
-        [sys.executable, "-m", "ats_worker.review_batch_cli", "--action", "create",
+        [sys.executable, "-m", "ats_worker.preselection.review_batch_cli", "--action", "create",
          "--fixture", str(fixture_path), "--state", str(state_path)],
         cwd=worker_root,
         env=env,
@@ -879,7 +879,7 @@ def test_committed_fixture_runs_real_projection_and_keeps_text_out_of_the_view(t
 
     cursor = output["first_page"]["next_cursor"]
     resumed = subprocess.run(
-        [sys.executable, "-m", "ats_worker.review_batch_cli", "--action", "page",
+        [sys.executable, "-m", "ats_worker.preselection.review_batch_cli", "--action", "page",
          "--state", str(state_path), "--cursor", cursor],
         cwd=worker_root,
         env=env,
@@ -901,7 +901,7 @@ def test_committed_fixture_runs_real_projection_and_keeps_text_out_of_the_view(t
     changed_path = tmp_path / "changed-pool.json"
     changed_path.write_text(json.dumps(changed_fixture))
     revalidated = subprocess.run(
-        [sys.executable, "-m", "ats_worker.review_batch_cli", "--action", "revalidate",
+        [sys.executable, "-m", "ats_worker.preselection.review_batch_cli", "--action", "revalidate",
          "--fixture", str(changed_path), "--state", str(state_path), "--elapsed-seconds", "1"],
         cwd=worker_root,
         env=env,

@@ -154,6 +154,19 @@ tool invocation before claiming the connection is verified. Start with the insta
 client's `help quickstart` if its release differs from the guide; do not reuse a profile
 intended for another server.
 
+## Module map
+
+- **Entry points:** `run.py` (pipeline pass / daemon), `doctor.py` (preflight),
+  `mcp/` (`python -m ats_worker.mcp`, the MCP server).
+- **Pipeline stages:** `fetch/` (board adapters + recipe executors), `feed/`
+  (discovery feeds), `screening/` (hard-requirement screen + backends), `jev.py`
+  (keep/skip filter, ranks via `ranking/`), orchestrated by `pipeline.py`.
+- **Shared infrastructure:** `config.py`, `db.py`, `util.py`, `usage.py` (quota
+  telemetry), `source_lifecycle.py`, `prompts/`.
+- **Offline, provider-free:** `preselection/` (profile, replay, review batches,
+  assessment view, rehearsal and their `*_cli.py` entry points). Nothing on the
+  production path imports it.
+
 ## Tests
 
 ```bash
