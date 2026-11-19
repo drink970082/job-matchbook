@@ -22,6 +22,8 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 
 ### Changed
 
+- **JEV assesses only the last 7 days of postings** (`posted_at`, else `created_at`),
+  instead of draining the ~5,900 older screened postings; those stay `unassessed`.
 - **Node 20 (EOL) -> Node 24 LTS** in CI and the web image (`node:24-alpine`, pinned).
 
 ### Fixed

@@ -354,19 +354,22 @@ _JEV_ELIGIBLE = (
 )
 
 
-def get_jev_candidates(conn: sqlite3.Connection, policy_sha: str) -> list[dict]:
-    """Screened, not-disqualified `new` postings needing a JEV verdict under `policy_sha`.
+def get_jev_candidates(conn: sqlite3.Connection, policy_sha: str,
+                       posted_since: str) -> list[dict]:
+    """Screened, not-disqualified `new` postings needing a JEV verdict under `policy_sha`,
+    posted on or after `posted_since` (YYYY-MM-DD; posted_at, else created_at).
 
     Fresh work first (no row, or a row bound to another policy or source revision),
     newest-first; then same-binding provider errors, oldest attempt first.
     """
+    recent = "substr(COALESCE(p.posted_at, p.created_at), 1, 10) >= ?"
     stale = ("(j.id IS NULL OR j.policy_sha256 IS NOT ? "
              "OR j.source_content_revision IS NOT p.source_content_revision)")
     fresh = conn.execute(
         "SELECT p.* FROM job_postings p JOIN job_screenings s ON s.job_posting_id=p.id "
         "LEFT JOIN job_jev_assessments j ON j.job_posting_id=p.id "
-        f"WHERE {_JEV_ELIGIBLE} AND {stale} "
-        "ORDER BY COALESCE(p.updated_at,'') DESC, p.id DESC", (policy_sha,)).fetchall()
+        f"WHERE {_JEV_ELIGIBLE} AND {stale} AND {recent} "
+        "ORDER BY COALESCE(p.updated_at,'') DESC, p.id DESC", (policy_sha, posted_since)).fetchall()
     errors = conn.execute(
         "SELECT p.* FROM job_postings p JOIN job_screenings s ON s.job_posting_id=p.id "
         "JOIN job_jev_assessments j ON j.job_posting_id=p.id "
@@ -375,7 +378,8 @@ def get_jev_candidates(conn: sqlite3.Connection, policy_sha: str) -> list[dict]:
         # re-queues it as fresh work above); retrying it would only burn limit slots.
         # Raising jev.MAX_REQUEST_BYTES does not re-queue these: bump RULE_VERSION too.
         "AND j.error_category IS NOT 'request_too_large' "
-        "ORDER BY j.last_attempted_at ASC, p.id ASC", (policy_sha,)).fetchall()
+        f"AND {recent} "
+        "ORDER BY j.last_attempted_at ASC, p.id ASC", (policy_sha, posted_since)).fetchall()
     return [dict(row) for row in (*fresh, *errors)]
 
 
