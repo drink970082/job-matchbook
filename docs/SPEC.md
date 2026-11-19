@@ -1331,9 +1331,8 @@ worker modules are pure and dependency-injected; real services are wired only in
   confirmed source state, seen/attempt/check times, safe error category, content revision,
   and independent fit/screen freshness (`not_assessed`, `current`, `stale`, `unknown`, or
   `provider_error`). A failed newer attempt does not replace the last conclusive check.
-  `get_job` and `get_ats_record` return no fit-scorer columns once the deployed DB is
-  pushed (#174); `promotion_dismissed` is no longer an entity. `list_jobs` rows also
-  expose a derived `triage_summary` with one of `rule_disqualified`,
+  `get_job` and `get_ats_record` return no fit-scorer columns (#174), and
+  `promotion_dismissed` is not an entity. `list_jobs` rows also expose a derived `triage_summary` with one of `rule_disqualified`,
   `screen_disqualified`, `candidate`, or `needs_review`, plus bounded reason and
   provenance. `list_jobs` accepts an optional `triage_status` filter, evaluated before
   pagination and included in cursor scope. `get_ats_overview.job_triage_counts` partitions
