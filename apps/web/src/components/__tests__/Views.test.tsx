@@ -81,9 +81,11 @@ test('Not interested writes a skip override and offers Undo', async () => {
     const row = { id: 7, source: 's', company_name: 'Acme', job_title: 'Eng', job_url: 'https://x.test/7', pipeline_status: 'new' }
     ;(jobActions.setTriageOverride as jest.Mock).mockResolvedValue({ success: true })
     render(<JobsView {...jobProps} initialJobPostings={[row]} totalJobPostings={1} />)
-    fireEvent.click(screen.getByRole('button', { name: 'Not interested' }))
-    await waitFor(() => expect(jobActions.setTriageOverride).toHaveBeenCalledWith(7, 'skip', 'Not interested (web)'))
+    fireEvent.click(screen.getByRole('button', { name: 'Not interested: Eng' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Not interested: Eng' }))    // double click: one write
     await waitFor(() => expect(jobActions.getJobPostings).toHaveBeenCalled())
+    expect(jobActions.setTriageOverride).toHaveBeenCalledTimes(1)
+    expect(jobActions.setTriageOverride).toHaveBeenCalledWith(7, 'skip', 'Not interested (web)')
 })
 
 test('overlapping inventory requests never show stale rows under newer filters', async () => {

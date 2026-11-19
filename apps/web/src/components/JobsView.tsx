@@ -44,6 +44,13 @@ export function JobsView({ initialJobPostings, totalJobPostings, categoryOptions
         try {
             const { data, total } = await getJobPostings({ ...filters, page, size: JOB_PAGE_SIZE })
             if (version !== jobRequestVersion.current) return
+            // The last row of a later page was hidden or applied: step back to the new last page.
+            const last = Math.max(0, Math.ceil(total / JOB_PAGE_SIZE) - 1)
+            if (data.length === 0 && page > last) {
+                jobViewRef.current = { filters, page: last }
+                setJobPage(last)
+                return requestJobPostings(filters, last)
+            }
             setJobPostings(data)
             setTotalJobs(total)
             setJobsLoading(false)
@@ -102,17 +109,31 @@ export function JobsView({ initialJobPostings, totalJobPostings, categoryOptions
             await refreshJobPostings()
         } else {
             toast.error(result.error)
+            // E.g. the first JEV pass changed which postings are "for you" since this loaded.
+            setApplyJob(null)
+            await refreshJobPostings()
         }
     }
 
     // Not interested (#207): a triage skip override, actor web, with Undo.
+    // Undo restores an override that applied before (e.g. an MCP keep), else clears it.
+    const hiding = useRef(new Set<number>())
     const handleNotInterested = async (id: number) => {
-        const result = await setTriageOverride(id, 'skip', 'Not interested (web)')
-        if (!result.success) return toast.error(result.error)
-        await refreshJobPostings()
+        if (hiding.current.has(id)) return
+        hiding.current.add(id)
+        const before = jobPostings.find((j: any) => j.id === id)?.jev?.override
+        try {
+            const result = await setTriageOverride(id, 'skip', 'Not interested (web)')
+            if (!result.success) return toast.error(result.error)
+            await refreshJobPostings()
+        } finally {
+            hiding.current.delete(id)
+        }
         toast.success('Hidden: not interested', {
             action: { label: 'Undo', onClick: async () => {
-                const undo = await clearTriageOverride(id)
+                const undo = before?.applies
+                    ? await setTriageOverride(id, before.decision, before.reason ?? undefined)
+                    : await clearTriageOverride(id)
                 if (!undo.success) return toast.error(undo.error)
                 await refreshJobPostings()
             } },

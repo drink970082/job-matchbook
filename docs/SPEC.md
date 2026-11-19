@@ -1438,7 +1438,7 @@ worker modules are pure and dependency-injected; real services are wired only in
   unknown `status` is a `400`, where the UI falls back to `Applied`), `PATCH
   applications/{id}` (`updateApplicationDetails`; omitted fields unchanged), `POST
   applications/{id}/status` `{status, date?}` (`updateApplicationStatus`), `POST
-  jobs/{id}/applied` `{category?}` (`markJobApplied`, scope `bucket=all`), `POST
+  jobs/{id}/applied` `{category?}` (`markJobApplied`, scope `{stage: 'all'}`), `POST
   watchlist` / `DELETE watchlist/{id}` (`addWatchedCompany` / `removeWatchedCompany`;
   the delete returns the removed row), `POST jobs/{id}/triage` `{decision, reason?}` /
   `DELETE jobs/{id}/triage` (`setTriageOverride` / `clearTriageOverride`: one override
@@ -1469,9 +1469,9 @@ worker modules are pure and dependency-injected; real services are wired only in
     remaining history), `getKPIs`.
   - *Charts:* `getStatusFlow` (Sankey transitions), `getTimelineData` (heatmap),
     `getCategoryData` (donut).
-  - *Discovered jobs:* `getJobPostings` defaults to `bucket=all`, a direct inventory
-    list/count that excludes only terminal `removed` rows and orders by
-    `created_at desc, id desc`. Metadata search is the default; opt-in `all_text` includes
+  - *Discovered jobs:* `getJobPostings` defaults to `stage: 'for_you'` (§9 "Postings
+    for you"), a direct list/count that always excludes terminal `removed` rows and orders
+    by `posted_at desc, id desc`. Metadata search is the default; opt-in `all_text` includes
     descriptions with literal `%`, `_` and `!` matching. Screen outcome filters use the
     standalone screening row and shared five-value contract, with reasons/provenance
     summarized separately from legacy fit-record evidence. Inventory search and outcome
@@ -1881,7 +1881,7 @@ to other adapters.
   JEV is configured (a `jev_profile` row and at least one assessment), else triage
   `candidate` (passed the hard requirements), so an install without JEV does not see an
   empty list. `getJobsMode` reports which; the Jobs nav badge counts this view's rows
-  first fetched in the last 24h. `postedWithin` (1 / 7 / 30) bounds `posted_at`; the only
+  first fetched in the last 24h. `postedWithin` (1 / 7 / 30) bounds `posted_at` in whole UTC days (1 = posted today or yesterday); the only
   sort is newest posted. The web never lists filtered-out postings; MCP keeps the full
   picture.
 

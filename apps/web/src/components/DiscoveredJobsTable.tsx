@@ -57,15 +57,17 @@ interface DiscoveredJobsTableProps {
 }
 
 const WITHIN: { value: string; label: string }[] = [
-    { value: '', label: 'Any time' }, { value: '1', label: 'Past 24 hours' },
+    { value: '', label: 'Any time' }, { value: '1', label: 'Posted today or yesterday' },
     { value: '7', label: 'Past 7 days' }, { value: '30', label: 'Past 30 days' },
 ]
 
-// "3d ago" from a YYYY-MM-DD posted date (UTC days, matching how posted_at is stored).
+// "3d ago" from a YYYY-MM-DD posted date, counted in the viewer's calendar days.
 export function postedAgo(posted: string | null | undefined, now = Date.now()): string {
-    const t = posted ? Date.parse(posted.slice(0, 10)) : NaN
-    if (Number.isNaN(t)) return ''
-    const days = Math.floor((now - t) / 86_400_000)
+    const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(posted ?? '')
+    if (!m) return ''
+    const today = new Date(now)
+    const days = Math.round((Date.UTC(today.getFullYear(), today.getMonth(), today.getDate())
+        - Date.UTC(+m[1], +m[2] - 1, +m[3])) / 86_400_000)
     return days <= 0 ? 'today' : `${days}d ago`
 }
 
@@ -119,30 +121,34 @@ export function DiscoveredJobsTable({
                         ) : data.map((job) => (
                             <TableRow key={job.id}>
                                 <TableCell className="whitespace-normal break-words">
-                                    <a href={safeHref(job.job_url)} target="_blank" rel="noopener noreferrer" className="font-medium hover:underline">
-                                        {job.job_title}
-                                    </a>
+                                    {safeHref(job.job_url) === '#' ? <span className="font-medium">{job.job_title}</span> : (
+                                        <a href={job.job_url} target="_blank" rel="noopener noreferrer" className="font-medium hover:underline">
+                                            {job.job_title}
+                                        </a>
+                                    )}
                                 </TableCell>
                                 <TableCell className="whitespace-normal break-words">{job.company_name}</TableCell>
                                 <TableCell className="whitespace-normal break-words text-muted-foreground">{job.location}</TableCell>
                                 <TableCell className="text-muted-foreground" title={job.posted_at ?? undefined}>{postedAgo(job.posted_at)}</TableCell>
                                 <TableCell className="text-right">
                                     <div className="flex justify-end gap-0.5">
-                                        <Button asChild variant="ghost" size="icon" className="h-7 w-7" title="Apply">
-                                            <a href={safeHref(job.job_url)} target="_blank" rel="noopener noreferrer" aria-label="Apply">
-                                                <ExternalLink className="h-3.5 w-3.5" />
-                                            </a>
-                                        </Button>
+                                        {safeHref(job.job_url) !== '#' && (
+                                            <Button asChild variant="ghost" size="icon" className="h-7 w-7" title="Apply">
+                                                <a href={job.job_url} target="_blank" rel="noopener noreferrer" aria-label={`Apply: ${job.job_title}`}>
+                                                    <ExternalLink className="h-3.5 w-3.5" />
+                                                </a>
+                                            </Button>
+                                        )}
                                         <Button variant="ghost" size="icon" className="h-7 w-7 text-emerald-600 hover:text-emerald-600"
-                                            title="Mark applied" aria-label="Mark applied" onClick={() => onMarkApplied(job.id, filters)}>
+                                            title="Mark applied" aria-label={`Mark applied: ${job.job_title}`} onClick={() => onMarkApplied(job.id, filters)}>
                                             <CheckCircle2 className="h-3.5 w-3.5" />
                                         </Button>
                                         <Button variant="ghost" size="icon" className="h-7 w-7" title="Not interested"
-                                            aria-label="Not interested" onClick={() => onNotInterested(job.id)}>
+                                            aria-label={`Not interested: ${job.job_title}`} onClick={() => onNotInterested(job.id)}>
                                             <EyeOff className="h-3.5 w-3.5" />
                                         </Button>
                                         <Button variant="ghost" size="icon" className="h-7 w-7" title="View JD"
-                                            aria-label="View JD" onClick={() => onViewJD(job.id, filters)}>
+                                            aria-label={`View JD: ${job.job_title}`} onClick={() => onViewJD(job.id, filters)}>
                                             <FileText className="h-3.5 w-3.5" />
                                         </Button>
                                     </div>

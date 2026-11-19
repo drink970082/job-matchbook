@@ -7,7 +7,7 @@ test.beforeEach(async () => {
 
 test('marking a posting applied removes it from the list and adds it to Applications', async ({ page }) => {
     await page.goto('/jobs')
-    await page.locator('tr', { hasText: 'Acme Robotics' }).getByRole('button', { name: 'Mark applied' }).click()
+    await page.locator('tr', { hasText: 'Acme Robotics' }).getByRole('button', { name: /^Mark applied/ }).click()
     // Confirm in the category dialog (defaults to the first category).
     await page.getByRole('dialog').getByRole('button', { name: 'Mark Applied' }).click()
     await expect(page.locator('tr', { hasText: 'Acme Robotics' })).toHaveCount(0)

@@ -34,7 +34,7 @@ function renderTable(overrides: Partial<React.ComponentProps<typeof DiscoveredJo
 }
 
 test('postedAgo renders a relative age', () => {
-  const now = Date.parse('2026-06-04T12:00:00Z')
+  const now = new Date(2026, 5, 4, 23, 30).getTime()   // local late evening is still today
   expect(postedAgo('2026-06-01', now)).toBe('3d ago')
   expect(postedAgo('2026-06-04', now)).toBe('today')
   expect(postedAgo(null, now)).toBe('')
@@ -45,20 +45,20 @@ test('a row is a job-board row: title link, company, location, Apply via safeHre
   expect(screen.getByRole('link', { name: 'Backend Engineer' })).toHaveAttribute('href', 'https://acme.example/jobs/1')
   expect(screen.getByText('Acme')).toBeInTheDocument()
   expect(screen.getByText('NYC')).toBeInTheDocument()
-  const applies = screen.getAllByRole('link', { name: 'Apply' })
-  expect(applies[0]).toHaveAttribute('target', '_blank')
-  expect(applies[1]).toHaveAttribute('href', '#')            // unsafe scheme neutralized
+  expect(screen.getByRole('link', { name: 'Apply: Backend Engineer' })).toHaveAttribute('target', '_blank')
+  expect(screen.queryByRole('link', { name: 'Apply: ML Engineer' })).not.toBeInTheDocument()   // unsafe scheme: no link
+  expect(screen.queryByRole('link', { name: 'ML Engineer' })).not.toBeInTheDocument()
   expect(screen.queryByText('greenhouse')).not.toBeInTheDocument()
   expect(screen.queryByRole('tab')).not.toBeInTheDocument()
 })
 
 test('row actions call back with the posting id', () => {
   const props = renderTable()
-  fireEvent.click(screen.getAllByRole('button', { name: 'Not interested' })[0])
+  fireEvent.click(screen.getByRole('button', { name: 'Not interested: Backend Engineer' }))
   expect(props.onNotInterested).toHaveBeenCalledWith(1)
-  fireEvent.click(screen.getAllByRole('button', { name: 'Mark applied' })[1])
+  fireEvent.click(screen.getByRole('button', { name: 'Mark applied: ML Engineer' }))
   expect(props.onMarkApplied).toHaveBeenCalledWith(2, BASE)
-  fireEvent.click(screen.getAllByRole('button', { name: 'View JD' })[0])
+  fireEvent.click(screen.getByRole('button', { name: 'View JD: Backend Engineer' }))
   expect(props.onViewJD).toHaveBeenCalledWith(1, BASE)
 })
 

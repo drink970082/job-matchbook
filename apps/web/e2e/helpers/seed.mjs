@@ -162,3 +162,15 @@ export async function seedEmpty(url = DATABASE_URL) {
         await prisma.$disconnect()
     }
 }
+
+// A triage override on a seeded posting, as MCP override_triage would write it.
+export async function addOverride(companyName, decision, url = DATABASE_URL) {
+    const prisma = client(url)
+    try {
+        const p = await prisma.job_postings.findFirstOrThrow({ where: { company_name: companyName } })
+        await prisma.job_triage_overrides.create({ data: { job_posting_id: p.id, decision, actor: 'mcp',
+            source_content_revision: p.source_content_revision, created_at: '2026-01-04T00:00:00.000Z' } })
+    } finally {
+        await prisma.$disconnect()
+    }
+}
