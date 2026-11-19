@@ -1531,8 +1531,9 @@ function watchlistAudit(actor: Actor, action: 'add' | 'remove', row: WatchedRow)
 
 // Recent watchlist adds/removes, newest first, with the row as it was then.
 export async function getWatchlistActivity(limit = 20) {
+    const take = Number.isInteger(limit) ? Math.min(Math.max(limit, 1), 100) : 20
     const rows = await prisma.audit_log.findMany({
-        where: { entity: 'watched_companies' }, orderBy: { id: 'desc' }, take: limit,
+        where: { entity: 'watched_companies' }, orderBy: { id: 'desc' }, take,
     })
     return { data: rows.map((r) => ({ ...r, payload: JSON.parse(r.payload) as WatchedRow })) }
 }

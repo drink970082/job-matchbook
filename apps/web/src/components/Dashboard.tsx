@@ -336,7 +336,11 @@ export function Dashboard({
     }
 
     const refreshWatchlist = async () => {
-        const [{ data }, activity] = await Promise.all([getWatchedCompanies(), getWatchlistActivity()])
+        // Activity is secondary: its failure (e.g. audit_log not pushed yet) must not hide the watchlist.
+        const [{ data }, activity] = await Promise.all([
+            getWatchedCompanies(),
+            getWatchlistActivity().catch(() => ({ data: [] })),
+        ])
         setWatchlist(data)
         setWatchActivity(activity.data)
     }
