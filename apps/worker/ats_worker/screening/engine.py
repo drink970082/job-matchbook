@@ -4,7 +4,7 @@ from __future__ import annotations
 import json
 import re
 
-from ats_worker.model_errors import ModelResponseError as ScoreError
+from .errors import ModelResponseError as ScoreError
 
 from .location import resolve_location
 from .prompts import SCREEN_HEADER, SCREEN_SCHEMA, _candidate_block, _job_block

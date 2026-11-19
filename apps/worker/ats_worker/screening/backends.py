@@ -24,7 +24,7 @@ import os
 import subprocess
 import tempfile
 
-from ats_worker.model_errors import ModelResponseError as ScoreError
+from .errors import ModelResponseError as ScoreError
 
 # Two-to-three fields of fact extraction. Haiku is the right tier — Sonnet is wasted
 # money on this shape. Override per-deploy with SCREEN_MODEL.

@@ -11,7 +11,7 @@ from datetime import datetime, timezone
 import re
 from typing import Any
 
-from .preselection_view import VIEW_SCHEMA_VERSION, project_assessment_view
+from .view import VIEW_SCHEMA_VERSION, project_assessment_view
 from .review_batch import (
     SCHEMA_VERSION as REVIEW_BATCH_SCHEMA_VERSION,
     build_review_batch,

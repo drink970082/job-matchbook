@@ -8,15 +8,15 @@ from pathlib import Path
 
 import pytest
 
-from ats_worker.preselection_rehearsal import (
+from ats_worker.preselection.rehearsal import (
     FixtureReadAdapter,
     RehearsalError,
     _assessment_fixture_contract,
     _scenario_contract,
     run_synthetic_rehearsal,
 )
-from ats_worker.preselection_rehearsal_cli import main as rehearsal_cli_main
-from ats_worker.review_batch import ReviewBatchError, build_review_batch
+from ats_worker.preselection.rehearsal_cli import main as rehearsal_cli_main
+from ats_worker.preselection.review_batch import ReviewBatchError, build_review_batch
 
 
 WORKER = Path(__file__).resolve().parents[1]
@@ -42,7 +42,7 @@ def _run_cli_with_fixtures(tmp_path, scenario, assessments, pool):
     pool_path.write_text(json.dumps(pool), encoding="utf-8")
     result = subprocess.run(
         [
-            sys.executable, "-m", "ats_worker.preselection_rehearsal_cli",
+            sys.executable, "-m", "ats_worker.preselection.rehearsal_cli",
             "--scenario", str(scenario_path),
             "--assessment-fixture", str(assessment_path),
             "--pool-fixture", str(pool_path),
@@ -57,7 +57,7 @@ def test_explicit_cli_composes_real_assessment_and_batch_modules(tmp_path):
     output = tmp_path / "rehearsal-report.json"
     result = subprocess.run(
         [
-            sys.executable, "-m", "ats_worker.preselection_rehearsal_cli",
+            sys.executable, "-m", "ats_worker.preselection.rehearsal_cli",
             "--scenario", str(SCENARIO_PATH),
             "--assessment-fixture", str(ASSESSMENT_PATH),
             "--pool-fixture", str(POOL_PATH),
@@ -308,7 +308,7 @@ def test_selected_job_description_completeness_is_per_candidate_and_visible(
 def test_rehearsal_cli_requires_distinct_explicit_output_path(tmp_path):
     result = subprocess.run(
         [
-            sys.executable, "-m", "ats_worker.preselection_rehearsal_cli",
+            sys.executable, "-m", "ats_worker.preselection.rehearsal_cli",
             "--scenario", str(SCENARIO_PATH),
             "--assessment-fixture", str(ASSESSMENT_PATH),
             "--pool-fixture", str(POOL_PATH),
@@ -363,8 +363,8 @@ def guarded_path_open(self, *args, **kwargs):
     return original_path_open(self, *args, **kwargs)
 Path.open = guarded_path_open
 
-import ats_worker.preselection_rehearsal
-import ats_worker.preselection_rehearsal_cli
+import ats_worker.preselection.rehearsal
+import ats_worker.preselection.rehearsal_cli
 """
     result = subprocess.run(
         [sys.executable, "-c", script],

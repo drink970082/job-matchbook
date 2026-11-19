@@ -22,6 +22,11 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 
 ### Changed
 
+- **Offline preselection tooling moved into `ats_worker/preselection/`** (#172).
+  `review_batch`, `preselection_view` and `preselection_rehearsal` (plus their CLIs)
+  are now `preselection.{review_batch,view,rehearsal}`; run them with
+  `python -m ats_worker.preselection.{review_batch_cli,view_cli,rehearsal_cli}`.
+  `model_errors.py` is now `screening/errors.py`. No behavior change.
 - **JEV assesses only the last 7 days of postings** (`posted_at`, else `created_at`),
   instead of draining the ~5,900 older screened postings; those stay `unassessed`.
 - **Node 20 (EOL) -> Node 24 LTS** in CI and the web image (`node:24-alpine`, pinned).

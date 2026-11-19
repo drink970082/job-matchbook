@@ -1,4 +1,4 @@
-"""Provider response errors shared by the active screen and legacy scorer."""
+"""Provider response errors raised by the screen backends."""
 
 
 class ScoreError(RuntimeError):

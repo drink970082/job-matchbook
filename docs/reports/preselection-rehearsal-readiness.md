@@ -7,7 +7,7 @@ pool inputs, then writes a private-safe report to a caller-supplied output path.
 Run it from `apps/worker`:
 
 ```sh
-python -m ats_worker.preselection_rehearsal_cli \
+python -m ats_worker.preselection.rehearsal_cli \
   --scenario tests/fixtures/preselection_rehearsal_scenario.json \
   --assessment-fixture tests/fixtures/preselection_assessment_contract.json \
   --pool-fixture tests/fixtures/review_batch_contract.json \

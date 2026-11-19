@@ -21,7 +21,7 @@ function projectCase(name: string): unknown {
     if (!projectedCases) {
         const result = spawnSync('python3', [
             '-m',
-            'ats_worker.preselection_view_cli',
+            'ats_worker.preselection.view_cli',
             '--fixture',
             'tests/fixtures/preselection_assessment_contract.json',
             '--all',

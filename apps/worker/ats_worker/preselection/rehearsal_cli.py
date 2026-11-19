@@ -8,7 +8,7 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from .preselection_rehearsal import MAX_FIXTURE_BYTES, RehearsalError, run_synthetic_rehearsal
+from .rehearsal import MAX_FIXTURE_BYTES, RehearsalError, run_synthetic_rehearsal
 
 
 def _read_json(path: Path) -> Any:
