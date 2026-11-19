@@ -9,6 +9,11 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 
 ### Removed
 
+- **The fit-scorer Discovered Jobs views (#158)**: Matched / Below bar / Discarded /
+  Failed / Low-context buckets, score sort and min-score filter, the cause sub-filter,
+  `VerdictShortfall`, the recommended-resume label, the modal's fit assessment, and
+  discard / reopen / bulk remove / remove-all (`discardJobPosting`, `reopenJobPosting`,
+  `bulkRemove`, `bulkReopen`, `removeAllInView`).
 - **Pre-launch cleanup.** 35 `docs/superpowers` specs/plans/notes for shipped or
   removed work (recoverable at `7f0b297`); fit-scorer and Telegram wording across docs,
   skills, templates, the deploy unit and compose; the unused `DEFAULT_SCREEN_WORKERS`.
@@ -22,6 +27,10 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 
 ### Changed
 
+- **Discovered Jobs is the JEV funnel (#158)**: stage tabs Keep (default) / Unassessed /
+  JEV skip / Screen rejected / Rule rejected / Applied-closed / All with counts, a JEV
+  column (verdict, reasons, override) and newest-first order. Read-only except Mark
+  Applied.
 - **Screen backends are one registry, with a generic OpenAI-compatible `api` backend**
   (#177). `ats_worker/screen_providers.py` lists `ollama` (default, free), `codex`,
   `claude-code`, `api` and `none`; `run.py` and `doctor` read it instead of if-chains.

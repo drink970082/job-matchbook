@@ -7,7 +7,7 @@
 import { addApplication, deleteApplication, deleteHistoryItem, getApplications, updateApplicationStatus } from '@/lib/application-actions'
 import { getKPIs } from '@/lib/analytics-actions'
 import { exportApplicationsCSV, importApplicationsCSV } from '@/lib/csv-actions'
-import { bulkRemove, bulkReopen, getJobPostings, markJobApplied, removeAllInView } from '@/lib/job-actions'
+import { getJobPostings, markJobApplied } from '@/lib/job-actions'
 import { getSettings } from '@/lib/preference-actions'
 import { getCategories, setCategories } from '@/lib/category-actions'
 import { prisma, resetDb } from '@/test-utils/db'
@@ -15,24 +15,6 @@ import { makeApplication, makeJobPosting, makeStatusHistory } from '@/test-utils
 
 beforeEach(resetDb)
 afterAll(() => prisma.$disconnect())
-
-// The `matched` bucket keys on the fit verdicts (seniority=match AND domain=match),
-// the matched verdict predicate (see job-actions.ts matchedIds) — NOT on score. Seed this into
-// score_detail for any row a test expects to land in `matched`.
-const MATCH_VERDICT = JSON.stringify({
-    assessment: { seniority: { verdict: 'match' }, domain: { verdict: 'match' } },
-})
-
-// `belowbar` is the NEAR MISS — seniority=match with domain=adjacent. Anything else
-// scored (a seniority miss, or domain=mismatch) is a fit-verdict reject and belongs in
-// the Discarded audit view alongside the hard-constraint screen failures.
-const ADJACENT_VERDICT = JSON.stringify({
-    assessment: { seniority: { verdict: 'match' }, domain: { verdict: 'adjacent' } },
-})
-const TOO_JUNIOR_VERDICT = JSON.stringify({
-    assessment: { seniority: { verdict: 'too_junior' }, domain: { verdict: 'match' } },
-})
-
 
 // --- categories: the user-configurable vocabulary (app_settings) ----------
 
@@ -67,7 +49,7 @@ test('markJobApplied creates the application and links the posting', async () =>
     const jp = await prisma.job_postings.create({
         data: makeJobPosting({ external_id: 'm1', company_name: 'Acme', job_title: 'Eng' }),
     })
-    const res = await markJobApplied(jp.id, 'MLE', { bucket: 'all' })
+    const res = await markJobApplied(jp.id, 'MLE', { stage: 'all' })
     expect(res.success).toBe(true)
 
     const apps = await prisma.applications.findMany()
@@ -85,7 +67,7 @@ test('markJobApplied rolls back when a matching application already exists', asy
     await prisma.applications.create({ data: makeApplication({ company_name: 'Dup', job_title: 'Eng' }) })
     const before = await prisma.applications.count()
 
-    const res = await markJobApplied(jp.id, undefined, { bucket: 'all' })
+    const res = await markJobApplied(jp.id, undefined, { stage: 'all' })
     expect(res.success).toBe(false)
     expect(await prisma.applications.count()).toBe(before)        // no new app (rolled back)
     const after = await prisma.job_postings.findUnique({ where: { id: jp.id } })
@@ -94,7 +76,7 @@ test('markJobApplied rolls back when a matching application already exists', asy
 })
 
 test('markJobApplied returns not-found for a missing id', async () => {
-    expect(await markJobApplied(99999, undefined, { bucket: 'all' })).toEqual({ success: false, error: 'Job posting not found' })
+    expect(await markJobApplied(99999, undefined, { stage: 'all' })).toEqual({ success: false, error: 'Job posting not found' })
 })
 
 
@@ -185,184 +167,34 @@ test('getApplications paginates (skip = page*size) and orders by date desc', asy
 })
 
 
-// --- getJobPostings: score-aware buckets + ordering + unique constraint ----
-
-test('getJobPostings buckets postings by score and status', async () => {
-    await prisma.job_postings.create({ data: makeJobPosting({ external_id: 'm1', score: 90, pipeline_status: 'scored', score_detail: MATCH_VERDICT }) })
-    await prisma.job_postings.create({ data: makeJobPosting({ external_id: 'm2', score: 80, pipeline_status: 'notified', score_detail: MATCH_VERDICT }) })
-    await prisma.job_postings.create({ data: makeJobPosting({ external_id: 'adj', score: 60, pipeline_status: 'scored', score_detail: ADJACENT_VERDICT }) })   // near miss
-    await prisma.job_postings.create({ data: makeJobPosting({ external_id: 'jr', score: 70, pipeline_status: 'scored', score_detail: TOO_JUNIOR_VERDICT }) })  // seniority reject
-    await prisma.job_postings.create({ data: makeJobPosting({ external_id: 'lo', score: 65, pipeline_status: 'scored' }) })    // no verdicts at all -> reject
-    await prisma.job_postings.create({ data: makeJobPosting({ external_id: 'dq', score: 95, pipeline_status: 'discarded', score_detail: JSON.stringify({ disqualified: true, disqualification_reason: 'location: onsite London, UK' }) }) }) // disqualified
-    await prisma.job_postings.create({ data: makeJobPosting({ external_id: 'fx', score: 88, pipeline_status: 'failed' }) })
-
-    const matched = await getJobPostings({ bucket: 'matched' })
-    expect(matched.data.map((d) => d.external_id)).toEqual(['m1', 'm2'])  // match/match verdicts, score desc
-
-    // belowbar = the near miss ONLY: seniority=match AND domain=adjacent
-    const belowbar = await getJobPostings({ bucket: 'belowbar' })
-    expect(belowbar.data.map((d) => d.external_id)).toEqual(['adj'])
-
-    // discarded = hard-constraint failures AND fit-verdict rejects (score desc)
-    const discarded = await getJobPostings({ bucket: 'discarded' })
-    expect(discarded.data.map((d) => d.external_id)).toEqual(['dq', 'jr', 'lo'])
-
-    const failed = await getJobPostings({ bucket: 'failed' })
-    expect(failed.data.map((d) => d.external_id)).toEqual(['fx'])
-})
+// --- getJobPostings: ordering and paging (the funnel stages: jev-status-parity.int) --
 
 test('getJobPostings returns created_at and posted_at for each row', async () => {
-    await prisma.job_postings.create({ data: makeJobPosting({ external_id: 'dt', score: 90, pipeline_status: 'scored', score_detail: MATCH_VERDICT, created_at: '2026-06-03T00:00:00.000Z', posted_at: '2026-06-01' }) })
-    const { data } = await getJobPostings({ bucket: 'matched' })
+    await prisma.job_postings.create({ data: makeJobPosting({ external_id: 'dt', created_at: '2026-06-03T00:00:00.000Z', posted_at: '2026-06-01' }) })
+    const { data } = await getJobPostings({ stage: 'all' })
     expect(data[0].created_at).toBe('2026-06-03T00:00:00.000Z')
     expect(data[0].posted_at).toBe('2026-06-01')
 })
 
 test('getJobPostings paginates', async () => {
     for (let i = 0; i < 7; i++) {
-        await prisma.job_postings.create({ data: makeJobPosting({ external_id: `p${i}`, score: 90 - i, pipeline_status: 'scored', score_detail: MATCH_VERDICT }) })
+        await prisma.job_postings.create({ data: makeJobPosting({ external_id: `p${i}` }) })
     }
-    const p0 = await getJobPostings({ bucket: 'matched', page: 0, size: 5 })
+    const p0 = await getJobPostings({ stage: 'all', page: 0, size: 5 })
     expect(p0.data).toHaveLength(5)
     expect(p0.total).toBe(7)
-    const p1 = await getJobPostings({ bucket: 'matched', page: 1, size: 5 })
+    const p1 = await getJobPostings({ stage: 'all', page: 1, size: 5 })
     expect(p1.data).toHaveLength(2)                       // skip 5 -> 2 remain
 })
 
-test('getJobPostings cause sub-filter narrows the discarded bucket by disqualification reason', async () => {
-    // The worker keys disqualification_reason like "degree: …" / "internship/co-op role"
-    // (multiple joined by "; "); the cause filter matches those via json_extract + LIKE.
-    await prisma.job_postings.create({ data: makeJobPosting({ external_id: 'auth', score: 90, pipeline_status: 'discarded', score_detail: JSON.stringify({ disqualified: true, disqualification_reason: 'authorization: no visa sponsorship offered' }) }) })
-    await prisma.job_postings.create({ data: makeJobPosting({ external_id: 'loc', score: 90, pipeline_status: 'discarded', score_detail: JSON.stringify({ disqualified: true, disqualification_reason: 'location: onsite London, UK' }) }) })
-    await prisma.job_postings.create({ data: makeJobPosting({ external_id: 'deg', score: 90, pipeline_status: 'discarded', score_detail: JSON.stringify({ disqualified: true, disqualification_reason: 'degree: requires phd' }) }) })
-    await prisma.job_postings.create({ data: makeJobPosting({ external_id: 'clr', score: 90, pipeline_status: 'discarded', score_detail: JSON.stringify({ disqualified: true, disqualification_reason: 'clearance: requires security clearance' }) }) })
-    await prisma.job_postings.create({ data: makeJobPosting({ external_id: 'int', score: 90, pipeline_status: 'discarded', score_detail: JSON.stringify({ disqualified: true, disqualification_reason: 'internship/co-op role' }) }) })
-    await prisma.job_postings.create({ data: makeJobPosting({ external_id: 'multi', score: 90, pipeline_status: 'discarded', score_detail: JSON.stringify({ disqualified: true, disqualification_reason: 'degree: requires phd; internship/co-op role' }) }) })
-    // The prefilter cause covers BOTH strings the worker wrote — the fit pass's phase-0
-    // sweep and the operator's 2026-07-29 bulk sweep — which differ after the prefix.
-    await prisma.job_postings.create({ data: makeJobPosting({ external_id: 'pre1', score: 90, pipeline_status: 'discarded', score_detail: JSON.stringify({ disqualified: true, disqualification_reason: 'prefilter: title refused by the current filters' }) }) })
-    await prisma.job_postings.create({ data: makeJobPosting({ external_id: 'pre2', score: 90, pipeline_status: 'discarded', score_detail: JSON.stringify({ disqualified: true, disqualification_reason: 'prefilter: refused by the current title/age filters' }) }) })
+test('getJobPostings sorts newest fetched by default, or newest posted', async () => {
+    await prisma.job_postings.create({ data: makeJobPosting({ external_id: 'old', posted_at: '2026-01-01', created_at: '2026-06-02T00:00:00.000Z' }) })
+    await prisma.job_postings.create({ data: makeJobPosting({ external_id: 'new', posted_at: '2026-06-01', created_at: '2026-06-01T00:00:00.000Z' }) })
 
-    const auth = await getJobPostings({ bucket: 'discarded', cause: 'authorization' })
-    expect(auth.data.map((d) => d.external_id)).toEqual(['auth'])
-
-    const loc = await getJobPostings({ bucket: 'discarded', cause: 'location' })
-    expect(loc.data.map((d) => d.external_id)).toEqual(['loc'])
-
-    const clr = await getJobPostings({ bucket: 'discarded', cause: 'clearance' })
-    expect(clr.data.map((d) => d.external_id)).toEqual(['clr'])
-
-    // A cause matches even inside a "; "-joined multi-cause reason.
-    const deg = await getJobPostings({ bucket: 'discarded', cause: 'degree' })
-    expect(deg.data.map((d) => d.external_id).sort()).toEqual(['deg', 'multi'])
-
-    const int = await getJobPostings({ bucket: 'discarded', cause: 'internship' })
-    expect(int.data.map((d) => d.external_id).sort()).toEqual(['int', 'multi'])
-
-    // One pattern, both prefilter spellings — this is what makes the ~1,300-row sweep
-    // population selectable, and so bulk-removable, in the Discarded bucket.
-    const pre = await getJobPostings({ bucket: 'discarded', cause: 'prefilter' })
-    expect(pre.data.map((d) => d.external_id).sort()).toEqual(['pre1', 'pre2'])
-
-    // ...and it does NOT bleed into the hard-constraint causes.
-    expect(deg.data.map((d) => d.external_id)).not.toContain('pre1')
-
-    // No cause = every disqualified row.
-    const all = await getJobPostings({ bucket: 'discarded' })
-    expect(all.data.map((d) => d.external_id).sort()).toEqual(['auth', 'clr', 'deg', 'int', 'loc', 'multi', 'pre1', 'pre2'])
-})
-
-test('getJobPostings routes every fit-verdict reject into discarded, near misses into belowbar', async () => {
-    // The KEEP half needs seniority=match; the split is then on domain. Everything else
-    // is a reject, whatever its score — a high-scoring too_junior row is still a reject.
-    await prisma.job_postings.create({ data: makeJobPosting({ external_id: 'near', score: 55, pipeline_status: 'scored', score_detail: ADJACENT_VERDICT }) })
-    await prisma.job_postings.create({ data: makeJobPosting({ external_id: 'junior', score: 92, pipeline_status: 'scored', score_detail: TOO_JUNIOR_VERDICT }) })
-    await prisma.job_postings.create({ data: makeJobPosting({ external_id: 'senior', score: 80, pipeline_status: 'notified', score_detail: JSON.stringify({ assessment: { seniority: { verdict: 'too_senior' }, domain: { verdict: 'match' } } }) }) })
-    await prisma.job_postings.create({ data: makeJobPosting({ external_id: 'wrongdomain', score: 70, pipeline_status: 'scored', score_detail: JSON.stringify({ assessment: { seniority: { verdict: 'match' }, domain: { verdict: 'mismatch' } } }) }) })
-    await prisma.job_postings.create({ data: makeJobPosting({ external_id: 'noverdicts', score: 60, pipeline_status: 'scored', score_detail: null }) })
-
-    const belowbar = await getJobPostings({ bucket: 'belowbar' })
-    expect(belowbar.data.map((d) => d.external_id)).toEqual(['near'])   // seniority match + adjacent only
-
-    const discarded = await getJobPostings({ bucket: 'discarded' })
-    expect(discarded.data.map((d) => d.external_id)).toEqual(['junior', 'senior', 'wrongdomain', 'noverdicts'])
-
-    // Nothing scored is orphaned: every seeded row is in exactly one of the two.
-    expect(belowbar.total + discarded.total).toBe(5)
-})
-
-test('getJobPostings isolates low-context (thin-JD) rows into their own bucket', async () => {
-    // Thin JD + match/match verdicts: would land in `matched` if not for its thinness —
-    // it's excluded from matched by the notIn-lowIds layering, NOT by lacking verdicts.
-    await prisma.job_postings.create({ data: makeJobPosting({ external_id: 'thin-hi', score: 90, pipeline_status: 'scored', description: 'Thin JD.', score_detail: MATCH_VERDICT }) })
-    // Thin JD + below-threshold score: would land in the `discarded` view otherwise.
-    await prisma.job_postings.create({ data: makeJobPosting({ external_id: 'thin-lo', score: 65, pipeline_status: 'notified', description: 'Too short.' }) })
-    // Normal (full-length) JD, matched verdicts: stays in `matched`.
-    await prisma.job_postings.create({ data: makeJobPosting({ external_id: 'full-hi', score: 88, pipeline_status: 'scored', score_detail: MATCH_VERDICT }) })
-    // Thin JD but disqualified/discarded (not scored|notified): keeps its own bucket.
-    await prisma.job_postings.create({ data: makeJobPosting({ external_id: 'thin-dq', score: 90, pipeline_status: 'discarded', description: 'Nope.', score_detail: JSON.stringify({ disqualified: true, disqualification_reason: 'on-site' }) }) })
-
-    const low = await getJobPostings({ bucket: 'lowcontext' })
-    expect(low.data.map((d) => d.external_id)).toEqual(['thin-hi', 'thin-lo'])   // score desc
-
-    // Mutual exclusivity: the thin scored rows are pulled OUT of matched/discarded.
-    const matched = await getJobPostings({ bucket: 'matched' })
-    expect(matched.data.map((d) => d.external_id)).toEqual(['full-hi'])          // thin-hi excluded
-
-    const discarded = await getJobPostings({ bucket: 'discarded' })             // disqualified only
-    expect(discarded.data.map((d) => d.external_id)).toEqual(['thin-dq'])        // disqualified (not thin) stays; the thin below-bar row moved to Low-context
-})
-
-test('getJobPostings routes the scorer insufficient_context flag into low-context (case #2)', async () => {
-    // Full-length JD that would land in `matched`, but the fit scorer flagged it too
-    // boilerplate/truncated to trust — the persisted flag alone routes it to Low-context.
-    await prisma.job_postings.create({ data: makeJobPosting({ external_id: 'insuf', score: 90, pipeline_status: 'scored', score_detail: JSON.stringify({ insufficient_context: true }) }) })
-    // Full JD, no flag, matched verdicts: stays in matched.
-    await prisma.job_postings.create({ data: makeJobPosting({ external_id: 'full', score: 88, pipeline_status: 'scored', score_detail: MATCH_VERDICT }) })
-
-    const low = await getJobPostings({ bucket: 'lowcontext' })
-    expect(low.data.map((d) => d.external_id)).toEqual(['insuf'])
-
-    const matched = await getJobPostings({ bucket: 'matched' })
-    expect(matched.data.map((d) => d.external_id)).toEqual(['full'])   // flagged row pulled OUT of matched
-})
-
-test('getJobPostings sort=posted orders by posted_at desc', async () => {
-    await prisma.job_postings.create({ data: makeJobPosting({ external_id: 'old', score: 80, pipeline_status: 'scored', score_detail: MATCH_VERDICT, posted_at: '2026-01-01' }) })
-    await prisma.job_postings.create({ data: makeJobPosting({ external_id: 'new', score: 80, pipeline_status: 'scored', score_detail: MATCH_VERDICT, posted_at: '2026-06-01' }) })
-
-    const byScore = await getJobPostings({ bucket: 'matched' })                  // default: score desc, id asc
-    expect(byScore.data.map((d) => d.external_id)).toEqual(['old', 'new'])       // tie score -> id asc
-
-    const byPosted = await getJobPostings({ bucket: 'matched', sort: 'posted' })
-    expect(byPosted.data.map((d) => d.external_id)).toEqual(['new', 'old'])      // newest posted first
-})
-
-test('matched bucket keys on verdicts, not score', async () => {
-    // High score but only an adjacent-domain verdict: NOT matched under verdict routing.
-    await prisma.job_postings.create({
-        data: makeJobPosting({
-            external_id: 'high-adjacent',
-            score: 90,
-            pipeline_status: 'scored',
-            score_detail: JSON.stringify({ assessment: { seniority: { verdict: 'match' }, domain: { verdict: 'adjacent' } } }),
-        }),
-    })
-    // Lower score but a clean match/match verdict: IS matched.
-    await prisma.job_postings.create({
-        data: makeJobPosting({
-            external_id: 'low-match',
-            score: 60,
-            pipeline_status: 'scored',
-            score_detail: JSON.stringify({ assessment: { seniority: { verdict: 'match' }, domain: { verdict: 'match' } } }),
-        }),
-    })
-
-    const matched = await getJobPostings({ bucket: 'matched' })
-    expect(matched.data.map((d) => d.external_id)).toEqual(['low-match'])
-
-    const belowbar = await getJobPostings({ bucket: 'belowbar' })
-    expect(belowbar.data.map((d) => d.external_id)).toContain('high-adjacent')
+    const byFetched = await getJobPostings({ stage: 'all' })
+    expect(byFetched.data.map((d) => d.external_id)).toEqual(['old', 'new'])
+    const byPosted = await getJobPostings({ stage: 'all', sort: 'posted' })
+    expect(byPosted.data.map((d) => d.external_id)).toEqual(['new', 'old'])
 })
 
 test('the (source, external_id) unique constraint is enforced', async () => {
@@ -539,33 +371,6 @@ test('exportApplicationsCSV neutralizes formula-injection cells', async () => {
 
 
 // --- bulkRemove / bulkReopen / removeAllInView ----------------------------
-
-test('bulkRemove hides rows from every bucket', async () => {
-    const a = await prisma.job_postings.create({ data: makeJobPosting({ external_id: 'b1', score: 90, pipeline_status: 'scored' }) })
-    const b = await prisma.job_postings.create({ data: makeJobPosting({ external_id: 'b2', score: 85, pipeline_status: 'notified' }) })
-    const res = await bulkRemove([a.id, b.id], { bucket: 'discarded' })
-    expect(res).toEqual({ success: true, count: 2 })
-    expect((await getJobPostings({ bucket: 'matched' })).data).toHaveLength(0)
-    expect((await prisma.job_postings.findUnique({ where: { id: a.id } }))!.pipeline_status).toBe('removed')
-})
-
-test('bulkReopen sends discarded rows back to scored', async () => {
-    const a = await prisma.job_postings.create({ data: makeJobPosting({ external_id: 'r1', score: 90, pipeline_status: 'discarded', score_detail: JSON.stringify({ disqualified: true }) }) })
-    const res = await bulkReopen([a.id], { bucket: 'discarded' })
-    expect(res).toEqual({ success: true, count: 1 })
-    expect((await prisma.job_postings.findUnique({ where: { id: a.id } }))!.pipeline_status).toBe('scored')
-})
-
-test('removeAllInView removes only rows matching the discarded bucket + cause filter', async () => {
-    await prisma.job_postings.create({ data: makeJobPosting({ external_id: 'keep', score: 90, pipeline_status: 'discarded', score_detail: JSON.stringify({ disqualified: true, disqualification_reason: 'location: onsite London, UK' }) }) })
-    await prisma.job_postings.create({ data: makeJobPosting({ external_id: 'gone', score: 88, pipeline_status: 'discarded', score_detail: JSON.stringify({ disqualified: true, disqualification_reason: 'degree: requires phd' }) }) })
-    const res = await removeAllInView({ bucket: 'discarded', cause: 'degree' })
-    expect(res).toEqual({ success: true, count: 1 })
-    // Only the degree-disqualified row is removed; the location one remains in the view.
-    expect((await getJobPostings({ bucket: 'discarded' })).data.map((d) => d.external_id)).toEqual(['keep'])
-    expect((await getJobPostings({ bucket: 'discarded', cause: 'degree' })).data).toHaveLength(0)
-})
-
 
 test('getSettings returns both rows and counts only eligible postings from the last 7 days', async () => {
     expect(await getSettings()).toEqual({ preferences: null, jev: null, reassessOnChange: 0 })

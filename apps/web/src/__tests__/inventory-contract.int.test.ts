@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
-import { bulkRemove, discardJobPosting, getJobPostings, markJobApplied, reopenJobPosting, removeAllInView } from '@/lib/job-actions'
+import { getJobPostings, getJobStageCounts, markJobApplied } from '@/lib/job-actions'
 import { prisma, resetDb } from '@/test-utils/db'
 import { makeJobPosting } from '@/test-utils/factories'
 
@@ -49,7 +49,7 @@ async function createScreenedPosting(name: string, state: string | null, resultJ
     return posting
 }
 
-test('All jobs puts a recent unscored row ahead of more than one page of older scored rows', async () => {
+test('All stage: puts a recent unscored row ahead of more than one page of older scored rows', async () => {
     for (let index = 0; index < 30; index += 1) {
         await prisma.job_postings.create({
             data: makeJobPosting({
@@ -73,7 +73,7 @@ test('All jobs puts a recent unscored row ahead of more than one page of older s
         }),
     })
 
-    const firstPage = await getJobPostings({ size: 25 })
+    const firstPage = await getJobPostings({ stage: 'all', size: 25 })
 
     expect(firstPage.total).toBe(31)
     expect(firstPage.data[0].id).toBe(recent.id)
@@ -82,7 +82,7 @@ test('All jobs puts a recent unscored row ahead of more than one page of older s
     expect(firstPage.data).toHaveLength(25)
 })
 
-test('All jobs includes every non-removed status and uses id as a stable recency tie-breaker', async () => {
+test('All stage: includes every non-removed status and uses id as a stable recency tie-breaker', async () => {
     const states = ['new', 'scored', 'notified', 'discarded', 'failed', 'applied', 'expired', 'future_state', 'removed']
     const ids: number[] = []
     for (const [index, status] of states.entries()) {
@@ -97,7 +97,7 @@ test('All jobs includes every non-removed status and uses id as a stable recency
         ids.push(posting.id)
     }
 
-    const result = await getJobPostings({})
+    const result = await getJobPostings({ stage: 'all' })
 
     expect(result.data.map((row) => row.pipeline_status)).toEqual([
         'future_state', 'expired', 'applied', 'failed', 'discarded', 'notified', 'scored', 'new',
@@ -115,7 +115,7 @@ test('standalone filters keep large matches in SQL without binding one ID per po
     }))
     await prisma.job_postings.createMany({ data: postings })
 
-    const result = await getJobPostings({ bucket: 'all', screenOutcome: 'not_screened', size: 25 })
+    const result = await getJobPostings({ stage: 'all', screenOutcome: 'not_screened', size: 25 })
 
     expect(result.total).toBe(1_050)
     expect(result.data).toHaveLength(25)
@@ -134,7 +134,7 @@ test('web standalone summaries and filters match the shared worker contract fixt
         { score_detail: sharedFixture.legacy_evidence.score_detail_raw },
     )
 
-    const all = await getJobPostings({ bucket: 'all', size: 100 })
+    const all = await getJobPostings({ stage: 'all', size: 100 })
     const byName = new Map(all.data.map((item) => [item.job_title, item]))
     for (const item of sharedFixture.cases) {
         const row = byName.get(item.name)!
@@ -142,7 +142,7 @@ test('web standalone summaries and filters match the shared worker contract fixt
         expect(row.screen_summary.is_advisory).toBe(true)
         expect(row.screen_summary.origin).toBe(item.state === null ? 'none' : 'job_screenings')
 
-        const filtered = await getJobPostings({ bucket: 'all', screenOutcome: item.expected_outcome, size: 100 })
+        const filtered = await getJobPostings({ stage: 'all', screenOutcome: item.expected_outcome, size: 100 })
         expect(filtered.data.map((match) => match.id)).toContain(expectedIds.get(item.name))
     }
     expect(byName.get('legacy-only')!.screen_summary.outcome).toBe('not_screened')
@@ -168,7 +168,7 @@ test('web triage summaries, SQL filters, counts, and detail match the shared wor
         expectedIds.set(item.name, posting.id)
     }
 
-    const all = await getJobPostings({ bucket: 'all', size: 100 })
+    const all = await getJobPostings({ stage: 'all', size: 100 })
     const byId = new Map(all.data.map((row) => [row.id, row]))
     expect(all.total).toBe(triageFixture.cases.length)
     for (const item of triageFixture.cases) {
@@ -184,28 +184,26 @@ test('web triage summaries, SQL filters, counts, and detail match the shared wor
     expect(byId.get(expectedIds.get('no_assessment_evidence')!)?.screen_summary.outcome)
         .toBe('not_screened')
 
-    const statuses = [...new Set<string>(triageFixture.cases.map((item: any) => item.expected_status))] as
-        Array<'rule_disqualified' | 'screen_disqualified' | 'candidate' | 'needs_review'>
-    for (const status of statuses) {
-        const expected = triageFixture.cases
-            .filter((item: any) => item.expected_status === status)
-            .map((item: any) => expectedIds.get(item.name))
-        const filtered = await getJobPostings({ bucket: 'all', triageStatus: status, size: 100 })
-        expect(filtered.data.map((row) => row.id).sort((a, b) => a - b))
-            .toEqual(expected.sort((a: number, b: number) => a - b))
-        expect(filtered.total).toBe(expected.length)
+    // The funnel stage derives from triage first (no JEV rows exist here): rule and
+    // screen rejections are their own stages; a retained row is `unassessed` while still
+    // `new`, else `other`. Each stage filter returns exactly its rows.
+    const stageOf = (item: any) => item.expected_status === 'rule_disqualified' ? 'rule_rejected'
+        : item.expected_status === 'screen_disqualified' ? 'screen_rejected'
+            : item.pipeline_status === 'new' ? 'unassessed' : 'other'
+    for (const item of triageFixture.cases) {
+        expect([item.name, byId.get(expectedIds.get(item.name)!)!.stage]).toEqual([item.name, stageOf(item)])
     }
-
-    const candidatePage = await getJobPostings({ bucket: 'all', triageStatus: 'candidate', size: 1 })
-    expect(candidatePage.data[0].id).toBe(expectedIds.get('standalone_candidate_notified'))
-    expect(candidatePage.total).toBe(statuses.includes('candidate')
-        ? triageFixture.cases.filter((item: any) => item.expected_status === 'candidate').length
-        : 0)
-    await expect(getJobPostings({ bucket: 'matched', triageStatus: 'candidate' }))
-        .rejects.toThrow(/only supported in all jobs/i)
+    const counts = await getJobStageCounts()
+    for (const stage of ['rule_rejected', 'screen_rejected', 'unassessed', 'other'] as const) {
+        const expected = triageFixture.cases.filter((item: any) => stageOf(item) === stage)
+            .map((item: any) => expectedIds.get(item.name)).sort((a: number, b: number) => a - b)
+        const filtered = await getJobPostings({ stage, size: 100 })
+        expect(filtered.data.map((row) => row.id).sort((a, b) => a - b)).toEqual(expected)
+        expect([filtered.total, counts[stage]]).toEqual([expected.length, expected.length])
+    }
 })
 
-test('All jobs all-text search treats LIKE metacharacters literally and scopes description explicitly', async () => {
+test('All stage: all-text search treats LIKE metacharacters literally and scopes description explicitly', async () => {
     const literalPercent = await prisma.job_postings.create({
         data: makeJobPosting({ external_id: 'literal-percent', pipeline_status: 'new', description: 'coverage 100% guarantee' }),
     })
@@ -222,53 +220,37 @@ test('All jobs all-text search treats LIKE metacharacters literally and scopes d
         data: makeJobPosting({ external_id: 'literal-bang', pipeline_status: 'new', description: 'bang! marker' }),
     })
 
-    expect((await getJobPostings({ bucket: 'all', search: '%', searchScope: 'all_text' })).data.map((row) => row.id))
+    expect((await getJobPostings({ stage: 'all', search: '%', searchScope: 'all_text' })).data.map((row) => row.id))
         .toContain(literalPercent.id)
-    expect((await getJobPostings({ bucket: 'all', search: '%', searchScope: 'all_text' })).data.map((row) => row.external_id))
+    expect((await getJobPostings({ stage: 'all', search: '%', searchScope: 'all_text' })).data.map((row) => row.external_id))
         .toEqual(['literal-percent'])
-    expect((await getJobPostings({ bucket: 'all', search: '_', searchScope: 'all_text' })).data.map((row) => row.external_id))
+    expect((await getJobPostings({ stage: 'all', search: '_', searchScope: 'all_text' })).data.map((row) => row.external_id))
         .toEqual(['literal-underscore'])
-    expect((await getJobPostings({ bucket: 'all', search: '!', searchScope: 'all_text' })).data.map((row) => row.external_id))
+    expect((await getJobPostings({ stage: 'all', search: '!', searchScope: 'all_text' })).data.map((row) => row.external_id))
         .toContain('literal-bang')
-    expect((await getJobPostings({ bucket: 'all', search: '100%', searchScope: 'metadata' })).data).toHaveLength(0)
+    expect((await getJobPostings({ stage: 'all', search: '100%', searchScope: 'metadata' })).data).toHaveLength(0)
     expect(literalUnderscore.id).toBeGreaterThan(0)
 })
 
-test('All jobs per-row actions validate the exact view/filter scope; bulk actions reject inventory', async () => {
+test('Mark Applied validates the exact view/filter scope it was offered from', async () => {
     const inScope = await prisma.job_postings.create({
         data: makeJobPosting({ external_id: 'scope-hit', company_name: 'Acme Search', pipeline_status: 'new' }),
     })
     const outsideScope = await prisma.job_postings.create({
         data: makeJobPosting({ external_id: 'scope-miss', company_name: 'Other Co', pipeline_status: 'new' }),
     })
-    const scope = { bucket: 'all' as const, search: 'Acme Search', searchScope: 'metadata' as const }
+    const scope = { stage: 'all' as const, search: 'Acme Search', searchScope: 'metadata' as const }
 
-    expect(await discardJobPosting(inScope.id, scope)).toEqual({ success: true })
-    expect(await discardJobPosting(outsideScope.id, scope)).toMatchObject({ success: false })
+    expect(await markJobApplied(outsideScope.id, 'SWE', scope)).toMatchObject({ success: false })
     expect((await prisma.job_postings.findUnique({ where: { id: outsideScope.id } }))!.pipeline_status).toBe('new')
-    expect(await bulkRemove([outsideScope.id], { bucket: 'all' })).toMatchObject({ success: false })
-    expect(await removeAllInView({ bucket: 'all' })).toMatchObject({ success: false })
-    expect((await prisma.job_postings.findUnique({ where: { id: outsideScope.id } }))!.pipeline_status).toBe('new')
+    expect(await markJobApplied(inScope.id, 'SWE', scope)).toMatchObject({ success: true })
 })
 
-test('All jobs Reopen works only for a scoped discarded row', async () => {
-    const discarded = await prisma.job_postings.create({
-        data: makeJobPosting({ external_id: 'reopen-scope', pipeline_status: 'discarded' }),
-    })
-    const other = await prisma.job_postings.create({
-        data: makeJobPosting({ external_id: 'reopen-other', pipeline_status: 'new' }),
-    })
-
-    expect(await reopenJobPosting(discarded.id, { bucket: 'all' })).toEqual({ success: true })
-    expect(await reopenJobPosting(other.id, { bucket: 'all' })).toMatchObject({ success: false })
-    expect((await prisma.job_postings.findUnique({ where: { id: discarded.id } }))!.pipeline_status).toBe('scored')
-})
-
-test('All jobs Mark Applied keeps the application transaction and rejects an applied row', async () => {
+test('All stage: Mark Applied keeps the application transaction and rejects an applied row', async () => {
     const posting = await prisma.job_postings.create({
         data: makeJobPosting({ external_id: 'apply-scope', pipeline_status: 'new' }),
     })
-    const scope = { bucket: 'all' as const }
+    const scope = { stage: 'all' as const }
 
     const result = await markJobApplied(posting.id, 'SWE', scope)
     expect(result.success).toBe(true)
@@ -279,23 +261,21 @@ test('All jobs Mark Applied keeps the application transaction and rejects an app
     expect(await prisma.applications.count()).toBe(1)
 })
 
-test('server actions reject unknown inventory scopes instead of falling through to a fit bucket', async () => {
-    await expect(getJobPostings({ bucket: 'future-bucket' as any })).rejects.toThrow(/bucket/i)
-    await expect(getJobPostings({ bucket: 'all', searchScope: 'everything' as any })).rejects.toThrow(/search scope/i)
-    await expect(getJobPostings({ bucket: 'all', screenOutcome: '' as any })).rejects.toThrow(/screen outcome/i)
-    await expect(getJobPostings({ bucket: 'all', triageStatus: 'not_screened' as any })).rejects.toThrow(/triage status/i)
-    await expect(getJobPostings({ bucket: 'matched', triageStatus: 'candidate' })).rejects.toThrow(/only supported in all jobs/i)
+test('server actions reject unknown or retired filters instead of falling through', async () => {
+    await expect(getJobPostings({ bucket: 'all' } as any)).rejects.toThrow(/unsupported job filter: bucket/i)
+    await expect(getJobPostings({ stage: 'future-stage' as any })).rejects.toThrow(/stage/i)
+    await expect(getJobPostings({ stage: 'all', searchScope: 'everything' as any })).rejects.toThrow(/search scope/i)
+    await expect(getJobPostings({ stage: 'all', screenOutcome: '' as any })).rejects.toThrow(/screen outcome/i)
+    await expect(getJobPostings({ triageStatus: 'candidate' } as any)).rejects.toThrow(/unsupported job filter: triageStatus/i)
 })
 
-test('mutation entrypoints reject paging and unsupported filters before changing a row', async () => {
+test('mark applied rejects paging and unsupported filters before changing a row', async () => {
     const posting = await prisma.job_postings.create({
         data: makeJobPosting({ external_id: 'invalid-mutation-scope', pipeline_status: 'new' }),
     })
 
-    expect(await bulkRemove([posting.id], { bucket: 'matched', page: 0 } as any)).toMatchObject({ success: false })
-    expect(await bulkRemove([posting.id], { bucket: 'matched', screenOutcome: 'provider_error' } as any))
-        .toMatchObject({ success: false })
-    expect(await bulkRemove([posting.id], { bucket: 'matched', triageStatus: 'candidate' } as any))
-        .toMatchObject({ success: false })
+    expect(await markJobApplied(posting.id, 'SWE', { stage: 'all', page: 0 } as any)).toMatchObject({ success: false })
+    expect(await markJobApplied(posting.id, 'SWE', { bucket: 'matched' } as any)).toMatchObject({ success: false })
     expect((await prisma.job_postings.findUnique({ where: { id: posting.id } }))?.pipeline_status).toBe('new')
+    expect(await prisma.applications.count()).toBe(0)
 })

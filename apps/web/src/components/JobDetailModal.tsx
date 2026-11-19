@@ -1,6 +1,5 @@
 'use client'
 
-import { Fragment, useState } from 'react'
 import {
     Dialog,
     DialogContent,
@@ -9,10 +8,9 @@ import {
 } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
-import { ExternalLink, CheckCircle2, XCircle, RotateCcw, ChevronDown, ChevronRight, Ban } from 'lucide-react'
+import { ExternalLink, CheckCircle2, XCircle, Ban } from 'lucide-react'
 import { safeHref } from '@/lib/utils'
-import { verdictClass, safeParseDetail, parseAssessment } from '@/lib/score-detail'
-import type { Assessment } from '@/lib/score-detail'
+import { safeParseDetail } from '@/lib/score-detail'
 import type { JobPosting } from './DiscoveredJobsTable'
 import type { ScreenOutcome } from '@/lib/screen-summary'
 import { TRIAGE_STATUS_LABELS } from '@/lib/triage-summary'
@@ -22,8 +20,6 @@ interface JobDetailModalProps {
     onClose: () => void
     job: JobPosting
     onMarkApplied: (id: number) => void
-    onDiscard: (id: number) => void
-    onReopen: (id: number) => void
 }
 
 interface ScreenVerdict {
@@ -32,23 +28,14 @@ interface ScreenVerdict {
 }
 
 interface ScoreDetail {
-    assessment: Assessment | null
-    matched: string[]
-    missing: string[]
-    reasoning?: string
     disqualified: boolean
     disqualificationReason: string
-    recommendedResume: string
     screen: [string, ScreenVerdict][]
 }
 
-// The worker (apps/worker/ats_worker/pipeline.py) writes score_detail as
-// { assessment, recommended_resume, reasoning, [disqualified,
-// disqualification_reason], [screen] }. Normalize to a stable shape here, still
-// tolerating the flat keyword lists `assessment` superseded — both the
-// { matched_keywords, missing_keywords } spelling and the older
-// { matched, missing } one. `screen` is the per-requirement gate breakdown
-// (which hard requirement passed/failed).
+// The screen half of the worker's score_detail ({ [disqualified,
+// disqualification_reason], [screen] }); `screen` is the per-requirement gate
+// breakdown. The retired fit scorer's fields in older rows are not shown.
 function parseScoreDetail(raw?: string | null): ScoreDetail | null {
     const p = safeParseDetail(raw)
     if (!p) return null
@@ -60,14 +47,8 @@ function parseScoreDetail(raw?: string | null): ScoreDetail | null {
               ])
             : []
     return {
-        assessment: parseAssessment(p.assessment),
-        matched: p.matched_keywords ?? p.matched ?? [],
-        missing: p.missing_keywords ?? p.missing ?? [],
-        reasoning: p.reasoning,
         disqualified: p.disqualified === true,
         disqualificationReason: p.disqualification_reason ?? '',
-        recommendedResume:
-            typeof p.recommended_resume === 'string' ? p.recommended_resume : '',
         screen,
     }
 }
@@ -94,17 +75,8 @@ function sourceDate(value?: string | null): string | null {
     return value ? value.slice(0, 10) : null
 }
 
-export function JobDetailModal({ isOpen, onClose, job, onMarkApplied, onDiscard, onReopen }: JobDetailModalProps) {
-    const [showDetails, setShowDetails] = useState(false)
+export function JobDetailModal({ isOpen, onClose, job, onMarkApplied }: JobDetailModalProps) {
     const detail = parseScoreDetail(job.score_detail)
-    const isDiscarded = job.pipeline_status === 'discarded'
-    const assessment = detail?.assessment ?? null
-    const hasMatchDetail = !!detail && (
-        !!assessment ||
-        (detail.matched?.length ?? 0) > 0 ||
-        (detail.missing?.length ?? 0) > 0 ||
-        !!detail.reasoning
-    )
 
     return (
         <Dialog open={isOpen} onOpenChange={onClose}>
@@ -120,7 +92,6 @@ export function JobDetailModal({ isOpen, onClose, job, onMarkApplied, onDiscard,
                                     </span>
                                 )}
                             </div>
-                            {job.score != null && <Badge>{job.score}</Badge>}
                         </div>
                     </DialogTitle>
                 </DialogHeader>
@@ -137,13 +108,24 @@ export function JobDetailModal({ isOpen, onClose, job, onMarkApplied, onDiscard,
                         </div>
                     )}
 
-                    {/* Which resume version to send — decision-critical, always visible */}
-                    {detail?.recommendedResume && (
-                        <div className="flex items-center gap-2 text-sm">
-                            <span className="text-xs font-semibold text-muted-foreground">
-                                Recommended resume
-                            </span>
-                            <Badge variant="secondary">{detail.recommendedResume}</Badge>
+                    {job.jev && (
+                        <div className="rounded-md border p-3 space-y-1.5">
+                            <div className="text-xs font-semibold text-muted-foreground">JEV keep/skip filter</div>
+                            <div className="flex flex-wrap items-center gap-2">
+                                <Badge variant={job.jev.status === 'keep' ? 'default' : job.jev.status === 'skip' ? 'destructive' : 'outline'}>
+                                    {job.jev.status}
+                                </Badge>
+                                {job.jev.reasons.length > 0 && (
+                                    <span className="text-sm text-muted-foreground">{job.jev.reasons.join(', ')}</span>
+                                )}
+                            </div>
+                            {job.jev.override && (
+                                <p className="text-xs text-muted-foreground">
+                                    Override {job.jev.override.decision}
+                                    {job.jev.override.applies ? ` (model: ${job.jev.model_status})` : ' lapsed: the posting changed since it was set'}
+                                    {job.jev.override.reason ? ` - ${job.jev.override.reason}` : ''}
+                                </p>
+                            )}
                         </div>
                     )}
 
@@ -176,8 +158,7 @@ export function JobDetailModal({ isOpen, onClose, job, onMarkApplied, onDiscard,
                                     ` · Last seen ${sourceDate(job.source_lifecycle.last_seen_at)}`}
                             </p>
                             <p className="text-xs text-muted-foreground">
-                                Fit freshness: {sourceFreshnessLabel(job.source_lifecycle.fit_freshness)}
-                                {' · '}Standalone screen: {sourceFreshnessLabel(job.source_lifecycle.screen_freshness)}
+                                Standalone screen: {sourceFreshnessLabel(job.source_lifecycle.screen_freshness)}
                                 {job.legacy_screen_evidence?.available && (
                                     <> · Fit-pipeline screen: {sourceFreshnessLabel(
                                         job.source_lifecycle.combined_screen_freshness)}</>
@@ -243,113 +224,6 @@ export function JobDetailModal({ isOpen, onClose, job, onMarkApplied, onDiscard,
                         </div>
                     )}
 
-                    {/* Match analysis — tucked behind a toggle to keep the modal clean */}
-                    {hasMatchDetail && (
-                        <div className="border rounded-md">
-                            <button
-                                type="button"
-                                onClick={() => setShowDetails((v) => !v)}
-                                className="flex w-full items-center gap-1.5 p-3 text-sm font-medium hover:bg-muted/50"
-                            >
-                                {showDetails ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
-                                {assessment ? 'Fit assessment' : 'Match details & reasoning'}
-                            </button>
-                            {showDetails && (
-                                <div className="space-y-3 px-4 pb-4">
-                                    {assessment ? (
-                                        <>
-                                            {/* A 3-column grid, not per-row flex: the label and pill
-                                                columns size to the widest cell, so the notes start at
-                                                the same x on both rows. Under flex each row sized
-                                                independently and a wide pill ("too_junior") pushed its
-                                                note out of line with the row below. */}
-                                            <div className="grid grid-cols-[max-content_max-content_1fr] items-start gap-x-2 gap-y-2">
-                                                {([['Seniority', assessment.seniority], ['Domain', assessment.domain]] as const).map(([label, v]) => (
-                                                    <Fragment key={label}>
-                                                        <span className="text-xs font-semibold text-muted-foreground py-0.5">{label}</span>
-                                                        <Badge variant="secondary" className={`${verdictClass(v.verdict)} justify-center`}>
-                                                            {v.verdict || '—'}
-                                                        </Badge>
-                                                        <span className="text-xs text-muted-foreground py-0.5">{v.note}</span>
-                                                    </Fragment>
-                                                ))}
-                                            </div>
-                                            {assessment.mustHaves.met.length > 0 && (
-                                                <div>
-                                                    <div className="text-xs font-semibold text-emerald-700 mb-1">Must-haves met</div>
-                                                    <div className="flex flex-wrap gap-1">
-                                                        {assessment.mustHaves.met.map((kw) => (
-                                                            <Badge key={kw} variant="secondary" className="bg-emerald-500/15 text-emerald-700 border-transparent">{kw}</Badge>
-                                                        ))}
-                                                    </div>
-                                                </div>
-                                            )}
-                                            {assessment.mustHaves.missing.length > 0 && (
-                                                <div>
-                                                    <div className="text-xs font-semibold text-red-700 mb-1">Must-haves missing</div>
-                                                    <div className="flex flex-wrap gap-1">
-                                                        {assessment.mustHaves.missing.map((kw) => (
-                                                            <Badge key={kw} variant="secondary" className="bg-red-500/15 text-red-700 border-transparent">{kw}</Badge>
-                                                        ))}
-                                                    </div>
-                                                </div>
-                                            )}
-                                            {assessment.niceToHaves.missing.length > 0 && (
-                                                <div>
-                                                    <div className="text-xs font-semibold text-muted-foreground mb-1">Nice-to-haves missing (optional)</div>
-                                                    <div className="flex flex-wrap gap-1">
-                                                        {assessment.niceToHaves.missing.map((kw) => (
-                                                            <Badge key={kw} variant="outline" className="text-muted-foreground">{kw}</Badge>
-                                                        ))}
-                                                    </div>
-                                                </div>
-                                            )}
-                                            {assessment.summary && (
-                                                <div>
-                                                    <div className="text-xs font-semibold text-muted-foreground mb-1">Summary</div>
-                                                    <p className="text-sm text-muted-foreground">{assessment.summary}</p>
-                                                </div>
-                                            )}
-                                        </>
-                                    ) : (
-                                        <>
-                                            {detail!.matched && detail!.matched.length > 0 && (
-                                                <div>
-                                                    <div className="text-xs font-semibold text-emerald-700 mb-1">Matched</div>
-                                                    <div className="flex flex-wrap gap-1">
-                                                        {detail!.matched.map((kw) => (
-                                                            <Badge key={kw} variant="secondary" className="bg-emerald-500/15 text-emerald-700 border-transparent">
-                                                                {kw}
-                                                            </Badge>
-                                                        ))}
-                                                    </div>
-                                                </div>
-                                            )}
-                                            {detail!.missing && detail!.missing.length > 0 && (
-                                                <div>
-                                                    <div className="text-xs font-semibold text-red-700 mb-1">Missing</div>
-                                                    <div className="flex flex-wrap gap-1">
-                                                        {detail!.missing.map((kw) => (
-                                                            <Badge key={kw} variant="secondary" className="bg-red-500/15 text-red-700 border-transparent">
-                                                                {kw}
-                                                            </Badge>
-                                                        ))}
-                                                    </div>
-                                                </div>
-                                            )}
-                                            {detail!.reasoning && (
-                                                <div>
-                                                    <div className="text-xs font-semibold text-muted-foreground mb-1">Reasoning</div>
-                                                    <p className="text-sm text-muted-foreground">{detail!.reasoning}</p>
-                                                </div>
-                                            )}
-                                        </>
-                                    )}
-                                </div>
-                            )}
-                        </div>
-                    )}
-
                     {/* Job description */}
                     <div className="space-y-2">
                         <h4 className="font-medium text-sm">Job Description</h4>
@@ -372,22 +246,12 @@ export function JobDetailModal({ isOpen, onClose, job, onMarkApplied, onDiscard,
                             </a>
                         </Button>
                         <div className="flex-1" />
-                        {job.pipeline_status !== 'applied' && (
+                        {job.pipeline_status !== 'applied' && job.pipeline_status !== 'removed' && (
                             <Button size="sm" onClick={() => onMarkApplied(job.id)}>
                                 <CheckCircle2 className="mr-2 h-4 w-4" /> Mark Applied
                             </Button>
                         )}
-                        {job.pipeline_status === 'applied' ? (
-                            <Badge variant="secondary">Applied</Badge>
-                        ) : isDiscarded ? (
-                            <Button variant="ghost" size="sm" onClick={() => onReopen(job.id)}>
-                                <RotateCcw className="mr-2 h-4 w-4" /> Reopen
-                            </Button>
-                        ) : (
-                            <Button variant="ghost" size="sm" className="text-destructive hover:text-destructive" onClick={() => onDiscard(job.id)}>
-                                <XCircle className="mr-2 h-4 w-4" /> Remove
-                            </Button>
-                        )}
+                        {job.pipeline_status === 'applied' && <Badge variant="secondary">Applied</Badge>}
                     </div>
                 </div>
             </DialogContent>

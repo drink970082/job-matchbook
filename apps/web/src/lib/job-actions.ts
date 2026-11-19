@@ -2,74 +2,38 @@
 
 import { prisma } from '@/lib/db'
 import { Prisma } from '@prisma/client'
-import { type Actor, LOW_CONTEXT_MAX_DESCRIPTION_LENGTH } from '@/lib/constants'
+import { type Actor } from '@/lib/constants'
 import { todayISO } from '@/lib/utils'
 import { legacyScreenEvidence, SCREEN_OUTCOMES, standaloneScreenSummary, type ScreenOutcome } from '@/lib/screen-summary'
 import { sourceLifecycleSummary } from '@/lib/source-lifecycle'
-import { jobTriageSummary, TRIAGE_STATUSES, type TriageStatus } from '@/lib/triage-summary'
-import { checkedActor, searchClause, CATEGORY_FALLBACK } from '@/lib/action-helpers'
+import { jobTriageSummary } from '@/lib/triage-summary'
+import { checkedActor, CATEGORY_FALLBACK } from '@/lib/action-helpers'
+import { JOB_STAGES, type JobStage, type JobStageFilter } from '@/lib/job-stages'
 
-// Pipeline statuses still "live" in the discovered queue (scored, not yet applied
-// or discarded). Score then sorts them into the Matched vs Discarded buckets.
-const ACTIVE_PIPELINE_STATUSES = ['scored', 'notified'] as const
+export type { JobStage, JobStageFilter }
 
-// Discovered Jobs collapses to score-aware buckets (we're testing scoring). Every
-// non-lowcontext bucket is mutually exclusive of the derived low-context id set.
-// The KEEP half of the fit verdicts requires seniority=match — a seniority miss is
-// disqualifying, not partial — and then splits on domain. These verdicts are the
-// retired fit scorer's stored output; nothing writes new ones.
-//   matched    — live (scored|notified) + seniority=match AND domain=match AND NOT
-//                insufficient_context (the actionable set; see matchedIds)
-//   belowbar   — live + seniority=match AND domain=adjacent: the NEAR MISS, worth a
-//                human glance (see belowBarIds)
-//   discarded  — the audit view, two populations: hard-constraint screen failures
-//                (pipeline_status='discarded' + disqualified:true) AND live rows the
-//                fit verdicts rejected (too_junior/too_senior, or domain=mismatch).
-//                Everything scored that is neither matched nor below bar lands here,
-//                so nothing is ever orphaned.
-//   lowcontext — live but the JD was too thin to score with confidence (derived)
-//   failed     — pipeline failure, for monitoring
-export type JobBucket = 'all' | 'matched' | 'belowbar' | 'discarded' | 'failed' | 'lowcontext'
+// The funnel stages and their meaning: lib/job-stages.ts.
+export type JobSort = 'posted' | 'created'
+export type JobSearchScope = 'metadata' | 'all_text'
 
-// Within the Discarded (disqualified) audit view you can narrow to one hard-constraint
-// cause. The worker writes `disqualification_reason` keyed like "degree: requires phd"
-// / "authorization: no visa sponsorship offered" / "clearance: …" / "location: …" /
-// "internship/co-op role" (multiple joined by "; "); each cause maps to a LIKE pattern.
-export type DisqualifyCause = 'authorization' | 'location' | 'degree' | 'clearance' | 'internship' | 'prefilter'
-
-// LIKE patterns that recognize each disqualification cause inside the (possibly
-// "; "-joined) disqualification_reason string. See disqualifyCauseIds.
-const DISQUALIFY_CAUSE_PATTERNS: Record<DisqualifyCause, string> = {
-    authorization: '%authorization:%',
-    location: '%location:%',
-    degree: '%degree:%',
-    clearance: '%clearance:%',
-    internship: '%internship/co-op%',
-    // Not a hard-constraint cause: the operator's own title/age filters, re-applied to
-    // already-queued rows by the retired fit pass's free sweep. Without a cause these rows
-    // are visible in the Discarded bucket (that filter keys on `disqualified`, not on
-    // cause) but not selectable, so an operator cannot bulk-remove them — 1,504 rows as
-    // of 2026-07-31.
-    //
-    // The worker writes two spellings and they do NOT both reach this filter, which is
-    // worth stating because the prefix suggests otherwise. Measured 2026-07-31:
-    //   "prefilter: title refused by the current filters"        1,504 rows, all discarded
-    //   "prefilter: refused by the current title/age filters"        56 rows, all `new`
-    // `disqualifyCauseIds` scopes to pipeline_status='discarded', so the second spelling
-    // contributes zero here. The wildcard covers it only if those rows are ever
-    // discarded; it is deliberately not narrowed to the first spelling so that stays true.
-    prefilter: '%prefilter:%',
+export interface JobPostingsFilter {
+    stage?: JobStageFilter
+    search?: string
+    searchScope?: JobSearchScope
+    screenOutcome?: ScreenOutcome
+    page?: number
+    size?: number
+    sort?: JobSort
 }
 
-const JOB_BUCKETS: readonly JobBucket[] = ['all', 'matched', 'belowbar', 'discarded', 'failed', 'lowcontext']
-const JOB_SORTS: readonly JobSort[] = ['score', 'posted', 'created']
-const JOB_SEARCH_SCOPES: readonly JobSearchScope[] = ['metadata', 'all_text']
-const DISQUALIFY_CAUSES: readonly DisqualifyCause[] = [
-    'authorization', 'location', 'degree', 'clearance', 'internship', 'prefilter',
-]
-const JOB_FILTER_KEYS = new Set(['bucket', 'search', 'searchScope', 'screenOutcome', 'triageStatus', 'page', 'size', 'minScore', 'cause', 'sort'])
+export type JobViewScope = Omit<JobPostingsFilter, 'page' | 'size'>
 
-function validateJobPostingsFilter(filter: unknown, requireBucket = false, allowPaging = true): asserts filter is JobPostingsFilter {
+const JOB_SORTS: readonly JobSort[] = ['posted', 'created']
+const JOB_SEARCH_SCOPES: readonly JobSearchScope[] = ['metadata', 'all_text']
+const JOB_FILTER_KEYS = new Set(['stage', 'search', 'searchScope', 'screenOutcome', 'page', 'size', 'sort'])
+const MAX_JOB_SEARCH_CHARS = 200
+
+function validateJobPostingsFilter(filter: unknown, allowPaging = true): asserts filter is JobPostingsFilter {
     if (!filter || typeof filter !== 'object' || Array.isArray(filter)) {
         throw new Error('A job view and filter scope is required')
     }
@@ -80,11 +44,8 @@ function validateJobPostingsFilter(filter: unknown, requireBucket = false, allow
             throw new Error('Page and size are not valid mutation scope filters')
         }
     }
-    if (requireBucket && (typeof value.bucket !== 'string' || !JOB_BUCKETS.includes(value.bucket as JobBucket))) {
-        throw new Error('A supported job bucket is required for this action')
-    }
-    if (value.bucket !== undefined && (typeof value.bucket !== 'string' || !JOB_BUCKETS.includes(value.bucket as JobBucket))) {
-        throw new Error('Unsupported job bucket')
+    if (value.stage !== undefined && value.stage !== 'all' && !(JOB_STAGES as readonly unknown[]).includes(value.stage)) {
+        throw new Error('Unsupported job stage')
     }
     if (value.sort !== undefined && (typeof value.sort !== 'string' || !JOB_SORTS.includes(value.sort as JobSort))) {
         throw new Error('Unsupported job sort')
@@ -97,15 +58,6 @@ function validateJobPostingsFilter(filter: unknown, requireBucket = false, allow
     if (value.screenOutcome !== undefined && !(SCREEN_OUTCOMES as readonly unknown[]).includes(value.screenOutcome)) {
         throw new Error('Unsupported standalone screen outcome')
     }
-    if (value.triageStatus !== undefined && !(TRIAGE_STATUSES as readonly unknown[]).includes(value.triageStatus)) {
-        throw new Error('Unsupported job triage status')
-    }
-    if (value.cause !== undefined && (typeof value.cause !== 'string' || !DISQUALIFY_CAUSES.includes(value.cause as DisqualifyCause))) {
-        throw new Error('Unsupported disqualification cause')
-    }
-    if (value.minScore !== undefined && (typeof value.minScore !== 'number' || !Number.isFinite(value.minScore) || value.minScore < 0 || value.minScore > 100)) {
-        throw new Error('Minimum score must be between 0 and 100')
-    }
     if (value.page !== undefined && (typeof value.page !== 'number' || !Number.isFinite(value.page))) {
         throw new Error('Page must be a finite number')
     }
@@ -113,27 +65,6 @@ function validateJobPostingsFilter(filter: unknown, requireBucket = false, allow
         throw new Error('Page size must be a finite number')
     }
 }
-
-// Sort for the discovered queue: best match (score) or freshest posting.
-export type JobSort = 'score' | 'posted' | 'created'
-export type JobSearchScope = 'metadata' | 'all_text'
-
-export interface JobPostingsFilter {
-    bucket?: JobBucket
-    search?: string
-    searchScope?: JobSearchScope
-    screenOutcome?: ScreenOutcome
-    triageStatus?: TriageStatus
-    page?: number
-    size?: number
-    minScore?: number
-    cause?: DisqualifyCause
-    sort?: JobSort
-}
-
-export type JobViewScope = Omit<JobPostingsFilter, 'page' | 'size'> & { bucket: JobBucket }
-
-const MAX_JOB_SEARCH_CHARS = 200
 
 // Mirrors the approved Batch 1 summary predicate. Guard every JSON access with a safe
 // JSON value so malformed stored output classifies as unknown rather than breaking the
@@ -302,18 +233,50 @@ function checkedScreenOutcome(value: ScreenOutcome | undefined): ScreenOutcome |
     return value
 }
 
-function allJobsWhereSql(filter: JobPostingsFilter): Prisma.Sql {
+// --- JEV status: a port of worker/mcp/read_repository.py, kept identical ------------
+// The override applies while it was set on the posting's current content (NULL counts
+// as revision 1, as in the worker); otherwise the model status stands. Stale = the
+// source changed, or the verdict predates the latest pass's recorded policy.
+const OVERRIDE_APPLIES_SQL = `(o.id IS NOT NULL AND o.decision IN ('keep','skip')
+    AND COALESCE(o.source_content_revision,1)=COALESCE(p.source_content_revision,1))`
+const JEV_MODEL_STATUS_SQL = `CASE WHEN j.id IS NULL THEN 'unassessed' WHEN j.state<>'complete' THEN 'failed'
+    WHEN j.source_content_revision IS NOT p.source_content_revision THEN 'stale'
+    WHEN j.policy_sha256 IS NOT COALESCE((SELECT value FROM app_settings
+        WHERE key='jev_current_policy_sha256'), j.policy_sha256) THEN 'stale'
+    WHEN j.verdict IN ('keep','skip') THEN j.verdict ELSE 'failed' END`
+const JEV_STATUS_SQL = `CASE WHEN ${OVERRIDE_APPLIES_SQL} THEN o.decision ELSE ${JEV_MODEL_STATUS_SQL} END`
+const JEV_JOIN_SQL = `LEFT JOIN job_jev_assessments j ON j.job_posting_id=p.id
+    LEFT JOIN job_triage_overrides o ON o.job_posting_id=p.id`
+
+const STAGE_SQL = `CASE
+    WHEN (${TRIAGE_STATUS_SQL})='rule_disqualified' THEN 'rule_rejected'
+    WHEN (${TRIAGE_STATUS_SQL})='screen_disqualified' THEN 'screen_rejected'
+    WHEN p.pipeline_status<>'new' THEN 'other'
+    WHEN (${JEV_STATUS_SQL})='keep' THEN 'keep'
+    WHEN (${JEV_STATUS_SQL})='skip' THEN 'jev_skip'
+    ELSE 'unassessed' END`
+
+function jevReasons(raw: unknown): string[] {
+    try {
+        const parsed = typeof raw === 'string' ? JSON.parse(raw) : null
+        return Array.isArray(parsed) ? parsed.filter((r): r is string => typeof r === 'string').slice(0, 8) : []
+    } catch {
+        return []
+    }
+}
+
+const FROM_SQL = `FROM job_postings p
+    LEFT JOIN job_screenings s ON s.job_posting_id=p.id
+    ${JEV_JOIN_SQL}`
+
+function jobsWhereSql(filter: JobPostingsFilter): Prisma.Sql {
     validateJobPostingsFilter(filter)
-    if (filter.cause) throw new Error('Disqualification cause is only supported in the Discarded view')
     const search = checkedSearch(filter.search)
     const searchScope = filter.searchScope ?? 'metadata'
-    if (searchScope !== 'metadata' && searchScope !== 'all_text') {
-        throw new Error('Search scope must be metadata or all_text')
-    }
     const screenOutcome = checkedScreenOutcome(filter.screenOutcome)
-    const triageStatus = filter.triageStatus
+    const stage = filter.stage ?? 'keep'
     const clauses: Prisma.Sql[] = [Prisma.sql`p.pipeline_status <> 'removed'`]
-    if (filter.minScore != null) clauses.push(Prisma.sql`p.score >= ${filter.minScore}`)
+    if (stage !== 'all') clauses.push(Prisma.sql`(${Prisma.raw(STAGE_SQL)}) = ${stage}`)
     if (search) {
         const pattern = escapeLikeLiteral(search)
         const bodyClause = searchScope === 'all_text'
@@ -329,252 +292,7 @@ function allJobsWhereSql(filter: JobPostingsFilter): Prisma.Sql {
     if (screenOutcome) {
         clauses.push(Prisma.sql`(${Prisma.raw(SCREEN_OUTCOME_SQL)}) = ${screenOutcome}`)
     }
-    if (triageStatus) {
-        clauses.push(Prisma.sql`(${Prisma.raw(TRIAGE_STATUS_SQL)}) = ${triageStatus}`)
-    }
     return Prisma.join(clauses, ' AND ')
-}
-
-function buildJobWhere(params: {
-    bucket?: JobBucket
-    search?: string
-    minScore?: number
-}, matchIds: number[], belowIds: number[]): Prisma.job_postingsWhereInput {
-    const bucket = params.bucket ?? 'matched'
-    const search = params.search || ''
-    const minScore = params.minScore
-
-    let bucketFilter: Prisma.job_postingsWhereInput
-    if (bucket === 'failed') {
-        bucketFilter = { pipeline_status: 'failed' }
-    } else if (bucket === 'discarded') {
-        // Two populations, OR'd. (1) Hard-constraint screen failures: status
-        // 'discarded' + disqualified:true — substring-matched on the score_detail JSON,
-        // tolerating json.dumps spacing ("disqualified": true) and compact
-        // ("disqualified":true). (2) Fit-verdict rejects: live rows in neither the
-        // matched nor the below-bar set — a seniority miss (too_junior/too_senior) or
-        // domain=mismatch. Guarded like the lowIds `notIn`: an empty keep set must NOT
-        // emit `NOT IN ()` (which SQLite/Prisma would treat as excluding nothing rather
-        // than excluding everything) — with nothing kept, every live row IS a reject.
-        const keepIds = [...matchIds, ...belowIds]
-        bucketFilter = {
-            OR: [
-                {
-                    pipeline_status: 'discarded',
-                    OR: [
-                        { score_detail: { contains: '"disqualified": true' } },
-                        { score_detail: { contains: '"disqualified":true' } },
-                    ],
-                },
-                {
-                    pipeline_status: { in: [...ACTIVE_PIPELINE_STATUSES] },
-                    ...(keepIds.length > 0 ? { id: { notIn: keepIds } } : {}),
-                },
-            ],
-        }
-    } else if (bucket === 'belowbar') {
-        // The near miss: seniority=match AND domain=adjacent. An empty belowIds
-        // correctly yields `id IN ()` → no rows, so no guard is needed here.
-        bucketFilter = {
-            pipeline_status: { in: [...ACTIVE_PIPELINE_STATUSES] },
-            id: { in: belowIds },
-        }
-    } else {
-        // matched — seniority=match AND domain=match AND NOT insufficient_context. An empty
-        // matchIds correctly yields `id IN ()` → no rows, so no guard needed here.
-        bucketFilter = {
-            pipeline_status: { in: [...ACTIVE_PIPELINE_STATUSES] },
-            id: { in: matchIds },
-        }
-    }
-
-    return {
-        AND: [
-            bucketFilter,
-            minScore != null ? { score: { gte: minScore } } : {},
-            searchClause(search),
-        ],
-    }
-}
-
-// The `where` for every bucket EXCEPT lowcontext: buildJobWhere's clauses, then the
-// discarded-only cause sub-filter, then the low-context exclusion that keeps the tabs
-// mutually exclusive (a thin-JD scored row shows only under Low-context). Appended as
-// peer clauses so buildJobWhere's flat AND shape survives, and the exclusion is guarded
-// because an empty set must NOT emit `NOT IN ()` — SQLite reads that as excluding
-// nothing rather than everything.
-//
-// Shared by getJobPostings and removeAllInView, which had built it separately: a bulk
-// remove must sweep exactly the rows the view is showing, and that only holds while
-// the two agree by construction.
-//
-// NOTE it has no lowcontext case, because buildJobWhere has none — that bucket falls
-// through to `matched`. Nothing calls this with `bucket: 'lowcontext'`;
-// jobWhereForBucket below is the entry point and peels that bucket off first.
-async function jobWhereExcludingLowContext(
-    filter: { bucket?: JobBucket; search?: string; minScore?: number; cause?: DisqualifyCause },
-    matchIds: number[],
-    belowIds: number[],
-    lowIds: number[],
-): Promise<Prisma.job_postingsWhereInput> {
-    const base = buildJobWhere(filter, matchIds, belowIds)
-    const causeClause =
-        filter.bucket === 'discarded' && filter.cause
-            ? [{ id: { in: await disqualifyCauseIds(filter.cause) } }]
-            : []
-    return {
-        AND: [
-            ...(base.AND as Prisma.job_postingsWhereInput[]),
-            ...causeClause,
-            ...(lowIds.length > 0 ? [{ id: { notIn: lowIds } }] : []),
-        ],
-    }
-}
-
-// The `where` for ANY bucket — the single place a bucket becomes a query. getJobPostings
-// and removeAllInView both go through here so a bulk remove sweeps exactly the rows the
-// view is showing, for EVERY bucket rather than for all but one.
-//
-// The lowcontext bucket is peeled off first because buildJobWhere has no case for it and
-// would fall through to `matched`: before this was shared, a removeAllInView on that
-// bucket would have swept the MATCHED rows instead. Latent (the button renders only on
-// the discarded bucket) but one branch away from real, so it is closed by construction
-// instead of by that button never moving.
-async function jobWhereForBucket(
-    filter: { bucket?: JobBucket; search?: string; minScore?: number; cause?: DisqualifyCause },
-    matchIds: number[],
-    belowIds: number[],
-    lowIds: number[],
-): Promise<Prisma.job_postingsWhereInput> {
-    if (filter.bucket === 'lowcontext') {
-        // The low-context bucket IS the thin-JD id set, plus the shared search/minScore
-        // filters. It does not exclude itself, and the discarded-only cause sub-filter
-        // does not apply.
-        return {
-            AND: [
-                { id: { in: lowIds } },
-                filter.minScore != null ? { score: { gte: filter.minScore } } : {},
-                searchClause(filter.search || ''),
-            ],
-        }
-    }
-    return jobWhereExcludingLowContext(filter, matchIds, belowIds, lowIds)
-}
-
-async function jobWhereForFilter(filter: JobPostingsFilter): Promise<Prisma.job_postingsWhereInput> {
-    validateJobPostingsFilter(filter)
-    const bucket = filter.bucket ?? 'all'
-    if (bucket === 'all') {
-        throw new Error('All jobs uses a bound SQL inventory query, not a fit-bucket where clause')
-    }
-    if (filter.screenOutcome) {
-        throw new Error('Standalone screen outcome filters are only supported in All jobs')
-    }
-    if (filter.triageStatus) {
-        throw new Error('Job triage filters are only supported in All jobs')
-    }
-    if (filter.searchScope === 'all_text') {
-        throw new Error('All-text search is only supported in All jobs')
-    }
-    if (filter.cause && bucket !== 'discarded') {
-        throw new Error('Disqualification cause is only supported in the Discarded view')
-    }
-    checkedSearch(filter.search)
-    const [lowIds, matchIds, belowIds] = await Promise.all([
-        lowContextIds(), matchedIds(), belowBarIds(),
-    ])
-    return jobWhereForBucket({ ...filter, bucket }, matchIds, belowIds, lowIds)
-}
-
-// Ids of discarded postings whose `disqualification_reason` matches one hard-constraint
-// cause. Prisma's typed `where` can't reach into the score_detail JSON, so — mirroring
-// lowContextIds — we fetch the matching ids once with a raw query (SQLite json_extract)
-// and layer them onto the discarded bucket query (id `in`). The LIKE pattern recognizes
-// the worker's keyed reason ("degree: …", "internship/co-op role") even inside a
-// "; "-joined multi-cause reason. An empty result → `id IN ()` → an (intentionally)
-// empty view, so no guard is needed.
-async function disqualifyCauseIds(cause: DisqualifyCause): Promise<number[]> {
-    const pattern = DISQUALIFY_CAUSE_PATTERNS[cause]
-    const rows = await prisma.$queryRaw<Array<{ id: number | bigint }>>`
-        SELECT id FROM job_postings
-        WHERE pipeline_status = 'discarded'
-          AND json_extract(score_detail, '$.disqualification_reason') LIKE ${pattern}
-    `
-    return rows.map((r) => Number(r.id))
-}
-
-// Ids of "low-context" postings: a JD too thin to score with confidence. Two signals,
-// either one qualifies (OR):
-//   1. a short description body — derived at query time from TRIM(description) length
-//      (< LOW_CONTEXT_MAX_DESCRIPTION_LENGTH); the ingest gate only rejects EMPTY JDs.
-//   2. the fit scorer's persisted `insufficient_context: true` flag in score_detail —
-//      the LLM judged the JD too boilerplate/truncated to assess even at full length.
-// Prisma's typed `where` can't express LENGTH(...)/json_extract, so we fetch the ids
-// with a raw query and layer them onto the typed bucket queries (id `in` for the
-// low-context bucket, `notIn` for every other bucket) — keeping buckets mutually
-// exclusive without touching buildJobWhere. Scope: only rows that actually received a
-// fit score (scored|notified); disqualified/failed/applied/removed keep their own buckets.
-async function lowContextIds(): Promise<number[]> {
-    const rows = await prisma.$queryRaw<Array<{ id: number | bigint }>>`
-        SELECT id FROM job_postings
-        WHERE pipeline_status IN ('scored', 'notified')
-          AND (
-                LENGTH(TRIM(description)) < ${LOW_CONTEXT_MAX_DESCRIPTION_LENGTH}
-             OR json_extract(score_detail, '$.insufficient_context') = 1
-          )
-    `
-    return rows.map((r) => Number(r.id))
-}
-
-// Ids of "matched" postings: seniority=match AND domain=match AND NOT
-// insufficient_context, over the retired fit scorer's stored verdicts. Score alone is a rubric-band-quantized number that flips run-to-run near
-// the old threshold; the verdicts are stable (see PROGRESS.md). Prisma's typed
-// `where` can't reach into the score_detail JSON, so — mirroring lowContextIds — we
-// fetch the matching ids once with a raw query and layer them onto the matched/
-// belowbar bucket queries — id `in` for BOTH. `notIn` belongs to the discarded
-// bucket, which excludes the union of the two keep sets. Scope: only rows that
-// actually received a fit score (scored|notified).
-async function matchedIds(): Promise<number[]> {
-    const rows = await prisma.$queryRaw<Array<{ id: number | bigint }>>`
-        SELECT id FROM job_postings
-        WHERE pipeline_status IN ('scored', 'notified')
-          AND json_extract(score_detail, '$.assessment.seniority.verdict') = 'match'
-          AND json_extract(score_detail, '$.assessment.domain.verdict') = 'match'
-          AND COALESCE(json_extract(score_detail, '$.insufficient_context'), 0) <> 1
-    `
-    return rows.map((r) => Number(r.id))
-}
-
-// Ids of "below bar" postings — the NEAR MISS: seniority=match AND domain=adjacent
-// (and not flagged insufficient_context). Same raw-query shape as matchedIds, and the
-// two sets together are the whole KEEP half of the fit verdicts: domain=match is
-// actionable (Matched), domain=adjacent is worth a glance (Below bar). A seniority
-// miss never reaches either — the fit rubric treated seniority as disqualifying
-// rather than partial — so those rows fall through to the Discarded audit view.
-async function belowBarIds(): Promise<number[]> {
-    const rows = await prisma.$queryRaw<Array<{ id: number | bigint }>>`
-        SELECT id FROM job_postings
-        WHERE pipeline_status IN ('scored', 'notified')
-          AND json_extract(score_detail, '$.assessment.seniority.verdict') = 'match'
-          AND json_extract(score_detail, '$.assessment.domain.verdict') = 'adjacent'
-          AND COALESCE(json_extract(score_detail, '$.insufficient_context'), 0) <> 1
-    `
-    return rows.map((r) => Number(r.id))
-}
-
-type ScreenedJobPosting = Prisma.job_postingsGetPayload<{}> & {
-    job_screening: {
-        id: number
-        state: string
-        result_json: string | null
-        error_message: string | null
-        backend: string
-        model: string | null
-        effort: string | null
-        evaluator_version: string
-        updated_at: string | null
-        source_content_revision: number | null
-    } | null
 }
 
 type RawInventoryPosting = Prisma.job_postingsGetPayload<{}> & {
@@ -588,28 +306,26 @@ type RawInventoryPosting = Prisma.job_postingsGetPayload<{}> & {
     screening_evaluator_version: string | null
     screening_updated_at: string | null
     screening_source_content_revision: number | null
+    stage: JobStage
+    jev_status: string
+    jev_model_status: string
+    jev_reasons_json: string | null
+    override_applies: number | bigint | null
+    override_decision: string | null
+    override_reason: string | null
+    override_actor: string | null
+    override_set_at: string | null
 }
 
-function enrichJobPosting(posting: ScreenedJobPosting) {
-    const { job_screening, score_detail, ...job } = posting
-    return {
-        ...job,
-        score_detail,
-        screen_summary: standaloneScreenSummary(job_screening),
-        legacy_screen_evidence: legacyScreenEvidence(score_detail),
-        triage_summary: jobTriageSummary(job.pipeline_status, score_detail, job_screening),
-        source_lifecycle: sourceLifecycleSummary({ ...job, score_detail }, job_screening),
-    }
-}
-
-async function getAllJobPostings(params: JobPostingsFilter, page: number, size: number) {
-    const where = allJobsWhereSql(params)
-    const sort = params.sort ?? 'created'
-    const orderSql = sort === 'score'
-        ? Prisma.raw('p.score DESC, p.id ASC')
-        : sort === 'posted'
-            ? Prisma.raw('p.posted_at DESC, p.id DESC')
-            : Prisma.raw('p.created_at DESC, p.id DESC')
+// Newest first by default (no score order: the fit score is retired).
+export async function getJobPostings(params: JobPostingsFilter = {}) {
+    validateJobPostingsFilter(params)
+    const page = Math.max(0, Math.floor(params.page ?? 0))
+    const size = Math.min(100, Math.max(1, Math.floor(params.size ?? 25)))
+    const where = jobsWhereSql(params)
+    const orderSql = params.sort === 'posted'
+        ? Prisma.raw('p.posted_at DESC, p.id DESC')
+        : Prisma.raw('p.created_at DESC, p.id DESC')
     const [rows, countRows] = await Promise.all([
         prisma.$queryRaw<RawInventoryPosting[]>(Prisma.sql`
             SELECT p.*,
@@ -622,34 +338,31 @@ async function getAllJobPostings(params: JobPostingsFilter, page: number, size: 
                    s.effort AS screening_effort,
                    s.evaluator_version AS screening_evaluator_version,
                    s.updated_at AS screening_updated_at,
-                   s.source_content_revision AS screening_source_content_revision
-            FROM job_postings p
-            LEFT JOIN job_screenings s ON s.job_posting_id=p.id
+                   s.source_content_revision AS screening_source_content_revision,
+                   (${Prisma.raw(STAGE_SQL)}) AS stage,
+                   (${Prisma.raw(JEV_STATUS_SQL)}) AS jev_status,
+                   (${Prisma.raw(JEV_MODEL_STATUS_SQL)}) AS jev_model_status,
+                   j.reasons_json AS jev_reasons_json,
+                   ${Prisma.raw(OVERRIDE_APPLIES_SQL)} AS override_applies,
+                   o.decision AS override_decision, o.reason AS override_reason,
+                   o.actor AS override_actor, o.created_at AS override_set_at
+            ${Prisma.raw(FROM_SQL)}
             WHERE ${where}
             ORDER BY ${orderSql}
             LIMIT ${size} OFFSET ${page * size}
         `),
         prisma.$queryRaw<Array<{ total: number | bigint }>>(Prisma.sql`
-            SELECT COUNT(*) AS total
-            FROM job_postings p
-            LEFT JOIN job_screenings s ON s.job_posting_id=p.id
-            WHERE ${where}
+            SELECT COUNT(*) AS total ${Prisma.raw(FROM_SQL)} WHERE ${where}
         `),
     ])
     const data = rows.map((row) => {
         const {
-            screening_id,
-            screening_state,
-            screening_result_json,
-            screening_error_message,
-            screening_backend,
-            screening_model,
-            screening_effort,
-            screening_evaluator_version,
-            screening_updated_at,
-            screening_source_content_revision,
-            score_detail,
-            ...posting
+            screening_id, screening_state, screening_result_json, screening_error_message,
+            screening_backend, screening_model, screening_effort, screening_evaluator_version,
+            screening_updated_at, screening_source_content_revision,
+            jev_status, jev_model_status, jev_reasons_json,
+            override_applies, override_decision, override_reason, override_actor, override_set_at,
+            score_detail, ...posting
         } = row
         const screening = screening_id == null ? null : {
             id: screening_id,
@@ -670,207 +383,49 @@ async function getAllJobPostings(params: JobPostingsFilter, page: number, size: 
             legacy_screen_evidence: legacyScreenEvidence(score_detail),
             triage_summary: jobTriageSummary(posting.pipeline_status, score_detail, screening),
             source_lifecycle: sourceLifecycleSummary({ ...posting, score_detail }, screening),
+            jev: {
+                status: jev_status,
+                model_status: jev_model_status,
+                reasons: jev_model_status === 'keep' || jev_model_status === 'skip' ? jevReasons(jev_reasons_json) : [],
+                override: override_decision == null ? null : {
+                    decision: override_decision, reason: override_reason, actor: override_actor,
+                    set_at: override_set_at, applies: Boolean(Number(override_applies ?? 0)),
+                },
+            },
         }
     })
     return { data, total: Number(countRows[0]?.total ?? 0) }
 }
 
-export async function getJobPostings(params: JobPostingsFilter = {}) {
-    validateJobPostingsFilter(params)
-    const page = Math.max(0, Math.floor(params.page ?? 0))
-    const size = Math.min(100, Math.max(1, Math.floor(params.size ?? 25)))
-    const bucket = params.bucket ?? 'all'
-    if (bucket === 'all') return getAllJobPostings({ ...params, bucket }, page, size)
-    const where = await jobWhereForFilter({ ...params, bucket })
-
-    const orderBy: Prisma.job_postingsOrderByWithRelationInput[] =
-        params.sort === 'created'
-            ? [{ created_at: 'desc' }, { id: 'desc' }]
-            : params.sort === 'posted'
-                ? [{ posted_at: 'desc' }, { id: 'desc' }]
-                : [{ score: 'desc' }, { id: 'asc' }]
-
-    const [data, total] = await Promise.all([
-        prisma.job_postings.findMany({
-            where,
-            orderBy,
-            skip: page * size,
-            take: size,
-            include: {
-                job_screening: {
-                    select: {
-                        id: true,
-                        state: true,
-                        result_json: true,
-                        error_message: true,
-                        backend: true,
-                        model: true,
-                        effort: true,
-                        evaluator_version: true,
-                        updated_at: true,
-                        source_content_revision: true,
-                    },
-                },
-            },
-        }),
-        prisma.job_postings.count({ where }),
-    ])
-
-    return { data: data.map((posting) => enrichJobPosting(posting as ScreenedJobPosting)), total }
+// Per-stage counts for the funnel filter, over the same base predicate as the list.
+export async function getJobStageCounts() {
+    const rows = await prisma.$queryRaw<Array<{ stage: JobStage; n: number | bigint }>>(Prisma.sql`
+        SELECT (${Prisma.raw(STAGE_SQL)}) AS stage, COUNT(*) AS n ${Prisma.raw(FROM_SQL)}
+        WHERE p.pipeline_status <> 'removed' GROUP BY stage
+    `)
+    const counts = Object.fromEntries(JOB_STAGES.map((s) => [s, 0])) as Record<JobStage, number>
+    for (const r of rows) counts[r.stage] = Number(r.n)
+    return counts
 }
 
 type JobScopeClient = Pick<Prisma.TransactionClient, 'job_postings' | '$queryRaw'>
 
+// A mutation sends back the view that offered it, so a stale or crafted request cannot
+// act on a row outside that view.
 async function findPostingInView(client: JobScopeClient, id: number, scope: JobViewScope) {
-    validateJobPostingsFilter(scope, true, false)
-    if (scope.bucket === 'all') {
-        const where = allJobsWhereSql(scope)
-        const matches = await client.$queryRaw<Array<{ id: number | bigint }>>(Prisma.sql`
-            SELECT p.id
-            FROM job_postings p
-            LEFT JOIN job_screenings s ON s.job_posting_id=p.id
-            WHERE p.id=${id} AND ${where}
-            LIMIT 1
-        `)
-        if (matches.length === 0) return null
-        return client.job_postings.findUnique({ where: { id } })
-    }
-    const where = await jobWhereForFilter(scope)
-    return client.job_postings.findFirst({ where: { AND: [where, { id }] } })
-}
-
-// The one place a posting's pipeline_status is moved by hand, single-row and bulk.
-// The same list predicate must be sent back with a mutation so a crafted/stale request
-// cannot broaden a filter or act on a row outside the view that offered the action.
-function scopedWhere(where: Prisma.job_postingsWhereInput, ids: number[]): Prisma.job_postingsWhereInput {
-    return { AND: [where, { id: { in: ids } }] }
-}
-
-function uniquePostingIds(ids: number[]): number[] {
-    return [...new Set(ids.filter((id) => Number.isSafeInteger(id) && id > 0))]
-}
-
-async function setPipelineStatusInView(
-    id: number,
-    status: 'removed' | 'scored',
-    scope: JobViewScope,
-): Promise<{ success: boolean; error?: string }> {
-    try {
-        validateJobPostingsFilter(scope, true, false)
-        const result = await prisma.$transaction(async (tx) => {
-            const posting = await findPostingInView(tx, id, scope)
-            if (!posting) return { success: false, error: 'Job is outside the requested view and filters' }
-            if (status === 'removed' && posting.pipeline_status === 'applied') {
-                return { success: false, error: 'Applied postings cannot be removed from the inventory' }
-            }
-            if (status === 'scored' && posting.pipeline_status !== 'discarded') {
-                return { success: false, error: 'Only discarded postings can be reopened' }
-            }
-            const statusGuard: Prisma.job_postingsWhereInput = status === 'removed'
-                ? { pipeline_status: { notIn: ['applied', 'removed'] } }
-                : { pipeline_status: 'discarded' }
-            const updated = await tx.job_postings.updateMany({
-                where: { AND: [{ id }, statusGuard] },
-                data: { pipeline_status: status, updated_at: new Date().toISOString() },
-            })
-            return updated.count === 1
-                ? { success: true }
-                : { success: false, error: 'Job is no longer eligible in the requested view and filters' }
-        })
-        return result
-    } catch (error: any) {
-        return { success: false, error: error.message }
-    }
-}
-
-async function setPipelineStatusManyInView(
-    ids: number[],
-    status: 'removed' | 'scored',
-    scope: JobViewScope,
-): Promise<{ success: boolean; error?: string; count?: number }> {
-    try {
-        validateJobPostingsFilter(scope, true, false)
-        if (scope.bucket === 'all') {
-            return { success: false, error: 'Bulk lifecycle actions are not supported in All jobs' }
-        }
-        if (status === 'scored' && scope.bucket !== 'discarded') {
-            return { success: false, error: 'Bulk reopen is only supported in the Discarded view' }
-        }
-        const postingIds = uniquePostingIds(ids)
-        if (postingIds.length === 0) return { success: true, count: 0 }
-        if (postingIds.length > 100) return { success: false, error: 'Bulk actions are limited to 100 jobs' }
-
-        const where = await jobWhereForFilter(scope)
-        const constrainedWhere = scopedWhere(where, postingIds)
-        const eligibleCount = await prisma.job_postings.count({ where: constrainedWhere })
-        if (eligibleCount !== postingIds.length) {
-            return { success: false, error: 'One or more jobs are outside the requested view and filters' }
-        }
-        const statusGuard: Prisma.job_postingsWhereInput = status === 'removed'
-            ? { pipeline_status: { notIn: ['applied', 'removed'] } }
-            : {}
-        const result = await prisma.job_postings.updateMany({
-            where: { AND: [constrainedWhere, statusGuard] },
-            data: { pipeline_status: status, updated_at: new Date().toISOString() },
-        })
-        return { success: true, count: result.count }
-    } catch (error: any) {
-        return { success: false, error: error.message }
-    }
-}
-
-// Per-row dismiss. Writes 'removed' (hidden from every bucket, like bulk Remove) — NOT
-// 'discarded'. The Discarded bucket is reserved for the screen's auto-disqualifications,
-// so a hand-dismissed row must not masquerade as one (it would also be unreopenable,
-// matching no bucket). Reopen a genuine disqualification from the Discarded view instead.
-export async function discardJobPosting(id: number, scope: JobViewScope) {
-    return setPipelineStatusInView(id, 'removed', scope)
-}
-
-// Reverse a discard (whether user-initiated or an LLM disqualification): send the
-// posting back into the actionable queue. The stored score_detail — including any
-// disqualification_reason — is kept, so the override stays explainable.
-export async function reopenJobPosting(id: number, scope: JobViewScope) {
-    return setPipelineStatusInView(id, 'scored', scope)
-}
-
-// Terminal hide: a 'removed' posting is invisible to every bucket query and inert
-// to the worker (ingest is ON CONFLICT DO NOTHING; the pipeline only selects by
-// explicit status), so it never re-scores/re-notifies. See the design spec.
-export async function bulkRemove(ids: number[], scope: JobViewScope) {
-    return setPipelineStatusManyInView(ids, 'removed', scope)
-}
-
-export async function bulkReopen(ids: number[], scope: JobViewScope) {
-    return setPipelineStatusManyInView(ids, 'scored', scope)
-}
-
-// Clear the whole current Discarded view in one click, using the exact predicate the
-// list action uses. Inventory is intentionally excluded from bulk lifecycle actions.
-export async function removeAllInView(filter: JobViewScope) {
-    try {
-        validateJobPostingsFilter(filter, true, false)
-        if (filter.bucket === 'all') {
-            return { success: false, error: 'Bulk lifecycle actions are not supported in All jobs' }
-        }
-        if (filter.bucket !== 'discarded') {
-            return { success: false, error: 'Remove all is only supported in the Discarded view' }
-        }
-        const where = await jobWhereForFilter(filter)
-        const res = await prisma.job_postings.updateMany({
-            where: { AND: [where, { pipeline_status: { notIn: ['applied', 'removed'] } }] },
-            data: { pipeline_status: 'removed', updated_at: new Date().toISOString() },
-        })
-        return { success: true, count: res.count }
-    } catch (error: any) {
-        return { success: false, error: error.message }
-    }
+    validateJobPostingsFilter(scope, false)
+    const where = jobsWhereSql(scope)
+    const matches = await client.$queryRaw<Array<{ id: number | bigint }>>(Prisma.sql`
+        SELECT p.id ${Prisma.raw(FROM_SQL)} WHERE p.id=${id} AND ${where} LIMIT 1
+    `)
+    if (matches.length === 0) return null
+    return client.job_postings.findUnique({ where: { id } })
 }
 
 export async function markJobApplied(id: number, category: string | undefined, scope: JobViewScope, actor: Actor = 'web') {
     try {
         checkedActor(actor)
-        validateJobPostingsFilter(scope, true, false)
+        validateJobPostingsFilter(scope, false)
         return await prisma.$transaction(async (tx) => {
             const posting = await findPostingInView(tx, id, scope)
             if (!posting) {

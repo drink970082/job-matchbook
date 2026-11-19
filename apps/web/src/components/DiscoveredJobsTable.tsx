@@ -1,6 +1,5 @@
 'use client'
 
-import { useState, useEffect } from 'react'
 import {
     Table,
     TableBody,
@@ -21,14 +20,20 @@ import {
 } from '@/components/ui/select'
 import { Pagination } from './Pagination'
 import { safeHref } from '@/lib/utils'
-import { verdictClass, verdictLabel, safeParseDetail, parseAssessment } from '@/lib/score-detail'
 import { LOW_CONTEXT_MAX_DESCRIPTION_LENGTH } from '@/lib/constants'
-import type { JobBucket, DisqualifyCause, JobSort, JobViewScope, JobSearchScope } from '@/lib/job-actions'
+import type { JobSort, JobViewScope, JobSearchScope, JobStage, JobStageFilter } from '@/lib/job-actions'
 import type { ScreenOutcome, ScreenSummary, LegacyScreenEvidence } from '@/lib/screen-summary'
 import { TRIAGE_STATUS_LABELS } from '@/lib/triage-summary'
-import type { JobTriageSummary, TriageStatus } from '@/lib/triage-summary'
+import type { JobTriageSummary } from '@/lib/triage-summary'
 import type { SourceLifecycleSummary, SourceFreshness } from '@/lib/source-lifecycle'
-import { FileText, CheckCircle2, XCircle, RotateCcw } from 'lucide-react'
+import { FileText, CheckCircle2 } from 'lucide-react'
+
+export interface JobJev {
+    status: string
+    model_status: string
+    reasons: string[]
+    override: { decision: string; reason: string | null; actor: string | null; set_at: string | null; applies: boolean } | null
+}
 
 export interface JobPosting {
     id: number
@@ -38,19 +43,20 @@ export interface JobPosting {
     location?: string | null
     job_url: string
     description?: string | null
-    score?: number | null
     score_detail?: string | null
     pipeline_status?: string
     pipeline_error?: string | null
     posted_at?: string | null
     created_at?: string | null
+    stage?: JobStage
+    jev?: JobJev
     screen_summary?: ScreenSummary
     legacy_screen_evidence?: LegacyScreenEvidence
     triage_summary?: JobTriageSummary
     source_lifecycle?: SourceLifecycleSummary
 }
 
-export type JobTableFilters = JobViewScope & { sortExplicit: boolean }
+export type JobTableFilters = JobViewScope
 
 interface DiscoveredJobsTableProps {
     data: JobPosting[]
@@ -58,27 +64,34 @@ interface DiscoveredJobsTableProps {
     page: number
     size: number
     filters: JobTableFilters
+    counts?: Partial<Record<JobStage, number>>
     loading: boolean
     loadError: boolean
     onPageChange: (page: number) => void
     onFilterChange: (filters: JobTableFilters) => void
     onMarkApplied: (id: number, scope: JobViewScope) => void
-    onDiscard: (id: number, scope: JobViewScope) => void
-    onReopen: (id: number, scope: JobViewScope) => void
     onViewJD: (id: number, scope: JobViewScope) => void
-    onBulkRemove: (ids: number[], scope: JobViewScope) => void
-    onBulkReopen: (ids: number[], scope: JobViewScope) => void
-    onRemoveAllInView: (filter: JobViewScope) => void
 }
 
-const BUCKETS: { value: JobBucket; label: string }[] = [
-    { value: 'all', label: 'All jobs' },
-    { value: 'matched', label: 'Matched' },
-    { value: 'belowbar', label: 'Below bar' },
-    { value: 'discarded', label: 'Discarded' },
-    { value: 'failed', label: 'Failed' },
-    { value: 'lowcontext', label: 'Low-context' },
+// The funnel, in pipeline order: rule -> screen -> JEV -> keep. Keep is the default.
+export const STAGES: { value: JobStageFilter; label: string }[] = [
+    { value: 'keep', label: 'Keep' },
+    { value: 'unassessed', label: 'Unassessed' },
+    { value: 'jev_skip', label: 'JEV skip' },
+    { value: 'screen_rejected', label: 'Screen rejected' },
+    { value: 'rule_rejected', label: 'Rule rejected' },
+    { value: 'other', label: 'Applied / closed' },
+    { value: 'all', label: 'All' },
 ]
+
+const JEV_REASON_LABELS: Record<string, string> = {
+    preference_weak: 'weak match to your preferences',
+    required_yoe_3_plus: 'asks for 3+ years',
+}
+
+const JEV_STATUS_LABELS: Record<string, string> = {
+    keep: 'Keep', skip: 'Skip', unassessed: 'Not assessed', failed: 'Assessment failed', stale: 'Stale verdict',
+}
 
 const SCREEN_OUTCOMES: { value: 'all' | ScreenOutcome; label: string }[] = [
     { value: 'all', label: 'All screen outcomes' },
@@ -89,28 +102,9 @@ const SCREEN_OUTCOMES: { value: 'all' | ScreenOutcome; label: string }[] = [
     { value: 'unknown', label: 'Unknown' },
 ]
 
-const TRIAGE_FILTERS: { value: 'all' | TriageStatus; label: string }[] = [
-    { value: 'all', label: 'All triage statuses' },
-    ...Object.entries(TRIAGE_STATUS_LABELS).map(([value, label]) => ({
-        value: value as TriageStatus,
-        label,
-    })),
-]
-
 const SEARCH_SCOPES: { value: JobSearchScope; label: string }[] = [
     { value: 'metadata', label: 'Metadata' },
     { value: 'all_text', label: 'All text, including JD' },
-]
-
-// Disqualification-cause sub-filter for the Discarded bucket (mirrors DisqualifyCause).
-const CAUSES: { value: 'all' | DisqualifyCause; label: string }[] = [
-    { value: 'all', label: 'All causes' },
-    { value: 'authorization', label: 'Work authorization' },
-    { value: 'location', label: 'Location' },
-    { value: 'degree', label: 'Degree' },
-    { value: 'clearance', label: 'Clearance' },
-    { value: 'internship', label: 'Internship' },
-    { value: 'prefilter', label: 'Pre-filter (title/age)' },
 ]
 
 // Compact, timezone-safe date: "2026-06-01" (yyyy-mm-dd) from a YYYY-MM-DD (or full-ISO)
@@ -121,150 +115,6 @@ function fmtDate(raw?: string | null): string {
     const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(raw)
     if (!m) return raw
     return `${m[1]}-${m[2]}-${m[3]}`
-}
-
-function scoreVariant(score?: number | null): 'default' | 'secondary' | 'destructive' | 'outline' {
-    if (score == null) return 'outline'
-    if (score >= 80) return 'default'
-    if (score >= 60) return 'secondary'
-    return 'destructive'
-}
-
-// Which résumé version the scorer picked as the best fit — shown next to the score so
-// you know which one to submit. Unknown labels fall through as-is.
-const RESUME_LABELS: Record<string, string> = { swe: 'SWE', quant_dev: 'Quant Dev' }
-
-interface ParsedDetail {
-    disqualificationReason: string
-    seniorityVerdict: string
-    seniorityNote: string
-    domainVerdict: string
-    domainNote: string
-    firstMissing: string
-    summary: string
-    reasoning: string
-    recommendedResume: string
-}
-
-// The minimal slice of the worker's score_detail the why-cell needs. Parses the same
-// { assessment:{domain,must_haves,summary}, disqualification_reason } shape the modal
-// reads; tolerant of bad JSON / pre-S2.1 rows (returns null / empty fields).
-function parseDetail(raw?: string | null): ParsedDetail | null {
-    const p = safeParseDetail(raw)
-    if (!p) return null
-    const a = parseAssessment(p.assessment)
-    return {
-        disqualificationReason: String(p.disqualification_reason ?? ''),
-        seniorityVerdict: a?.seniority.verdict ?? '',
-        seniorityNote: a?.seniority.note ?? '',
-        domainVerdict: a?.domain.verdict ?? '',
-        domainNote: a?.domain.note ?? '',
-        firstMissing: a?.mustHaves.missing[0] ?? '',
-        summary: a?.summary ?? '',
-        // Coerced HERE rather than in the shared parser: the modal deliberately reads
-        // these two differently (a non-string recommended_resume is 'absent' there,
-        // '5' here). Unifying would change one component's output on malformed input.
-        reasoning: String(p.reasoning ?? ''),
-        recommendedResume: String(p.recommended_resume ?? ''),
-    }
-}
-
-// The shape of the shortfall: a pill for each of seniority/domain that isn't a clean
-// match (too_junior, adjacent, mismatch…), then the specific gap. Shared by Below bar
-// (near misses) and the fit-verdict half of Discarded — the two differ only in WHICH
-// verdicts land them there, not in how the shortfall reads.
-function VerdictShortfall({ detail }: { detail: ParsedDetail | null }) {
-    const pills = [detail?.seniorityVerdict, detail?.domainVerdict]
-        .filter((v): v is string => !!v && v !== 'match')
-    const gap = detail?.firstMissing
-        ? `missing: ${detail.firstMissing}`
-        : (detail?.summary || detail?.domainNote || detail?.seniorityNote || '')
-    // Structured assessment (post round-2) is preferred; legacy rows with no scorecard
-    // fall back to the one-line `reasoning` so the row still says WHY it fell short,
-    // not just the score.
-    if (pills.length === 0 && !gap) {
-        const why = detail?.reasoning ?? ''
-        if (!why) return null
-        return (
-            <div className="mt-0.5 truncate text-[11px] text-muted-foreground" title={why}>
-                {why}
-            </div>
-        )
-    }
-    return (
-        <div className="mt-0.5 flex items-center gap-1 min-w-0 text-[11px]">
-            {pills.map((v) => (
-                <Badge
-                    key={v}
-                    variant="secondary"
-                    className={`${verdictClass(v)} shrink-0 px-1.5 py-0 text-[10px] font-medium`}
-                >
-                    {verdictLabel(v)}
-                </Badge>
-            ))}
-            {pills.length > 0 && gap && <span className="shrink-0 text-muted-foreground">·</span>}
-            {gap && (
-                <span className="truncate min-w-0 text-muted-foreground" title={gap}>
-                    {gap}
-                </span>
-            )}
-        </div>
-    )
-}
-
-// The signature element: a bucket-aware "why is this row here" subline under the role
-// title, scannable at a glance so you don't open each posting.
-function WhyCell({ bucket, job, detail }: { bucket: JobBucket; job: JobPosting; detail: ParsedDetail | null }) {
-    if (bucket === 'belowbar') return <VerdictShortfall detail={detail} />
-
-    if (bucket === 'discarded') {
-        // Two populations share this bucket (see job-actions.ts). A hard-constraint screen
-        // failure has a keyed disqualification_reason; a fit-verdict reject has none, and
-        // reads as the same shortfall line Below bar uses. Falling back to the literal
-        // "disqualified" for a row that was never disqualified would be a lie.
-        const reason = detail?.disqualificationReason
-        if (!reason) return <VerdictShortfall detail={detail} />
-        return (
-            <div className="mt-0.5 truncate text-[11px] font-medium text-red-600" title={reason}>
-                ✕ {reason}
-            </div>
-        )
-    }
-
-    if (bucket === 'lowcontext') {
-        // Low-context has TWO causes (job-actions.ts lowContextIds) and they read differently:
-        // a genuinely short body, or a full-length JD the fit scorer itself flagged as
-        // too boilerplate/truncated to trust. Reporting a 4,560-char JD as "Thin JD" was
-        // simply wrong — say which rule caught it.
-        const len = (job.description ?? '').trim().length
-        const why = len < LOW_CONTEXT_MAX_DESCRIPTION_LENGTH
-            ? `Thin JD (${len} chars)`
-            : `Scorer found no usable detail (${len} chars)`
-        return (
-            <div className="mt-0.5 text-[11px] text-muted-foreground">
-                {why}
-            </div>
-        )
-    }
-
-    if (bucket === 'failed') {
-        const err = job.pipeline_error || 'Pipeline failed'
-        return (
-            <div className="mt-0.5 truncate text-[11px] text-muted-foreground" title={err}>
-                {err}
-            </div>
-        )
-    }
-
-    // matched — keep it quiet; the score leads. Optional one-line summary, or nothing.
-    if (detail?.summary) {
-        return (
-            <div className="mt-0.5 truncate text-[11px] text-muted-foreground" title={detail.summary}>
-                {detail.summary}
-            </div>
-        )
-    }
-    return null
 }
 
 function screenOutcomeLabel(outcome?: ScreenOutcome): string {
@@ -344,8 +194,6 @@ function SourceCell({ job }: { job: JobPosting }) {
             ? `Last conclusive detail check ${fmtDate(source.last_checked_at)}`
             : 'No conclusive detail check'
     const seenNote = source.last_seen_at ? `Last seen ${fmtDate(source.last_seen_at)}` : null
-    const fit = source.fit_freshness !== 'not_assessed'
-        ? `Fit ${freshnessLabel(source.fit_freshness)}` : null
     const screen = source.screen_freshness !== 'not_assessed'
         ? `Standalone screen ${freshnessLabel(source.screen_freshness)}` : null
     const combinedScreen = job.legacy_screen_evidence?.available &&
@@ -356,9 +204,9 @@ function SourceCell({ job }: { job: JobPosting }) {
             <Badge variant="outline">Source · {stateLabel}</Badge>
             {attemptNote && <span className="text-muted-foreground">{attemptNote}</span>}
             {seenNote && <span className="text-muted-foreground">{seenNote}</span>}
-            {(fit || screen || combinedScreen) && (
+            {(screen || combinedScreen) && (
                 <span className="text-muted-foreground">
-                    {[fit, screen, combinedScreen].filter(Boolean).join(' · ')}
+                    {[screen, combinedScreen].filter(Boolean).join(' · ')}
                 </span>
             )}
         </div>
@@ -388,9 +236,30 @@ function descriptionLabel(description?: string | null): string | null {
     return null
 }
 
-function actionScope(filters: JobTableFilters): JobViewScope {
-    const { sortExplicit: _sortExplicit, ...scope } = filters
-    return scope
+
+// Why a posting sits in its stage: JEV's verdict and reasons, and the operator's override
+// when there is one (MCP override_triage; the dashboard does not set it).
+function JevCell({ job }: { job: JobPosting }) {
+    const jev = job.jev
+    if (!jev) return null
+    const override = jev.override
+    return (
+        <div className="space-y-1 text-[11px]">
+            <Badge variant={jev.status === 'keep' ? 'default' : jev.status === 'skip' ? 'destructive' : 'outline'}>
+                {JEV_STATUS_LABELS[jev.status] ?? jev.status}
+            </Badge>
+            {jev.reasons.map((r) => (
+                <div key={r} className="text-muted-foreground">{JEV_REASON_LABELS[r] ?? r}</div>
+            ))}
+            {override && (
+                <div className="text-muted-foreground" title={override.reason ?? undefined}>
+                    {override.applies
+                        ? `Override: ${override.decision} (model said ${JEV_STATUS_LABELS[jev.model_status] ?? jev.model_status})`
+                        : `Override ${override.decision} lapsed (content changed)`}
+                </div>
+            )}
+        </div>
+    )
 }
 
 export function DiscoveredJobsTable({
@@ -399,246 +268,119 @@ export function DiscoveredJobsTable({
     page,
     size,
     filters,
+    counts,
     loading,
     loadError,
     onPageChange,
     onFilterChange,
     onMarkApplied,
-    onDiscard,
-    onReopen,
     onViewJD,
-    onBulkRemove,
-    onBulkReopen,
-    onRemoveAllInView,
 }: DiscoveredJobsTableProps) {
-    const [selected, setSelected] = useState<Set<number>>(new Set())
-    // Whenever the visible row set changes (page / filter / post-action refresh),
-    // drop the selection — stale ids must never carry across views.
-    useEffect(() => { setSelected(new Set()) }, [data])
-
-    const allSelected = data.length > 0 && data.every((j) => selected.has(j.id))
-    const toggleAll = () => setSelected(allSelected ? new Set() : new Set(data.map((j) => j.id)))
-    const toggleOne = (id: number) =>
-        setSelected((prev) => {
-            const next = new Set(prev)
-            if (next.has(id)) next.delete(id); else next.add(id)
-            return next
-        })
-    const ids = () => [...selected]
-
-    const bucket = filters.bucket
+    const stage = filters.stage ?? 'keep'
     const search = filters.search ?? ''
-    const minScore = filters.minScore == null ? '' : String(filters.minScore)
-    const sort = filters.sort ?? (bucket === 'all' ? 'created' : 'score')
-    const cause = filters.cause ?? 'all'
+    const sort = filters.sort ?? 'created'
     const searchScope = filters.searchScope ?? 'metadata'
     const screenOutcome = filters.screenOutcome ?? 'all'
-    const triageStatus = filters.triageStatus ?? 'all'
-    const scope = actionScope(filters)
-
-    const updateFilters = (patch: Partial<JobTableFilters>) => {
-        const next: JobTableFilters = { ...filters, ...patch }
-        if (patch.bucket && patch.bucket !== bucket) {
-            if (!filters.sortExplicit) next.sort = patch.bucket === 'all' ? 'created' : 'score'
-            if (patch.bucket !== 'all') {
-                next.screenOutcome = undefined
-                next.triageStatus = undefined
-                next.searchScope = 'metadata'
-            }
-            if (patch.bucket !== 'discarded') next.cause = undefined
-        }
-        onFilterChange(next)
-    }
+    const updateFilters = (patch: Partial<JobTableFilters>) => onFilterChange({ ...filters, ...patch })
+    // Every stage empty (or, before the counts arrive, an unfiltered All view) means the
+    // inventory itself is empty, not that a filter excluded everything.
+    const inventoryEmpty = counts
+        ? Object.values(counts).every((n) => !n)
+        : stage === 'all' && !search && screenOutcome === 'all'
 
     return (
         <div className="space-y-4">
-            {bucket !== 'all' && selected.size > 0 && (
-                <div className="flex items-center gap-2 rounded-md border bg-muted/40 px-3 py-2 text-sm">
-                    <span className="font-medium">{selected.size} selected</span>
-                    {bucket === 'discarded' && (
-                        <Button variant="outline" size="sm" onClick={() => onBulkReopen(ids(), scope)}>
-                            Reopen selected
-                        </Button>
-                    )}
-                    <Button variant="destructive" size="sm" onClick={() => onBulkRemove(ids(), scope)}>
-                        Remove selected
-                    </Button>
-                </div>
-            )}
-            {/* Bucket navigation — its own row, above the within-bucket filters. */}
-            <div className="inline-flex items-center gap-1 rounded-lg border bg-muted/40 p-1">
-                {BUCKETS.map((b) => (
+            <div className="inline-flex flex-wrap items-center gap-1 rounded-lg border bg-muted/40 p-1" role="tablist" aria-label="Job stage">
+                {STAGES.map((s) => (
                     <button
-                        key={b.value}
+                        key={s.value}
                         type="button"
-                        onClick={() => updateFilters({ bucket: b.value })}
-                        className={`px-4 py-1.5 text-sm font-medium rounded-md transition-colors ${
-                            bucket === b.value
+                        role="tab"
+                        aria-selected={stage === s.value}
+                        onClick={() => updateFilters({ stage: s.value })}
+                        className={`px-3 py-1.5 text-sm font-medium rounded-md transition-colors ${
+                            stage === s.value
                                 ? 'bg-background shadow-sm text-foreground'
                                 : 'text-muted-foreground hover:text-foreground'
                         }`}
                     >
-                        {b.label}
+                        {s.label}
+                        {s.value !== 'all' && counts?.[s.value as JobStage] != null && (
+                            <span className="ml-1.5 text-xs text-muted-foreground">{counts[s.value as JobStage]}</span>
+                        )}
                     </button>
                 ))}
             </div>
             <div className="flex flex-row gap-3 items-center">
                 <div className="flex-1">
                     <Input
-                        placeholder={bucket === 'all'
-                            ? 'Search companies, roles, or locations...'
-                            : 'Search companies or job titles...'}
+                        placeholder="Search companies, roles, or locations..."
                         maxLength={200}
                         value={search}
                         onChange={(e) => updateFilters({ search: e.target.value })}
                     />
                 </div>
-                <Input
-                    type="number"
-                    min={0}
-                    max={100}
-                    placeholder="Min score"
-                    value={minScore}
-                    onChange={(e) => updateFilters({ minScore: e.target.value === '' ? undefined : Number(e.target.value) })}
-                    className="w-[110px]"
-                    aria-label="Minimum score"
-                />
-                <Select value={sort} onValueChange={(v) => updateFilters({ sort: v as JobSort, sortExplicit: true })}>
-                    <SelectTrigger className="w-[150px]" aria-label="Sort by">
+                <Select value={sort} onValueChange={(v) => updateFilters({ sort: v as JobSort })}>
+                    <SelectTrigger className="w-[160px]" aria-label="Sort by">
                         <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
-                        <SelectItem value="created">Discovery recency</SelectItem>
-                        <SelectItem value="score">Best match</SelectItem>
+                        <SelectItem value="created">Newest fetched</SelectItem>
                         <SelectItem value="posted">Newest posted</SelectItem>
                     </SelectContent>
                 </Select>
-                {bucket === 'all' && (
-                    <>
-                        <Select
-                            value={triageStatus}
-                            onValueChange={(value) => updateFilters({ triageStatus: value === 'all' ? undefined : value as TriageStatus })}
-                        >
-                            <SelectTrigger className="w-[210px]" aria-label="Job triage status">
-                                <SelectValue />
-                            </SelectTrigger>
-                            <SelectContent>
-                                {TRIAGE_FILTERS.map((status) => (
-                                    <SelectItem key={status.value} value={status.value}>{status.label}</SelectItem>
-                                ))}
-                            </SelectContent>
-                        </Select>
-                        <Select
-                            value={screenOutcome}
-                            onValueChange={(value) => updateFilters({ screenOutcome: value === 'all' ? undefined : value as ScreenOutcome })}
-                        >
-                            <SelectTrigger className="w-[190px]" aria-label="Standalone screen outcome">
-                                <SelectValue />
-                            </SelectTrigger>
-                            <SelectContent>
-                                {SCREEN_OUTCOMES.map((outcome) => (
-                                    <SelectItem key={outcome.value} value={outcome.value}>{outcome.label}</SelectItem>
-                                ))}
-                            </SelectContent>
-                        </Select>
-                        <Select
-                            value={searchScope}
-                            onValueChange={(value) => updateFilters({ searchScope: value as JobSearchScope })}
-                        >
-                            <SelectTrigger className="w-[175px]" aria-label="Search scope">
-                                <SelectValue />
-                            </SelectTrigger>
-                            <SelectContent>
-                                {SEARCH_SCOPES.map((item) => (
-                                    <SelectItem key={item.value} value={item.value}>{item.label}</SelectItem>
-                                ))}
-                            </SelectContent>
-                        </Select>
-                    </>
-                )}
-                {bucket === 'discarded' && (
-                    <>
-                        <Select value={cause} onValueChange={(v) => updateFilters({ cause: v === 'all' ? undefined : v as DisqualifyCause })}>
-                            <SelectTrigger className="w-[170px]" aria-label="Disqualification cause">
-                                <SelectValue />
-                            </SelectTrigger>
-                            <SelectContent>
-                                {CAUSES.map((c) => (
-                                    <SelectItem key={c.value} value={c.value}>{c.label}</SelectItem>
-                                ))}
-                            </SelectContent>
-                        </Select>
-                        <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={() => onRemoveAllInView(scope)}
-                        >
-                            Remove all in view
-                        </Button>
-                    </>
-                )}
+                <Select
+                    value={screenOutcome}
+                    onValueChange={(value) => updateFilters({ screenOutcome: value === 'all' ? undefined : value as ScreenOutcome })}
+                >
+                    <SelectTrigger className="w-[190px]" aria-label="Standalone screen outcome">
+                        <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                        {SCREEN_OUTCOMES.map((outcome) => (
+                            <SelectItem key={outcome.value} value={outcome.value}>{outcome.label}</SelectItem>
+                        ))}
+                    </SelectContent>
+                </Select>
+                <Select value={searchScope} onValueChange={(value) => updateFilters({ searchScope: value as JobSearchScope })}>
+                    <SelectTrigger className="w-[175px]" aria-label="Search scope">
+                        <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                        {SEARCH_SCOPES.map((item) => (
+                            <SelectItem key={item.value} value={item.value}>{item.label}</SelectItem>
+                        ))}
+                    </SelectContent>
+                </Select>
             </div>
 
             <div className="rounded-md border overflow-hidden">
                 <Table className="table-fixed w-full">
                     <TableHeader>
                         <TableRow>
-                            {bucket !== 'all' && (
-                                <TableHead className="w-[4%]">
-                                    <input
-                                        type="checkbox"
-                                        aria-label="Select all"
-                                        checked={allSelected}
-                                        onChange={toggleAll}
-                                        className="h-4 w-4 align-middle"
-                                    />
-                                </TableHead>
-                            )}
                             <TableHead className="w-[22%] whitespace-normal">Company</TableHead>
-                            <TableHead className="w-[34%] whitespace-normal">Role</TableHead>
-                            <TableHead className="w-[12%] whitespace-normal">{bucket === 'all' ? 'Fit' : 'Score'}</TableHead>
+                            <TableHead className="w-[40%] whitespace-normal">Role</TableHead>
+                            <TableHead className="w-[16%] whitespace-normal">JEV</TableHead>
                             <TableHead className="w-[12%] whitespace-normal">Dates</TableHead>
-                            <TableHead className="w-[16%] whitespace-normal text-right">Actions</TableHead>
+                            <TableHead className="w-[10%] whitespace-normal text-right">Actions</TableHead>
                         </TableRow>
                     </TableHeader>
                     <TableBody>
-                        {loading ? (
+                        {loading || loadError || data.length === 0 ? (
                             <TableRow>
-                                <TableCell colSpan={bucket === 'all' ? 5 : 6} className="h-24 text-center text-muted-foreground">
-                                    Loading jobs…
-                                </TableCell>
-                            </TableRow>
-                        ) : loadError ? (
-                            <TableRow>
-                                <TableCell colSpan={bucket === 'all' ? 5 : 6} className="h-24 text-center text-muted-foreground">
-                                    Could not load jobs. Change a filter to try again.
-                                </TableCell>
-                            </TableRow>
-                        ) : data.length === 0 ? (
-                            <TableRow>
-                                <TableCell colSpan={bucket === 'all' ? 5 : 6} className="h-24 text-center text-muted-foreground">
-                                    {bucket === 'all' && !search && screenOutcome === 'all' && minScore === ''
-                                        ? 'No jobs in inventory yet.'
-                                        : 'No jobs match these filters.'}
+                                <TableCell colSpan={5} className="h-24 text-center text-muted-foreground">
+                                    {loading ? 'Loading jobs...'
+                                        : loadError ? 'Could not load jobs. Change a filter to try again.'
+                                            : inventoryEmpty
+                                                ? 'No jobs in inventory yet.'
+                                                : 'No jobs match these filters.'}
                                 </TableCell>
                             </TableRow>
                         ) : (
                             data.map((job) => {
-                                const detail = parseDetail(job.score_detail)
                                 const shortDescription = descriptionLabel(job.description)
                                 return (
                                 <TableRow key={job.id}>
-                                    {bucket !== 'all' && (
-                                        <TableCell className="align-top">
-                                            <input
-                                                type="checkbox"
-                                                aria-label={`Select ${job.job_title}`}
-                                                checked={selected.has(job.id)}
-                                                onChange={() => toggleOne(job.id)}
-                                                className="h-4 w-4 align-middle"
-                                            />
-                                        </TableCell>
-                                    )}
                                     <TableCell className="whitespace-normal align-top">
                                         <div className="truncate text-sm font-medium" title={job.company_name}>
                                             {job.company_name}
@@ -651,7 +393,7 @@ export function DiscoveredJobsTable({
                                         <span className="mt-1 inline-block max-w-full truncate rounded bg-secondary px-1.5 py-0.5 text-[11px] font-medium text-secondary-foreground">
                                             {job.source}
                                         </span>
-                                        {bucket === 'all' && (
+                                        {(stage === 'all' || stage === 'other') && (
                                             <div className="mt-1">
                                                 <Badge variant="outline">{pipelineStatusLabel(job.pipeline_status)}</Badge>
                                             </div>
@@ -667,36 +409,14 @@ export function DiscoveredJobsTable({
                                         >
                                             {job.job_title}
                                         </a>
-                                        {bucket === 'all' ? (
-                                            <>
-                                                <ScreenCell job={job} includeTriage />
-                                                <SourceCell job={job} />
-                                                {shortDescription && (
-                                                    <div className="mt-1 text-[11px] text-muted-foreground">{shortDescription}</div>
-                                                )}
-                                            </>
-                                        ) : (
-                                            <>
-                                                <WhyCell bucket={bucket} job={job} detail={detail} />
-                                                <SourceCell job={job} />
-                                                {(job.screen_summary?.origin === 'job_screenings' || job.legacy_screen_evidence?.available) && (
-                                                    <ScreenCell job={job} />
-                                                )}
-                                            </>
+                                        <ScreenCell job={job} includeTriage={stage === 'all' || stage === 'rule_rejected' || stage === 'screen_rejected'} />
+                                        <SourceCell job={job} />
+                                        {shortDescription && (
+                                            <div className="mt-1 text-[11px] text-muted-foreground">{shortDescription}</div>
                                         )}
                                     </TableCell>
-                                    <TableCell className="align-top">
-                                        <Badge variant={scoreVariant(job.score)}>
-                                            {job.score ?? '—'}
-                                        </Badge>
-                                        {detail?.recommendedResume && (
-                                            <div
-                                                className="mt-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground"
-                                                title={`Recommended résumé: ${RESUME_LABELS[detail.recommendedResume] ?? detail.recommendedResume}`}
-                                            >
-                                                {RESUME_LABELS[detail.recommendedResume] ?? detail.recommendedResume}
-                                            </div>
-                                        )}
+                                    <TableCell className="align-top whitespace-normal">
+                                        <JevCell job={job} />
                                     </TableCell>
                                     <TableCell className="align-top whitespace-normal text-xs">
                                         <div className="text-foreground">Posted {fmtDate(job.posted_at)}</div>
@@ -707,7 +427,7 @@ export function DiscoveredJobsTable({
                                             <Button
                                                 variant="ghost"
                                                 size="icon"
-                                                onClick={() => onViewJD(job.id, scope)}
+                                                onClick={() => onViewJD(job.id, filters)}
                                                 title="View JD"
                                                 className="h-7 w-7"
                                             >
@@ -715,38 +435,17 @@ export function DiscoveredJobsTable({
                                             </Button>
                                             {job.pipeline_status === 'applied' ? (
                                                 <Badge variant="secondary" className="mr-1">Applied</Badge>
-                                            ) : (
+                                            ) : job.pipeline_status !== 'removed' && (
                                                 <Button
                                                     variant="ghost"
                                                     size="icon"
-                                                    onClick={() => onMarkApplied(job.id, scope)}
+                                                    onClick={() => onMarkApplied(job.id, filters)}
                                                     title="Mark Applied"
                                                     className="h-7 w-7 text-emerald-600 hover:text-emerald-600"
                                                 >
                                                     <CheckCircle2 className="h-3.5 w-3.5" />
                                                 </Button>
                                             )}
-                                            {job.pipeline_status === 'discarded' ? (
-                                                <Button
-                                                    variant="ghost"
-                                                    size="icon"
-                                                    onClick={() => onReopen(job.id, scope)}
-                                                    title="Reopen"
-                                                    className="h-7 w-7"
-                                                >
-                                                    <RotateCcw className="h-3.5 w-3.5" />
-                                                </Button>
-                                            ) : job.pipeline_status !== 'applied' ? (
-                                                <Button
-                                                    variant="ghost"
-                                                    size="icon"
-                                                    onClick={() => onDiscard(job.id, scope)}
-                                                    title="Remove"
-                                                    className="h-7 w-7 text-destructive hover:text-destructive"
-                                                >
-                                                    <XCircle className="h-3.5 w-3.5" />
-                                                </Button>
-                                            ) : null}
                                         </div>
                                     </TableCell>
                                 </TableRow>
