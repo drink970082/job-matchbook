@@ -201,16 +201,7 @@ def run_once(cfg, *, db_path, env,
         # Build the screening checklist (candidate hard-requirements) once, up front:
         # run_fetch uses it for the deterministic pre-screen gate, and screen_fn below
         # reuses it. Empty candidate => None => no gate, no SCREEN call.
-        if cfg.candidate.is_empty():
-            candidate = None
-        else:
-            candidate = {
-                "highest_degree": cfg.candidate.highest_degree,
-                "work_authorization": cfg.candidate.work_authorization,
-                "security_clearance": cfg.candidate.security_clearance,
-                "locations": list(cfg.candidate.locations),
-                "exclude_internships": cfg.candidate.exclude_internships,
-            }
+        candidate = _candidate_for_pass(conn, cfg, now=now)
 
         pipeline.run_fetch(conn, companies, cfg.title_filter, now=now,
                            fetch_fn=fetch_company, title_exclude=cfg.title_exclude,
@@ -319,6 +310,34 @@ def _run_jev(conn, cfg, *, env, limit: int, max_usd: Decimal, now: str) -> None:
         limit=limit, max_usd=max_usd, clock=_now,
         jev_fn=lambda posting: jev.assess(posting, inputs=inputs, post=client.post,
                                           resolved_model=resolved))
+
+
+def _candidate_dict(c) -> dict:
+    return {"highest_degree": c.highest_degree, "work_authorization": c.work_authorization,
+            "security_clearance": c.security_clearance, "locations": list(c.locations),
+            "exclude_internships": c.exclude_internships}
+
+
+def _candidate_for_pass(conn, cfg, *, now: str) -> dict | None:
+    """The hard requirements this pass screens against, read from the DB.
+
+    config.yaml `candidate:` seeds the row once when none exists (an empty block seeds
+    nothing, so a fresh install is configured through MCP instead); after that the DB
+    wins and a differing config block is reported, not applied. The stored row goes back
+    through the config parser, so an off-vocabulary value fails the pass loudly.
+    """
+    stored = db.get_preferences(conn)
+    if stored is None and not cfg.candidate.is_empty():
+        db.seed_preferences(conn, _candidate_dict(cfg.candidate), now=now)
+        print("[preferences] seeded candidate requirements from config.yaml")
+        stored = db.get_preferences(conn)
+    if stored is None:
+        return None
+    parsed = config_mod._parse_candidate({k: stored[k] for k in db.PREFERENCE_FIELDS})
+    if not cfg.candidate.is_empty() and _candidate_dict(cfg.candidate) != _candidate_dict(parsed):
+        print("[preferences] config.yaml `candidate:` differs from the stored requirements; "
+              "using the stored ones (change them with the MCP set_preferences tool)")
+    return None if parsed.is_empty() else _candidate_dict(parsed)
 
 
 def _companies_as_dicts(cfg) -> list[dict]:

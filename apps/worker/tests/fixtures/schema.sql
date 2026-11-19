@@ -151,6 +151,19 @@ CREATE TABLE "app_settings" (
     "updated_at" TEXT
 );
 
+CREATE TABLE "candidate_preferences" (
+    "id" INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+    "highest_degree" TEXT NOT NULL DEFAULT '',
+    "work_authorization" TEXT NOT NULL DEFAULT '',
+    "security_clearance" TEXT NOT NULL DEFAULT '',
+    "locations" TEXT NOT NULL DEFAULT '[]',
+    "exclude_internships" BOOLEAN NOT NULL DEFAULT false,
+    "version" INTEGER NOT NULL DEFAULT 1,
+    "actor" TEXT NOT NULL,
+    "changed_at" TEXT,
+    "updated_at" TEXT NOT NULL
+);
+
 CREATE INDEX "job_postings_pipeline_status_idx" ON "job_postings"("pipeline_status");
 CREATE INDEX "job_postings_source_source_last_check_attempted_at_idx" ON "job_postings"("source", "source_last_check_attempted_at");
 CREATE UNIQUE INDEX "job_screenings_job_posting_id_key" ON "job_screenings"("job_posting_id");

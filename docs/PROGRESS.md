@@ -8,6 +8,12 @@ behavior. Completed work belongs in CHANGELOG, not this queue.
 
 ## In flight
 
+- **Hard requirements into the DB — PR open** `[WORKER+WEB · L]` (#157, branch
+  `feat/157-preferences-db`). `candidate:` moves to `candidate_preferences` with MCP
+  get/set and `get_setup_status`. Not deployed: needs a schema push before the worker
+  pulls this code (the first pass then seeds from `config.yaml`). The JEV profile move
+  waits for #139 (its policy hash re-queues every verdict on any byte change).
+
 - **MCP source tools — deployed, acceptance open** `[MCP · S]` (#156, epic #152).
   `audit_log` is pushed to production, web and the MCP tunnel run the new code. Open:
   in ChatGPT, "track company X" adds a known-ATS board, the next worker pass fetches

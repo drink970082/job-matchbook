@@ -150,6 +150,40 @@ def import_watchlist(conn: sqlite3.Connection, companies, *, now: str) -> int:
     return inserted
 
 
+# --- candidate preferences --------------------------------------------------
+# The screen's hard requirements are DB-owned (one `candidate_preferences` row, id=1,
+# written by the web API / MCP). config.yaml `candidate:` seeds it once when absent.
+
+PREFERENCE_FIELDS = ("highest_degree", "work_authorization", "security_clearance",
+                     "locations", "exclude_internships")
+
+
+def get_preferences(conn: sqlite3.Connection) -> dict | None:
+    """The stored hard requirements, or None when no row exists yet."""
+    row = conn.execute("SELECT * FROM candidate_preferences WHERE id=1").fetchone()
+    if row is None:
+        return None
+    out = dict(row)
+    out["locations"] = json.loads(out["locations"] or "[]")
+    out["exclude_internships"] = bool(out["exclude_internships"])
+    return out
+
+
+def seed_preferences(conn: sqlite3.Connection, candidate: dict, *, now: str) -> bool:
+    """Insert the one-time config seed; a no-op (False) once any row exists."""
+    values = {k: candidate[k] for k in PREFERENCE_FIELDS}
+    values["locations"] = json.dumps(list(values["locations"]), ensure_ascii=False)
+    values["exclude_internships"] = int(bool(values["exclude_internships"]))
+    cur = conn.execute(
+        "INSERT INTO candidate_preferences (id, highest_degree, work_authorization, "
+        "security_clearance, locations, exclude_internships, version, actor, updated_at) "
+        "VALUES (1, :highest_degree, :work_authorization, :security_clearance, "
+        ":locations, :exclude_internships, 1, 'config', :now) "
+        "ON CONFLICT(id) DO NOTHING", {**values, "now": now})
+    conn.commit()
+    return cur.rowcount == 1
+
+
 # --- app settings ---------------------------------------------------------
 # A web-owned key-value preferences table (app_settings). The worker never reads
 # it. This mutator seeds onboarding preferences (the category vocabulary) and records

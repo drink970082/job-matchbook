@@ -108,6 +108,8 @@ title_exclude: [intern, internship, "co-op", sales, principal, staff, director]
 max_age_days: 30
 
 candidate:
+  # ONE-TIME SEED: the first pass copies this block into the DB; after that the DB
+  # wins and edits here are ignored (logged). Change them with MCP set_preferences.
   # Your HARD requirements — the ONLY things that DISQUALIFY (discard) a posting.
   # The LLM screens each field below pass/fail per posting (judged semantically, so
   # "no sponsorship" or "USA covers New York" work by meaning, not keyword match).

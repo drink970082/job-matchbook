@@ -69,7 +69,8 @@ _WRITE_NOTE = (
     "re-added. 'Track company X' -> list_sources to rule out a duplicate, then "
     "add_source with its known ATS board and slug. 'Restore that one' (a posting JEV skipped) -> "
     "get_job to confirm, then override_triage(N, 'keep'); 'clear' returns to the model "
-    "verdict. Confirm the target "
+    "verdict. Onboarding by conversation -> get_setup_status, then set_preferences with the "
+    "hard requirements the operator states and add_source per company. Confirm the target "
     "application or job id from a read tool before writing. Workflows: 'I applied to job "
     "N' -> get_job(N), then mark_job_applied(N) (it dates the application today; if the "
     "operator applied on another day, use record_application with that date and the job "
@@ -318,6 +319,21 @@ def create_server(repository: ReadOnlyATSRepository | None = None,
         board could be resolved for)."""
         return read(repo.list_sources)
 
+    @server.tool(annotations=_READ_ONLY)
+    def get_setup_status() -> dict[str, Any]:
+        """What this install still needs before the worker can screen for the operator
+        (`missing` lists the next tools to call), the requirements version, and how many
+        `new` postings were screened before the last requirement change (they keep their
+        old verdict until the operator re-screens). The JEV profile is file-based, not here."""
+        return read(repo.get_setup_status)
+
+    @server.tool(annotations=_READ_ONLY)
+    def get_preferences() -> dict[str, Any]:
+        """The hard requirements the screen disqualifies postings on (degree, work
+        authorization, clearance, locations, exclude_internships), with version and actor;
+        null when none are set. Read before set_preferences."""
+        return read(repo.get_preferences)
+
     @server.prompt(title="Daily job brief", description="Read-only daily brief of new postings.")
     def daily_brief() -> str:
         return _DAILY_BRIEF
@@ -401,6 +417,31 @@ def _add_write_tools(server: MCPServer, repo: ReadOnlyATSRepository, writer: ATS
             return {"job_id": job_id, "cleared": write("DELETE", f"/api/v1/jobs/{job_id}/triage")}
         return {"job_id": job_id, "override": write(
             "POST", f"/api/v1/jobs/{job_id}/triage", drop_none(decision=decision, reason=reason))}
+
+    @server.tool(annotations=_WRITE)
+    def set_preferences(
+        highest_degree: Annotated[str | None, Field(max_length=100, description=(
+            "Highest degree held: none, High School, Associate, Bachelor's, Master's or PhD; "
+            "'' stops screening on degree."))] = None,
+        work_authorization: Literal["", "citizen", "permanent resident",
+                                    "authorized-no-sponsorship", "needs visa sponsorship"] | None = None,
+        security_clearance: Annotated[str | None, Field(max_length=100, description=(
+            "none, confidential, secret or top secret; '' stops screening on clearance."))] = None,
+        locations: Annotated[list[Annotated[str, Field(max_length=100)]] | None, Field(
+            max_length=50, description="Where the operator can work, e.g. ['remote', 'Boston']. "
+            "Replaces the whole list; [] stops screening on location.")] = None,
+        exclude_internships: bool | None = None,
+    ) -> dict[str, Any]:
+        """Set the hard requirements the worker's screen disqualifies postings on, only as
+        the operator states them. Omitted fields keep their stored value. A change bumps the
+        version from the next worker pass on; postings already screened are not re-screened
+        (get_setup_status counts them). Skills and fit preferences do not belong here."""
+        body = drop_none(highest_degree=highest_degree, work_authorization=work_authorization,
+                         security_clearance=security_clearance, locations=locations,
+                         exclude_internships=exclude_internships)
+        if not body:
+            raise ToolError("Give at least one preference field")
+        return {"preferences": write("PUT", "/api/v1/preferences", body)}
 
     @server.tool(annotations=_WRITE)
     def add_source(

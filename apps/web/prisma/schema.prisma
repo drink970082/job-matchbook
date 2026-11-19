@@ -211,3 +211,20 @@ model app_settings {
   value      String
   updated_at String?
 }
+
+// The candidate's hard requirements (#157): one row, id=1, read by the worker's screen.
+// Seeded once from config.yaml `candidate:` when absent; after that this row wins.
+// `version` bumps on every change; `changed_at` is the last change after the seed
+// (null = still the seeded values), so a screen completed before it is stale.
+model candidate_preferences {
+  id                  Int     @id
+  highest_degree      String  @default("")
+  work_authorization  String  @default("")
+  security_clearance  String  @default("")
+  locations           String  @default("[]") // JSON string array
+  exclude_internships Boolean @default(false)
+  version             Int     @default(1)
+  actor               String  // config | web | mcp
+  changed_at          String?
+  updated_at          String
+}

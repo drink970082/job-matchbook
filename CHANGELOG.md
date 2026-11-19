@@ -33,6 +33,12 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 
 ### Added
 
+- **Hard requirements in the DB (#157)**: a `candidate_preferences` row (one, versioned)
+  replaces `config.yaml` `candidate:` as what the screen reads; the block seeds it once
+  and is then ignored (logged). MCP `get_preferences`, `set_preferences` (via `PUT
+  /api/v1/preferences`, validated and audited) and `get_setup_status` (what a fresh
+  install still needs; `new` postings screened before the last change). The JEV profile
+  stays file-based.
 - **Triage override through MCP (#155)**: `override_triage(job_id, keep|skip|clear)`
   via `/api/v1/jobs/{id}/triage`, stored in a new `job_triage_overrides` table and
   audited in `audit_log`. `list_jobs`/`get_job` report the effective JEV status, the

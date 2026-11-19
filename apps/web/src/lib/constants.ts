@@ -20,6 +20,10 @@ export const STATUSES = [
 export const ACTORS = ['web', 'mcp'] as const
 export type Actor = (typeof ACTORS)[number]
 
+// candidate.work_authorization's closed vocabulary; must match the worker's
+// config.VALID_WORK_AUTHORIZATION (the screen reads the value by substring).
+export const WORK_AUTHORIZATIONS = ['citizen', 'permanent resident', 'authorized-no-sponsorship', 'needs visa sponsorship'] as const
+
 // The vocabulary the CHARTS key on: every real status plus 'No Response', the
 // pseudo-status getStatusFlow synthesizes for an application that never left
 // 'Applied' (see actions.ts). It is deliberately not a real status — nothing is ever

@@ -43,7 +43,7 @@ prepared `jev_dir` packs (`config.yaml.example`), which this skill does not buil
 | 0 | a runnable checkout (deps, DB, template copies) | `make setup` + `make doctor` |
 | 2 | `apps/worker/resume/personal_profile.txt` | you write it from the interview |
 | 3 | categories (a DB `app_settings` row) | bundled `set_categories.py` |
-| 4 | `apps/worker/config.yaml` `candidate:` block | you edit the file |
+| 4 | `apps/worker/config.yaml` `candidate:` block (seeds the DB once) | you edit the file; after the first pass, MCP `set_preferences` |
 | 5 | `apps/worker/resume/resume.txt` | you read their résumé → clean text |
 | 6 | watchlist rows (DB) | **delegate to the `onboard-board` skill** |
 | 7 | `apps/worker/.env` | you fill values the user gives (prereqs came from Step 0) |
