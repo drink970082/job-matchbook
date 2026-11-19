@@ -94,12 +94,12 @@ def test_screen_only_pass_avoids_legacy_imports_prompts_and_resume_reads():
 
             connection = sqlite3.connect(db)
             posting = connection.execute(
-                "SELECT pipeline_status, score, score_detail, attempts, notify_attempts "
+                "SELECT pipeline_status, score_detail "
                 "FROM job_postings WHERE external_id='screen-isolation'").fetchone()
             screening = connection.execute(
                 "SELECT state FROM job_screenings").fetchone()
             connection.close()
-            assert posting == ("new", None, None, 0, 0), posting
+            assert posting == ("new", None), posting
             assert screening == ("complete",), screening
             assert len(calls) == 1, len(calls)
             assert prompt_reads and all(Path(p).name == "screen.txt" for p in prompt_reads)

@@ -57,7 +57,8 @@ def seed_new(conn, ids, *, description=None):
 
 
 def seed_scored(conn, scores, *, detail=None, description=None):
-    """scores: dict external_id -> score. Leaves those rows in 'scored'.
+    """scores: the external ids to seed (a dict's values are ignored). Leaves those
+    rows in 'scored'.
 
     Only touches the rows it seeds (matched by external_id), so it composes with
     other seed helpers in the same db without clobbering their rows. Rows inherit
@@ -71,15 +72,14 @@ def seed_scored(conn, scores, *, detail=None, description=None):
     for r in conn.execute("SELECT id, external_id FROM job_postings").fetchall():
         if r["external_id"] not in scores:
             continue
-        set_scored(conn, r["id"], score=scores[r["external_id"]],
-                   score_detail=detail, now=NOW)
+        set_scored(conn, r["id"], score_detail=detail, now=NOW)
 
 
 
 
-def set_scored(conn, posting_id: int, *, score: int, score_detail, now: str,
+def set_scored(conn, posting_id: int, *, score_detail, now: str,
                status: str = "scored") -> None:
-    """Seed a row as the retired fit scorer left it (score, score_detail with its
+    """Seed a row as the retired fit scorer left it (score_detail with its
     source-revision stamp, status). The web and MCP still read these historical rows."""
     import json
     from ats_worker.source_lifecycle import has_fit_assessment
@@ -90,9 +90,9 @@ def set_scored(conn, posting_id: int, *, score: int, score_detail, now: str,
             and row is not None and row["source_content_revision"] is not None):
         detail["source_content_revision"] = row["source_content_revision"]
     conn.execute(
-        "UPDATE job_postings SET score=?, score_detail=?, pipeline_status=?, "
+        "UPDATE job_postings SET score_detail=?, pipeline_status=?, "
         "pipeline_error=NULL, updated_at=? WHERE id=?",
-        (score, json.dumps(detail, ensure_ascii=False), status, now, posting_id))
+        (json.dumps(detail, ensure_ascii=False), status, now, posting_id))
     conn.commit()
 
 # --- requests-style HTTP fakes (for adapter fetch() wrappers) -------------

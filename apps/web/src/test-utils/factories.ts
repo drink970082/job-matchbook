@@ -31,12 +31,9 @@ export function makeJobPosting(over: Record<string, unknown> = {}) {
             'services. You will own features end to end, collaborate across teams, write ' +
             'tests, review code, and help scale our platform. Requirements: strong ' +
             'programming fundamentals and experience shipping production systems.',
-        score: null,
         score_detail: null,
         pipeline_status: 'scored',
         pipeline_error: null,
-        attempts: 0,
-        notify_attempts: 0,
         application_id: null,
         created_at: '2026-01-01T00:00:00.000Z',
         updated_at: null,

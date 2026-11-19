@@ -9,6 +9,11 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 
 ### Removed
 
+- **Fit-scorer columns** (#174): `job_postings.score`, `attempts`, `notify_attempts`,
+  `deprioritized_at` and the `promotion_dismissed` table leave the Prisma schema, the
+  worker fixture and the MCP entity list. Only the worker insert still wrote
+  `attempts = 0`; MCP `get_job`/`get_ats_record` stop returning them once the deployed DB
+  is pushed, and `promotion_dismissed` is no longer an MCP entity.
 - **Promotion suggestions and dashboard watchlist writes (#158)**: `PromotionSuggestions`,
   `promotion-actions.ts`, the Watchlist add/remove/Re-add controls and
   `getWatchlistActivity`. Boards are added and removed through MCP.

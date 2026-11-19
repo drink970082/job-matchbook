@@ -42,11 +42,11 @@ def connect(path: str, *, timeout: float = 5.0) -> sqlite3.Connection:
 _INSERT = """
 INSERT INTO job_postings
     (source, external_id, company_slug, company_name, job_title, location, job_url,
-     description, posted_at, score_detail, pipeline_status, attempts, created_at,
+     description, posted_at, score_detail, pipeline_status, created_at,
      source_state, source_last_seen_at, source_content_hash, source_content_revision)
 VALUES
     (:source, :external_id, :company_slug, :company_name, :job_title, :location, :job_url,
-     :description, :posted_at, :score_detail, :pipeline_status, 0, :created_at,
+     :description, :posted_at, :score_detail, :pipeline_status, :created_at,
      'available', :created_at, :source_content_hash, :source_content_revision)
 ON CONFLICT(source, external_id) DO NOTHING
 """
@@ -620,8 +620,8 @@ def save_source_observation(conn: sqlite3.Connection, posting_id: int, *,
 
 # --- state transitions ----------------------------------------------------
 
-# The only columns the state-transition helpers ever set (attempts/application_id
-# are written by fixed-SQL callers instead, never through this dict path). `_update` builds its SET clause from
+# The only columns the state-transition helpers ever set (application_id
+# is written by fixed-SQL callers instead, never through this dict path). `_update` builds its SET clause from
 # dict keys, so gate them against this allowlist: a stray/untrusted key must
 # never reach the SQL string (defense-in-depth; today all callers pass constants).
 _UPDATABLE_COLUMNS = frozenset({

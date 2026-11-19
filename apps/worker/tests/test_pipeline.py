@@ -265,7 +265,7 @@ def _seed_live(conn, ids, *, source=DETAIL_SRC, status="scored"):
     db.upsert_postings(conn, [_posting(i, source=source) for i in ids], now=NOW)
     for r in conn.execute("SELECT id, external_id FROM job_postings").fetchall():
         if r["external_id"] in ids:
-            set_scored(conn, r["id"], score=80, score_detail={}, now=NOW,
+            set_scored(conn, r["id"], score_detail={}, now=NOW,
                           status=status)
 
 

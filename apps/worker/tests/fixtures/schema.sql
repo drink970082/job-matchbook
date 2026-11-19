@@ -26,17 +26,13 @@ CREATE TABLE "job_postings" (
     "location" TEXT,
     "job_url" TEXT NOT NULL,
     "description" TEXT NOT NULL,
-    "score" INTEGER,
     "score_detail" TEXT,
     "pipeline_status" TEXT NOT NULL DEFAULT 'new',
     "pipeline_error" TEXT,
-    "attempts" INTEGER NOT NULL DEFAULT 0,
-    "notify_attempts" INTEGER NOT NULL DEFAULT 0,
     "application_id" INTEGER,
     "created_at" TEXT NOT NULL,
     "updated_at" TEXT,
     "posted_at" TEXT,
-    "deprioritized_at" TEXT,
     "source_state" TEXT NOT NULL DEFAULT 'unknown',
     "source_last_seen_at" TEXT,
     "source_last_check_attempted_at" TEXT,
@@ -138,13 +134,6 @@ CREATE TABLE "feed_unresolved" (
     "updated_at" TEXT
 );
 
-CREATE TABLE "promotion_dismissed" (
-    "id" INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
-    "source" TEXT NOT NULL,
-    "slug" TEXT NOT NULL,
-    "created_at" TEXT NOT NULL
-);
-
 CREATE TABLE "app_settings" (
     "key" TEXT NOT NULL PRIMARY KEY,
     "value" TEXT NOT NULL,
@@ -191,4 +180,3 @@ CREATE INDEX "audit_log_entity_id_idx" ON "audit_log"("entity", "id");
 CREATE UNIQUE INDEX "feed_unresolved_url_key" ON "feed_unresolved"("url");
 CREATE INDEX "feed_unresolved_reason_idx" ON "feed_unresolved"("reason");
 CREATE INDEX "status_history_application_id_idx" ON "status_history"("application_id");
-CREATE UNIQUE INDEX "promotion_dismissed_source_slug_key" ON "promotion_dismissed"("source", "slug");

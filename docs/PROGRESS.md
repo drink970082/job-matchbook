@@ -26,10 +26,13 @@ behavior. Completed work belongs in CHANGELOG, not this queue.
   ~5,900 older screened postings stay `unassessed` and listed. Rollback = drop `--jev`
   from `ats-worker.service.d/20-screen-only.conf` and restart; the table is additive.
 
-- **Fit-scorer residue — unclaimed** `[SCORE · S]` (#174). Left: drop the columns
-  nothing writes — `job_postings.score`, `attempts`, `notify_attempts`,
-  `deprioritized_at`, and the `promotion_dismissed` table. The web no longer reads them
-  (#158); check MCP and the worker before dropping.
+- **Fit-scorer columns dropped from the schema — production DB push pending operator
+  approval** `[SCORE · S]` (#174). The code no longer has `job_postings.score`,
+  `attempts`, `notify_attempts`, `deprioritized_at` or `promotion_dismissed`; the
+  deployed DB keeps them (harmless) until the operator backs up `db/` and runs
+  `cd apps/web && npx prisma db push --accept-data-loss` (plain `make db-push` refuses:
+  it loses one non-null `score` and the all-zero attempt counters). Then delete this
+  entry.
 
 - **Daily Brief instructions for issue #94 — unattended acceptance remains open**
   [ORCH · M · branch docs/issue-94-daily-brief]. Public task instructions, an interactive

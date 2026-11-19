@@ -33,7 +33,6 @@ EntityName = Literal[
     "status_history",
     "watched_companies",
     "feed_unresolved",
-    "promotion_dismissed",
     "app_settings",
 ]
 

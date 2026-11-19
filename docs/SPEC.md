@@ -93,8 +93,8 @@ and serves a key-scoped loopback write API (`/api/v1`).
 A worker pass fetches postings and screens them against the candidate's hard
 requirements (`--fetch-only` stops before the screen), then, with `--jev`, runs the
 paid JEV keep/skip filter over screened survivors. There is no fit scorer and no
-notification stage; the stored fit verdicts in `score`/`score_detail` are history the web
-and MCP still read.
+notification stage; the stored fit verdicts in `score_detail` are history the web and
+MCP still read.
 
 ---
 
@@ -724,15 +724,14 @@ worker modules are pure and dependency-injected; real services are wired only in
   unscored states, no fit assessment or application link, oldest attempted first),
   `save_source_observation` (transactionally rechecks eligibility and exact identity;
   records inconclusive/closed/available outcomes; changes assessment inputs only after
-  validation), `get_by_status` (selects rows by pipeline status, best-scored first),
+  validation), `get_by_status` (selects rows by pipeline status, oldest first),
   `mark_expired`, `touch`. Watchlist + feed
   helpers: `get_watchlist` (skips a `custom`/`browser` row with malformed recipe JSON,
   but keeps a platform-source row — it fetches without a recipe), `count_watchlist`,
   `import_watchlist` (idempotent), `record_unresolved` (upsert on `url`),
   `delete_unresolved` (clears a row once its posting is re-ingested),
   `existing_external_ids`. Standalone screening selects fresh eligible rows using the
-  existing queue order: undemoted rows first, then recency and descending id within each
-  priority group. Provider errors follow oldest-attempt-first; successful results stay cached until an
+  existing queue order: most recently updated first, then descending id. Provider errors follow oldest-attempt-first; successful results stay cached until an
   explicit one-shot re-screen, and `save_screening` re-checks eligibility inside a
   transaction before writing. Issues no DDL.
 - **`screening/` — the hard-requirements screen.** The provider-neutral package owns
@@ -806,8 +805,8 @@ worker modules are pure and dependency-injected; real services are wired only in
 
   **Screen lifecycle.** `pipeline.run_screen` applies `screen_posting` and the
   deterministic hard-requirement rules. It stores one latest result per posting in `job_screenings`,
-  leaving `job_postings.pipeline_status`, fit `score`/`score_detail`, score attempts,
-  notification attempts and application links untouched. Successful results are reused
+  leaving `job_postings.pipeline_status`, fit `score_detail` and application links
+  untouched. Successful results are reused
   until `--rescreen-screened --once` explicitly clears them for eligible
   `new` postings. Provider errors remain retryable and are selected oldest-attempt-first
   after fresh rows, under the configured positive per-pass provider-call cap (default
@@ -1332,9 +1331,9 @@ worker modules are pure and dependency-injected; real services are wired only in
   confirmed source state, seen/attempt/check times, safe error category, content revision,
   and independent fit/screen freshness (`not_assessed`, `current`, `stale`, `unknown`, or
   `provider_error`). A failed newer attempt does not replace the last conclusive check.
-  `list_jobs` rows carry no retired fit-scorer columns (`score`, `attempts`,
-  `notify_attempts`, `deprioritized_at`).
-  They also expose a derived `triage_summary` with one of `rule_disqualified`,
+  `get_job` and `get_ats_record` return no fit-scorer columns once the deployed DB is
+  pushed (#174); `promotion_dismissed` is no longer an entity. `list_jobs` rows also
+  expose a derived `triage_summary` with one of `rule_disqualified`,
   `screen_disqualified`, `candidate`, or `needs_review`, plus bounded reason and
   provenance. `list_jobs` accepts an optional `triage_status` filter, evaluated before
   pagination and included in cursor scope. `get_ats_overview.job_triage_counts` partitions
@@ -1578,9 +1577,9 @@ worker modules are pure and dependency-injected; real services are wired only in
 
 *Class: **Snapshot** — mirrors `schema.prisma` (the real source of truth); if they disagree, update this spec.*
 
-Thirteen tables, owned solely by `apps/web/prisma/schema.prisma` (`applications`,
+Twelve tables, owned solely by `apps/web/prisma/schema.prisma` (`applications`,
 `status_history`, `job_postings`, `watched_companies`, `audit_log`, `feed_unresolved`,
-`promotion_dismissed`, `app_settings`, `job_screenings`, `job_jev_assessments`,
+`app_settings`, `job_screenings`, `job_jev_assessments`,
 `job_triage_overrides`, `candidate_preferences`, `jev_profile`). Dates are stored as **ISO-8601 strings** for sortability and
 timezone-independence (`date_applied` as `YYYY-MM-DD`; timestamps as full ISO with
 millisecond precision to match Prisma / the worker's `_now()`).
@@ -1623,12 +1622,9 @@ model job_postings {
   location        String?
   job_url         String
   description     String        // full JD text (fed to the LLM)
-  score           Int?          // 0-100 fit score (history: no current writer)
   score_detail    String?       // JSON: assessment scorecard (seniority/domain/must_haves/nice_to_haves/summary), insufficient_context flag, screen, disqualification, recommended_resume, scorer provenance backend/model/scorer_version on fit-scored rows (pre-S2.1 rows: matched/missing keywords + reasoning)
   pipeline_status String        @default("new") // new|scored|notified|applied|discarded|failed|removed|expired
   pipeline_error  String?       // last stage error (history: no current writer)
-  attempts        Int           @default(0)     // fit-stage failures (history: no current writer)
-  notify_attempts Int           @default(0)     // notify send failures (history: no current writer)
   application_id  Int?          // back-link once marked applied
   application     applications? @relation(fields: [application_id], references: [id], onDelete: SetNull)
   job_screening   job_screenings?
@@ -1739,14 +1735,6 @@ model feed_unresolved {          // feed listings not resolvable to a board (bac
   updated_at   String?
   @@unique([url])                // upsert key — no pile-up across passes
   @@index([reason])
-}
-
-model promotion_dismissed {      // retired suggestions' dismissals; nothing reads or writes it now
-  id          Int    @id @default(autoincrement())
-  source      String
-  slug        String
-  created_at  String
-  @@unique([source, slug])
 }
 
 model app_settings {             // web-only key-value prefs (worker never reads it)
