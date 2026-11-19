@@ -1,0 +1,16 @@
+# ChatGPT connects through OpenAI Secure MCP Tunnel. Install the tunnel client from the
+# Platform tunnel settings, then from apps/worker (the key is read from a prompt, never
+# typed into shell history).
+# Create the key file once (the value of ATS_API_KEY_READ_WRITE in the repo's .env):
+#   mkdir -p ~/.config/ats-mcp && grep '^ATS_API_KEY_READ_WRITE=' /abs/path/to/checkout/.env \
+#     | cut -d= -f2- > ~/.config/ats-mcp/api-key && chmod 600 ~/.config/ats-mcp/api-key
+read -r -p 'OpenAI tunnel ID: ' ATS_TUNNEL_ID
+read -r -s -p 'Tunnel runtime API key: ' CONTROL_PLANE_API_KEY; printf '\n'
+export CONTROL_PLANE_API_KEY
+export ATS_API_KEY="$(cat ~/.config/ats-mcp/api-key)"
+tunnel-client init --sample sample_mcp_stdio_local --profile ats-local \
+  --tunnel-id "$ATS_TUNNEL_ID" --mcp-command 'python -m ats_worker.mcp'
+tunnel-client doctor --profile ats-local --explain
+tunnel-client run --profile ats-local
+# Then in ChatGPT: Plugins -> Add custom MCP server -> Connection: Tunnel.
+# Full steps: docs/SETUP.md, Path D.

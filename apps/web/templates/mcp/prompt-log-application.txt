@@ -1,0 +1,2 @@
+I just applied to <company> for <job title> (<job posting URL>). Log the application
+and confirm what you wrote.

@@ -20,6 +20,12 @@ behavior. Completed work belongs in CHANGELOG, not this queue.
   older screened postings stay `unassessed` and listed. Rollback = drop `--jev` from the
   worker's flags and restart; the table is additive.
 
+- **Web UX pass — one PR per issue, in order #211 (shell) -> #205 Applications -> #206
+  Settings -> #207 Discovered Jobs -> #208 Sources -> #210 Activity; #209 (MCP reads via
+  `/api/v1`) is research after those land** `[WEB · L]`. Branches `feat/<issue>-*`; each
+  issue body is the agreed spec. #205's Ghosted -> Rejected mapping and 60-day Active
+  window wait on the operator before the data migration.
+
 These references reserve unfinished work; they do not claim the branches are currently
 executing or establish merge readiness. Inspect actual refs/worktrees and coordinate
 before changing them. No older research authorization schedules new provider calls.

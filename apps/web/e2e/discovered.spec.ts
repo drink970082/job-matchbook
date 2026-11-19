@@ -6,8 +6,7 @@ test.beforeEach(async () => {
 })
 
 test('Discovered Jobs is a read-only funnel that opens on the JEV Keep queue', async ({ page }) => {
-    await page.goto('/')
-    await page.getByRole('button', { name: /Discovered Jobs/i }).click()
+    await page.goto('/jobs')
 
     // Keep is the default view: only the posting JEV kept.
     await expect(page.getByRole('tab', { name: /^Keep/ })).toHaveAttribute('aria-selected', 'true')
@@ -46,9 +45,6 @@ test('Discovered Jobs is a read-only funnel that opens on the JEV Keep queue', a
     const search = page.getByPlaceholder(/search companies, roles, or locations/i)
     await search.fill('inventory-long-jd-keyword')
     await expect(page.getByText('Showing 1–1 of 1')).toBeVisible()
-    await page.getByRole('button', { name: /^Applications$/i }).click()
-    await page.getByRole('button', { name: /Discovered Jobs/i }).click()
-    await expect(search).toHaveValue('inventory-long-jd-keyword')
     await search.fill('')
     await expect(page.getByText('Showing 1–25 of 34')).toBeVisible()
     await page.getByRole('button', { name: 'Next page' }).click()

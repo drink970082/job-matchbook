@@ -7,8 +7,8 @@ import "./globals.css";
 const inter = Inter({ subsets: ["latin"] });
 
 export const metadata: Metadata = {
-  title: "ATS Dashboard",
-  description: "Applicant Tracking System — Track and manage your job applications",
+  title: "Job Matchbook",
+  description: "Self-hosted job board and application tracker",
 };
 
 export default function RootLayout({

@@ -1,7 +1,8 @@
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
-import { SettingsDialog } from '@/components/SettingsDialog'
+import { SettingsPanel } from '@/components/SettingsPanel'
 import { getSettings, setCandidatePreferences, setJevProfile } from '@/lib/preference-actions'
 
+jest.mock('next/navigation', () => ({ useRouter: () => ({ refresh: jest.fn() }) }))
 jest.mock('sonner', () => ({ toast: { error: jest.fn(), success: jest.fn() } }))
 jest.mock('@/lib/preference-actions', () => ({
     getSettings: jest.fn(),
@@ -23,9 +24,9 @@ beforeEach(() => {
     jest.mocked(setJevProfile).mockResolvedValue({ success: true, data: { unchanged: false } } as any)
 })
 
-describe('SettingsDialog', () => {
+describe('SettingsPanel', () => {
     it('loads the stored requirements and saves them as entered', async () => {
-        render(<SettingsDialog open onOpenChange={() => {}} />)
+        render(<SettingsPanel />)
         expect(await screen.findByLabelText('Highest degree')).toHaveValue("Master's")
         fireEvent.change(screen.getByLabelText('Locations (one per line)'), { target: { value: 'remote\nAustin' } })
         fireEvent.click(screen.getByRole('button', { name: 'Save requirements' }))
@@ -37,7 +38,7 @@ describe('SettingsDialog', () => {
 
     it('saves the JEV profile only after confirming the re-assessment cost', async () => {
         const confirm = jest.spyOn(window, 'confirm').mockReturnValueOnce(false).mockReturnValueOnce(true)
-        render(<SettingsDialog open onOpenChange={() => {}} />)
+        render(<SettingsPanel />)
         fireEvent.change(await screen.findByLabelText('Profile (JSON)'), { target: { value: '{"profile":{"a":1}}' } })
         fireEvent.click(screen.getByRole('button', { name: 'Save JEV profile' }))
         expect(confirm.mock.calls[0][0]).toContain('re-assesses 400 recent postings')
@@ -50,7 +51,7 @@ describe('SettingsDialog', () => {
     it('an unchanged JEV profile (even with CRLF stored) neither confirms nor writes', async () => {
         jest.mocked(getSettings).mockResolvedValue({ ...SETTINGS, jev: { ...SETTINGS.jev, profile_text: '{\r\n"profile":{}}' } } as any)
         const confirm = jest.spyOn(window, 'confirm')
-        render(<SettingsDialog open onOpenChange={() => {}} />)
+        render(<SettingsPanel />)
         const box = await screen.findByLabelText('Profile (JSON)')
         fireEvent.change(box, { target: { value: '{\n"profile":{}}' } })
         fireEvent.click(screen.getByRole('button', { name: 'Save JEV profile' }))
@@ -61,7 +62,7 @@ describe('SettingsDialog', () => {
 
     it('saves requirements when none are stored yet', async () => {
         jest.mocked(getSettings).mockResolvedValue({ preferences: null, jev: null, reassessOnChange: 0 } as any)
-        render(<SettingsDialog open onOpenChange={() => {}} />)
+        render(<SettingsPanel />)
         fireEvent.change(await screen.findByLabelText('Highest degree'), { target: { value: 'PhD' } })
         fireEvent.click(screen.getByRole('button', { name: 'Save requirements' }))
         await waitFor(() => expect(setCandidatePreferences).toHaveBeenCalledWith({
@@ -71,7 +72,7 @@ describe('SettingsDialog', () => {
 
     it('explains the missing JEV profile instead of offering an empty editor', async () => {
         jest.mocked(getSettings).mockResolvedValue({ preferences: null, jev: null, reassessOnChange: 0 } as any)
-        render(<SettingsDialog open onOpenChange={() => {}} />)
+        render(<SettingsPanel />)
         expect(await screen.findByText(/No JEV profile yet/)).toBeInTheDocument()
         expect(screen.queryByRole('button', { name: 'Save JEV profile' })).toBeNull()
     })

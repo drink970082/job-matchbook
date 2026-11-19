@@ -1,7 +1,7 @@
 /**
  * #158 acceptance: Discovered Jobs, Sources and Activity are read-only, except Mark
  * Applied (an Applications write, the operator's call). Their components import no
- * server action; the Dashboard wires exactly these reads and that one write.
+ * server action; their pages wire exactly these reads and that one write.
  */
 import { readFileSync } from 'node:fs'
 import path from 'node:path'
@@ -16,8 +16,8 @@ test.each(['components/DiscoveredJobsTable.tsx', 'components/DiscoveredJobsTab.t
         expect(valueImportsFromActions(src(file))).toEqual([])
     })
 
-test('the Dashboard wires only reads and Mark Applied from the job actions', () => {
-    const line = src('components/Dashboard.tsx').match(/^import \{([^}]*)\} from '@\/lib\/job-actions'/m)
+test('the Jobs view wires only reads and Mark Applied from the job actions', () => {
+    const line = src('components/JobsView.tsx').match(/^import \{([^}]*)\} from '@\/lib\/job-actions'/m)
     expect(line?.[1].split(',').map((s) => s.trim()).sort()).toEqual(['getJobPostings', 'getJobStageCounts', 'markJobApplied'])
 })
 
@@ -28,8 +28,8 @@ test('job-actions exports no pipeline-status mutation besides markJobApplied', a
     }
 })
 
-test('the Dashboard reads sources and activity and writes neither', () => {
-    const code = src('components/Dashboard.tsx')
+test('the Sources and Activity pages read and write nothing else', () => {
+    const code = src('app/sources/page.tsx') + src('app/activity/page.tsx')
     expect(code.match(/^import \{([^}]*)\} from '@\/lib\/watchlist-actions'/m)?.[1].trim()).toBe('getWatchedCompanies')
     expect(code.match(/^import \{([^}]*)\} from '@\/lib\/activity-actions'/m)?.[1].trim()).toBe('getRecentActivity')
     expect(code).not.toMatch(/promotion-actions|addWatchedCompany|removeWatchedCompany/)

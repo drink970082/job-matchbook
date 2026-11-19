@@ -9,13 +9,11 @@ test('Codex login notice appears and clears after the next healthy snapshot', as
             limits: [], plan_type: null, as_of: null,
         },
     }))
-    await page.goto('/')
-    await page.getByRole('button', { name: /Discovered Jobs/i }).click()
+    await page.goto('/jobs')
     await expect(page.getByRole('status')).toContainText('Codex login needs attention')
     await expect(page.getByText('codex login --device-auth', { exact: true })).toBeVisible()
     authRequired = false
     await page.reload()
-    await page.getByRole('button', { name: /Discovered Jobs/i }).click()
     await expect(page.getByText('No subscription usage recorded yet.')).toBeVisible()
     await expect(page.getByText('Codex login needs attention', { exact: false })).toHaveCount(0)
 })

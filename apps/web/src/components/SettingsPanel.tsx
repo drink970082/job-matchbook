@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
+import { useRouter } from 'next/navigation'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -15,15 +15,10 @@ const USD_PER_ASSESSMENT = 0.0003
 
 type Settings = Awaited<ReturnType<typeof getSettings>>
 
-interface SettingsDialogProps {
-    open: boolean
-    onOpenChange: (open: boolean) => void
-}
-
 // The two stored settings the worker reads (#157): the screen's hard requirements and
-// the JEV filter's profile. Same actions and validation as the MCP set_* tools; loaded
-// on open so the profile text is not shipped with every page load.
-export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
+// the JEV filter's profile. Same actions and validation as the MCP set_* tools.
+export function SettingsPanel() {
+    const router = useRouter()
     const [settings, setSettings] = useState<Settings | null>(null)
     const [degree, setDegree] = useState('')
     const [auth, setAuth] = useState('')
@@ -35,8 +30,6 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
     const [saving, setSaving] = useState(false)
 
     useEffect(() => {
-        if (!open) return
-        setSettings(null)
         getSettings().catch((e) => { toast.error(`Could not load settings: ${e.message}`); return null }).then((s) => {
             if (!s) return
             setSettings(s)
@@ -48,12 +41,13 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
             setProfile(s.jev?.profile_text ?? '')
             setYoe(s.jev?.yoe_context ?? '')
         })
-    }, [open])
+    }, [])
 
     const done = (result: { success: boolean; error?: string; data?: any }, what: string) => {
         if (!result.success) return toast.error(result.error)
         toast.success(result.data?.unchanged ? `${what}: nothing changed` : `${what} saved`)
         getSettings().then(setSettings).catch(() => {})
+        router.refresh() // the onboarding checklist re-reads setup status
     }
 
     const run = async (write: () => Promise<any>, what: string) => {
@@ -90,11 +84,7 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
     }
 
     return (
-        <Dialog open={open} onOpenChange={onOpenChange}>
-            <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
-                <DialogHeader>
-                    <DialogTitle>Settings</DialogTitle>
-                </DialogHeader>
+        <>
                 {!settings ? (
                     <p className="text-sm text-muted-foreground">Loading...</p>
                 ) : (
@@ -165,7 +155,6 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
                         </section>
                     </div>
                 )}
-            </DialogContent>
-        </Dialog>
+        </>
     )
 }

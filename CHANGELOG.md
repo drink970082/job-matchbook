@@ -35,6 +35,16 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 
 ### Changed
 
+- **Web shell: one route per tab** (#211): `/applications` (`/` redirects there), `/jobs`,
+  `/sources`, `/activity` and `/settings` replace the single-page tab state, so refresh,
+  Back and links work and each page loads only its own data. KPIs and CSV import/export
+  move onto Applications; Settings becomes a page (no longer a dialog) with the category
+  editor as a section (it no longer auto-opens on first run). The header reads "Job
+  Matchbook"; the Jobs badge counts keep postings fetched in the last 24h instead of the
+  inventory total. A setup checklist shows until hard requirements, a board and a first
+  posting exist, with copy-paste MCP client configs and starter prompts from
+  `apps/web/templates/mcp/`.
+
 - **Docs split by audience (#176).** SETUP Path D is the one MCP connection guide
   (Claude Code, Codex, ChatGPT tunnel); the Daily Brief template moves to
   `docs/DAILY_BRIEF.md`; README groups its docs into Using / Contributing / Project

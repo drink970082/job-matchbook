@@ -6,8 +6,7 @@ test.beforeEach(async () => {
 })
 
 test('marking a posting applied moves it to Applied / closed and adds it to Applications', async ({ page }) => {
-    await page.goto('/')
-    await page.getByRole('button', { name: /Discovered Jobs/i }).click()
+    await page.goto('/jobs')
     await page.getByRole('tab', { name: /^Unassessed/ }).click()
 
     const recent = page.locator('tr', { hasText: 'Recent Synthetic Systems' })
@@ -23,7 +22,7 @@ test('marking a posting applied moves it to Applied / closed and adds it to Appl
     await expect(page.locator('tr', { hasText: 'Recent Synthetic Systems' })).toContainText('Applied')
 
     // ...and shows up under Applications.
-    await page.getByRole('button', { name: /^Applications$/i }).click()
+    await page.getByRole('link', { name: 'Applications' }).click()
     await page.getByPlaceholder(/Search companies/i).fill('Recent Synthetic Systems')
     await expect(page.locator('tr', { hasText: 'Recent Synthetic Systems' })).toHaveCount(1)
 })
