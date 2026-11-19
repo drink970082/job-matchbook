@@ -276,8 +276,8 @@ def run_once(cfg, *, db_path, env,
             if jev_backend == "extract":
                 _run_jev_extract(conn, cfg, extract=screen_extract, limit=jev_limit, now=now,
                                  max_description_chars=num_ctx * 2,
-                                 model=f"extract:{screen_backend}:{effective_model}:"
-                                       f"{effective_effort}")
+                                 model=f"extract:{jev.EXTRACT_PROMPT_VERSION}:{screen_backend}:"
+                                       f"{effective_model}:{effective_effort}:jd{num_ctx * 2}")
             else:
                 _run_jev(conn, cfg, env=env, limit=jev_limit, max_usd=jev_max_usd, now=now)
     finally:

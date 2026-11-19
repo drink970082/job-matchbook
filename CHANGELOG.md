@@ -7,14 +7,6 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 
 ## [Unreleased]
 
-### Added
-
-- **JEV keep/skip on any screen provider** (#178). `--jev-backend extract` (or
-  `JEV_BACKEND=extract`) sends the same question packs through the screen backend's
-  `extract` seam, one call per pack; the backend joins the policy hash, and
-  `--jev-limit` (default 40 there) is its only cap; `--jev-max-usd` is refused. `openrouter-native` stays the
-  default and unchanged. Unvalidated: no measurement has been run on the extract path.
-
 ### Removed
 
 - **Pre-launch cleanup.** 35 `docs/superpowers` specs/plans/notes for shipped or
@@ -76,6 +68,12 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 
 ### Added
 
+- **JEV keep/skip on any screen provider** (#178). `--jev-backend extract` (or
+  `JEV_BACKEND=extract`) sends the same question packs through the screen backend's
+  `extract` seam, one call per pack; the backend joins the policy hash, and
+  `--jev-limit` (default 40 there) is its only cap; `--jev-max-usd` is refused.
+  `openrouter-native` stays the default and unchanged. Unvalidated: no measurement has
+  been run on the extract path.
 - **Web Settings dialog**: the header Settings button edits the hard requirements and the
   JEV profile through the same actions as MCP, confirming the re-assessment cost first.
 - **JEV profile in the DB (#157)**: a `jev_profile` row, seeded once from `jev_dir` with
