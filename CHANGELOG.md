@@ -451,7 +451,7 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
   is owed separately.
 - **Bounded fit extraction, in shadow: a concept vocabulary, four provenance hashes, a
   schema that emits no numbers, and a stratified frame.** Steps 0-2 of
-  [`docs/superpowers/plans/2026-08-03-fit-scoring-rebuild.md`](./docs/superpowers/plans/2026-08-03-fit-scoring-rebuild.md).
+  [`docs/superpowers/plans/2026-08-03-fit-scoring-rebuild.md`](https://github.com/drink970082/job-matchbook/blob/7f0b297558/docs/superpowers/plans/2026-08-03-fit-scoring-rebuild.md).
   Today's fit call asks a model to read the operator's preference document and return a
   three-way `domain` judgment plus a calibrated 0-100 number. Both halves are measured
   problems: the number has a **13-point median cross-model difference** (p90 33, max 53)

@@ -92,8 +92,8 @@ when postings lack application links.
 
 ## Planned implementation sequence
 
-The first two implementation batches are [MCP research queries](superpowers/plans/2026-10-22-batch-1-mcp-research.md)
-and [visible inventory](superpowers/plans/2026-10-22-batch-2-job-inventory.md).
+The first two implementation batches are [MCP research queries](https://github.com/drink970082/job-matchbook/blob/7f0b297558/docs/superpowers/plans/2026-10-22-batch-1-mcp-research.md)
+and [visible inventory](https://github.com/drink970082/job-matchbook/blob/7f0b297558/docs/superpowers/plans/2026-10-22-batch-2-job-inventory.md).
 A manual research baseline runs alongside them; scheduled acceptance starts once the
 queries/UI are usable, while lifecycle work can proceed independently. See ROADMAP for
 issue dependencies and DEVELOPMENT for Astra/Sol orchestration versus Luna/max execution.

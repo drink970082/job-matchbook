@@ -40,13 +40,6 @@ from .screening import (DEFAULT_CLAUDE_SCREEN_MODEL, DEFAULT_CODEX_SCREEN_MODEL,
 # CPU on an 8GB card (~100s/call), so it's a poor fit here. Override per-deploy
 # with --model or the OLLAMA_MODEL env var.
 DEFAULT_OLLAMA_MODEL = "qwen3.5:4b"
-# Per-backend screen concurrency. Ollama defaults to 1: a single GPU SERIALIZES the
-# compute, so parallel requests interleave rather than speed up (weights load once and
-# are not duplicated per slot — only KV cache is, so RAM is the secondary constraint,
-# not the binding one). The subprocess and HTTP backends are latency-bound and benefit.
-# Configurable so a multi-GPU or remote-Ollama user can raise it.
-DEFAULT_SCREEN_WORKERS = {"ollama": 1, "none": 1, "codex": 4, "claude-code": 4,
-                          "claude-api": 4, "openai-api": 4}
 
 # The ONLY .env keys argparse defaults read from os.environ (see run.main below).
 # Secrets (ANTHROPIC_API_KEY, OPENAI_API_KEY) are deliberately excluded: every consumer

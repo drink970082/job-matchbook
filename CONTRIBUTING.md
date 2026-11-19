@@ -40,7 +40,7 @@ make test-worker    # pytest (cd apps/worker && python -m pytest)
 ```
 
 The worker suite is **fully dependency-injected** — every external service
-(Ollama, the Codex CLI, Claude, Telegram) is mocked, so it runs anywhere
+(Ollama, the Codex/Claude CLIs, the provider APIs) is mocked, so it runs anywhere
 Python + pytest exist, with no network and no API keys.
 
 CI (`.github/workflows/ci.yml`) runs both suites on every pull request, on pushes

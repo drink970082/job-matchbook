@@ -604,7 +604,6 @@ worker modules are pure and dependency-injected; real services are wired only in
   English "N[+] Days Ago" form parses — "Today"/"Yesterday" and any other locale or
   wording leave `posted_at` None (kept), so a mis-parse never drops a good posting. `now`
   reaches the adapter through the same `keep`-gate call path.
-  (See `docs/superpowers/specs/2026-07-21-stub-gate-design.md`.)
   **iCIMS is the third stub-gated adapter.** Its search card's `div.description` is a
   teaser and on some tenants absent entirely, so the JD comes from the job's own page
   (`{job_url}?in_iframe=1` -> `div.iCIMS_JobContent`) through the shared detail stage. That

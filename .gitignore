@@ -20,7 +20,9 @@ db/
 .env*
 !.env.example
 apps/worker/.venv
-apps/worker/config.yaml
+# config.yaml plus any backup of it (config.yaml.bak-*); only the .example ships.
+apps/worker/config.yaml*
+!apps/worker/config.yaml.example
 # Private profile-preparation archives contain source evidence and candidate inputs.
 # They are local audit material, never repository content. The privacy gate checks it too.
 /job_search_profile_*_with_evidence/
@@ -35,7 +37,7 @@ apps/worker/resume/*
 # leftover personal PDFs are never committed).
 resumes/
 
-# Fit-score eval: the golden labels + run outputs reference real postings (by DB
+# Eval corpora: the golden labels + run outputs reference real postings (by DB
 # id) + real resume/profile context, so the DATA stays gitignored; the harness
 # SCRIPT lives in apps/worker/tools/ and IS committed.
 apps/worker/eval/

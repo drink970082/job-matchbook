@@ -104,5 +104,5 @@ compatible with honest uncertainty about model accuracy and remaining allowance.
 
 Detailed evidence stays in [SCORING §8](SCORING.md#8-measured-history---do-not-re-run-these-experiments),
 [REJECTED](REJECTED.md), and the
-[quota ledger](superpowers/notes/2026-07-31-quota-ledger.md). These constrain experiments;
+[quota ledger](https://github.com/drink970082/job-matchbook/blob/7f0b297558/docs/superpowers/notes/2026-07-31-quota-ledger.md). These constrain experiments;
 they do not select the next product feature.

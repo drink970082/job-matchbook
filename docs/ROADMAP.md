@@ -42,14 +42,14 @@ conditional delivery-history extension.
 
 ## R1 — Research queries and visible job inventory
 
-The first two implementation batches share an [approved scope and contract](superpowers/specs/2026-10-22-research-inventory-design.md):
+The first two implementation batches share an [approved scope and contract](https://github.com/drink970082/job-matchbook/blob/7f0b297558/docs/superpowers/specs/2026-10-22-research-inventory-design.md):
 
-- [Batch 1 plan](superpowers/plans/2026-10-22-batch-1-mcp-research.md): bounded screen
+- [Batch 1 plan](https://github.com/drink970082/job-matchbook/blob/7f0b297558/docs/superpowers/plans/2026-10-22-batch-1-mcp-research.md): bounded screen
   summaries/outcome filters, opt-in literal full-JD search, screen update windows, eligible
   backlog counts and per-result timestamp correction. Existing read-only tools/defaults
   remain compatible. Current-state pagination uses overlap/reconciliation, not a claim
   of exact event delivery or cross-request snapshots.
-- [Batch 2 plan](superpowers/plans/2026-10-22-batch-2-job-inventory.md): default inventory
+- [Batch 2 plan](https://github.com/drink970082/job-matchbook/blob/7f0b297558/docs/superpowers/plans/2026-10-22-batch-2-job-inventory.md): default inventory
   without fit prerequisites, standalone screen labels, retained fit views and safe existing
   application actions. No new bulk destructive actions for new inventory views.
 

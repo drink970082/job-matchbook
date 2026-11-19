@@ -1,9 +1,8 @@
 # systemd USER unit for the job-matchbook worker daemon.
 #
-# The worker is the one piece that is not containerized (SPEC §6): the default fit-score
-# backend shells out to the Codex CLI, which authenticates from the operator's
-# ~/.codex/auth.json, and Ollama is pinned to the host GPU. So supervision is systemd's
-# job here rather than Docker's.
+# The worker is the one piece that is not containerized (SPEC §6): Ollama is pinned to the
+# host GPU, and the CLI screen backends (codex / claude-code) authenticate from the
+# operator's own CLI login. So supervision is systemd's job here rather than Docker's.
 #
 # `.example` because this file is operator-specific: it hardcodes YOUR checkout path, YOUR
 # PATH, and YOUR python. Every line you must change is marked EDIT.
@@ -39,7 +38,7 @@
 # exactly like an unexplained gap in the job feed.
 
 [Unit]
-Description=job-matchbook worker (fetch -> screen -> score -> notify)
+Description=job-matchbook worker (fetch -> screen [-> jev])
 Documentation=https://github.com/drink970082/job-matchbook/blob/main/docs/SPEC.md
 # NOTE this orders against nothing in practice: the USER manager has no
 # `network-online.target`, and even in the system manager `After=` without a matching
@@ -68,7 +67,8 @@ WorkingDirectory=/home/YOU/ats/apps/worker
 #
 # EDIT the flags too. `--screen-limit` caps provider calls per pass (default 40, or
 # SCREEN_LIMIT); on a paid SCREEN_BACKEND it is the per-pass spend ceiling, and the
-# daemon applies it to EVERY slot.
+# daemon applies it to EVERY slot. Add `--jev --jev-limit 300 --jev-max-usd 0.10` to run
+# the paid keep/skip filter after the screen (needs `jev_dir` + OPENROUTER_API_KEY).
 ExecStart=/usr/bin/python3 -m ats_worker.run --screen-limit 40
 
 # LOAD-BEARING. The pipeline's progress lines are plain `print()` with no flush=, so under
@@ -76,9 +76,9 @@ ExecStart=/usr/bin/python3 -m ats_worker.run --screen-limit 40
 # in 8KB lumps, minutes or hours late, and a pass that hung would look like a pass that
 # printed nothing. Python only line-buffers when stdout is a tty.
 Environment=PYTHONUNBUFFERED=1
-# EDIT: must reach the `codex` CLI (default fit backend) and `ollama`. systemd gives a
-# user unit a minimal PATH that does NOT include ~/.local/bin, where `codex login`
-# installs, so leaving this out makes every fit call fail at exec.
+# EDIT: must reach `ollama` and, if SCREEN_BACKEND is a CLI, `codex`/`claude`. systemd
+# gives a user unit a minimal PATH that does NOT include ~/.local/bin, where those CLIs
+# install, so leaving this out makes every CLI screen call fail at exec.
 Environment=PATH=/home/YOU/.local/bin:/usr/local/bin:/usr/bin:/bin
 
 Restart=always
@@ -99,8 +99,7 @@ RestartSec=30s
 
 # NO graceful shutdown is configured, and that is a known gap rather than an oversight:
 # the worker installs no SIGTERM handler, so `systemctl --user stop|restart` kills it
-# mid-pass and takes any in-flight `codex exec` with it — quota spent, result discarded,
-# the row left `failed`. The pass lock is safe regardless (the kernel releases an flock
+# mid-pass and takes any in-flight provider call with it — quota spent, result discarded. The pass lock is safe regardless (the kernel releases an flock
 # with the process). Prefer stopping between wall-clock slots.
 StandardOutput=journal
 StandardError=journal

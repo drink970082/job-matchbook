@@ -13,8 +13,8 @@ auth, etc.) you are outside the supported threat model and take on that risk
 yourself.
 
 The worker (`apps/worker`) runs natively on the host, not in a container, and
-talks to external services (board APIs, Ollama, the Codex CLI or Anthropic
-API, Telegram) using operator-supplied credentials in a gitignored `.env` /
+talks to external services (board APIs, Ollama, an optional CLI/API screen
+backend, OpenRouter for the optional JEV filter) using operator-supplied credentials in a gitignored `.env` /
 `config.yaml`. It is not a network-facing service.
 
 An optional ATS MCP process is launched locally over stdio and reads the shared

@@ -23,8 +23,8 @@ and fixes. First implement research MCP queries, then unscored inventory UI. Run
 workflow baseline early and validate scheduled ChatGPT before selecting optional fit
 pre-ranking. Fit is last priority and may remain unused if scheduled judgment suffices.
 
-The [batch contract](2026-10-22-research-inventory-design.md) and its two plans define
-bounded implementation work; future lifecycle/write/model decisions need their own design.
+Future lifecycle/write/model decisions need their own design (the MCP write path is
+epic #152).
 
 ## Scope
 
