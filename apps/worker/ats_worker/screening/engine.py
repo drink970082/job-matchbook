@@ -36,8 +36,17 @@ _QUALIFIER = (r"(?:\d+[\s-]*(?:months?|mos?|weeks?)\s+)?"
               r"(?:\s+(?:role|position|assignment|basis|opportunity|only))?")
 _FULL_TIME = re.compile(r"\bfull[\s-]?time\b", re.IGNORECASE)
 _QUALIFIER_BRACKET = re.compile(r"[(\[]\s*" + _QUALIFIER + r"\s*[)\]]", re.IGNORECASE)
+# Trailing: only after a " - " / "|" / ":" separator, and only for the words that are not
+# also a market or client group ("Account Executive, Contract", "Buyer - Seasonal",
+# "Territory Manager - Contractor" are full-time jobs).
 _QUALIFIER_TRAILING = re.compile(
-    r"[-–—|:,/]\s*" + _QUALIFIER + r"\s*(?:[(\[][^)\]]*[)\]])?\s*$", re.IGNORECASE)
+    r"(?:\s[-\u2013\u2014]|[|:]|\s-(?=\S))\s*(?:\d+[\s-]*(?:months?|mos?|weeks?)\s+)?"
+    r"(?:contract(?:[\s-]to[\s-]hire)?|part[\s-]?time|temporary|temp|fixed[\s-]?term|per[\s-]?diem)"
+    r"(?:\s+(?:role|position|assignment|basis|opportunity|only))?\s*(?:[(\[][^)\]]*[)\]])?\s*$",
+    re.IGNORECASE)
+# After a comma only the words no market or client group uses ("Analyst, Part-Time").
+_QUALIFIER_AFTER_COMMA = re.compile(
+    r",\s*(?:part[\s-]?time|temporary|fixed[\s-]?term|per[\s-]?diem)\s*$", re.IGNORECASE)
 _QUALIFIER_LEADING = re.compile(r"^(?:part[\s-]?time|contract[\s-]to[\s-]hire)\b", re.IGNORECASE)
 
 def deterministic_screen(screen: dict, posting: dict, candidate: dict | None) -> dict:
@@ -610,7 +619,7 @@ def _is_non_fulltime(title: str) -> bool:
     t = str(title or "").strip()
     if not t or _FULL_TIME.search(t):
         return False
-    return bool(_QUALIFIER_BRACKET.search(t) or _QUALIFIER_TRAILING.search(t)
+    return bool(_QUALIFIER_BRACKET.search(t) or _QUALIFIER_TRAILING.search(t) or _QUALIFIER_AFTER_COMMA.search(t)
                 or _QUALIFIER_LEADING.search(t))
 
 def _is_internship(title: str) -> bool:

@@ -438,23 +438,30 @@ def _expand_unresolved(classified: list) -> list:
 
 
 def _allowed_entry_codes(entry) -> set[str]:
-    """The countries an allowed entry names, from STRONG evidence only: a country, a US
-    state or code ("California", "Boston, MA" -> US), a region's member countries
-    ("North America"), or a country named inside a phrase ("US Remote"). A name that is
-    both a state and a country ("Georgia") allows both. Ambiguous city/subdivision
-    readings add nothing ("Bay Area", "Ontario"): such an entry still keeps postings that
-    name it through the direct match, and a wrong country would defeat the user's list."""
+    """The countries an allowed entry names, classified exactly as a posting's tokens are
+    (`_classify_token`: a US state wins over the country sharing its code, so "Boston, MA"
+    is the US, not Morocco): countries, US states, a region's members, a country inside a
+    phrase ("US Remote"), and "Georgia" as both state and country. A city/area reading
+    counts only when it names exactly one country ("Washington D.C."); an ambiguous one
+    ("Bay Area", "Ontario") adds nothing, so a wrong guess cannot widen the user's list,
+    and such an entry still keeps postings that name it through the direct match."""
     text = str(entry)
     codes: set[str] = set()
-    for t in [text, *_tokenize(text)]:
-        folded = _fold(t)
-        codes |= _REGION_MEMBERS.get(folded, set())
-        if _is_us_state(t):
-            codes.add("US")
-        code = _country_code(t)
-        if code:
+    weak: list[set[str]] = []
+    for t in dict.fromkeys([text, *_tokenize(text)]):
+        kind, code = _classify_token(t)
+        if kind == "region":
+            codes |= _REGION_MEMBERS.get(_fold(t), {"US"})
+        elif kind in ("country", "us_state") and code:
             codes.add(code)
-    codes |= {c for _, c in _phrase_countries(text)}
+            if kind == "us_state" and len(t.strip()) > 2 and _country_code(t):
+                codes.add(_country_code(t))
+        elif kind in ("city", "subdivision"):
+            weak.append(_weak_readings(t))
+    if not codes and weak:
+        codes |= set().union(*(w for w in weak if len(w) == 1))
+    if not codes:  # last resort: a country named inside a phrase ("US Remote")
+        codes |= {c for _, c in _phrase_countries(text)}
     return codes
 
 

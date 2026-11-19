@@ -1123,10 +1123,12 @@ worker modules are pure and dependency-injected; real services are wired only in
   Israeli site as Italy. Only the places the user lists count — no country is assumed
   (a user who will work in the US lists it; `["remote"]` alone discards on-site US
   postings). Each listed entry contributes the countries it names on strong evidence
-  (`_allowed_entry_codes`: a country, a US state or code — `California`, `Boston, MA`,
-  and `Georgia` as both — a region's members, a country inside a phrase like `US
-  Remote`), so listing a state never discards a posting in it. A city or area entry
-  (`Toronto`, `Bay Area`) adds no country and matches only postings that name it. A
+  (`_allowed_entry_codes`, classified as posting tokens are: a country, a US state or
+  code — `California`, `Boston, MA` (not Morocco), and `Georgia` as both — a region's
+  members, else a city/area reading naming exactly one country (`Washington D.C.`,
+  `Toronto`), else a country inside a phrase like `US Remote`), so listing a state never
+  discards a posting in it. An ambiguous area (`Bay Area`, `Ontario`) adds no country and
+  matches only postings that name it. A
   posting region (`North America`, `Americas`) keeps when it contains a listed
   country. The location gate is code-only, so a
   `locations`-only candidate makes no SCREEN call (any backend). The screen prompt
@@ -1135,9 +1137,11 @@ worker modules are pure and dependency-injected; real services are wired only in
   `candidate.exclude_internships` is set,
   intern/co-op roles are disqualified by a whole-word match on the job title (no LLM
   call — runs even when no other screen clause is configured); `exclude_contract` does
-  the same for contract / part-time / temporary titles (`_is_non_fulltime`: only a bracket or
-  trailing segment that is the qualifier — `(Contract)`, `- 6 Month Contract`, `,
-  Part-Time` — or a leading `Part-Time`/`Contract-to-Hire`; qualifier words inside a
+  the same for contract / part-time / temporary titles (`_is_non_fulltime`: only a bracket that is
+  the qualifier — `(Contract)`, `(Seasonal)` — a trailing `- Contract` / `| Temporary` /
+  `- 6 Month Contract`, a trailing `, Part-Time`, or a leading `Part-Time` /
+  `Contract-to-Hire`; a trailing `Contractor`/`Seasonal`/`Freelance` or `, Contract` keeps
+  (also a market or client group), qualifier words inside a
   role (`Smart Contract Engineer`, `(Contract Compliance)`, `Seasonal Forecasting
   Scientist`) and any title saying full-time keep),
   recorded under the screen key `employment_type`. A SCREEN **provider**

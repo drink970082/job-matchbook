@@ -240,6 +240,12 @@ def test_a_discard_always_names_a_country_the_string_actually_mentions():
     ("Manila, Philippines", ["Bay Area"], False, "on-site in Philippines"),
     ("Austin, TX", ["Ontario"], False, "on-site in United States"),
     ("Austin, TX", ["US Remote"], True, ""),
+    ("Washington, D.C.", ["Washington D.C."], True, ""),
+    ("Arlington, VA", ["Washington, DC"], True, ""),
+    ("Casablanca, Morocco", ["Boston, MA"], False, "on-site in Morocco"),
+    ("Bangalore, India", ["Indianapolis, IN"], False, "on-site in India"),
+    ("Sydney, NSW, Australia", ["New South Wales"], True, ""),
+    ("London, UK", ["New South Wales"], False, "on-site in United Kingdom"),
     ("Sacramento, CA", ["USA"], True, ""),                 # CA=California, not Canada
     ("", ["remote", "USA"], True, ""),
     (None, ["remote", "USA"], True, ""),

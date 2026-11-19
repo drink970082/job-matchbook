@@ -1202,7 +1202,7 @@ def test_screen_schema_is_strict_mode_valid():
 # #206: contract / part-time / temporary, decided from the title like internships.
 @pytest.mark.parametrize("title,hit", [
     ("Software Engineer (Contract)", True),
-    ("Backend Engineer - Contractor", True),
+    ("Backend Engineer - Contractor", False),   # "Contractor" is also a client group
     ("Part-Time Data Analyst", True),
     ("Part time Barista", True),
     ("Temporary Accountant", False),        # leading words other than Part-Time/C2H keep
@@ -1211,11 +1211,12 @@ def test_screen_schema_is_strict_mode_valid():
     ("QA Engineer - 6 Month Contract", True),
     ("Nurse (Per Diem)", True),
     ("Research Assistant (Fixed-Term)", True),
-    ("Associate - Seasonal", True),
+    ("Associate (Seasonal)", True),
     ("Engineer: Contract", True),
     ("Engineer -Contract", True),
     ("Engineer - Contract (6 months)", True),
     ("Engineer, Payments - Contract", True),
+    ("Engineer | Contract", True),
     ("Designer [Temp]", True),
     # Err toward keep: jobs ABOUT contracts, and ambiguous leading words.
     ("Contract Manager", False),
@@ -1235,6 +1236,12 @@ def test_screen_schema_is_strict_mode_valid():
     ("Freelance Platform Engineer", False),
     ("Fixed Term Contracts Analyst", False),
     ("Per Diem Program Manager", False),
+    ("Account Executive, Contract", False),
+    ("Territory Manager - Contractor", False),
+    ("Director - Contractor", False),
+    ("Buyer - Seasonal", False),
+    ("Legal Counsel, Contract", False),
+    ("Account Manager, Freelance", False),
     ("Full-time or Part-time Nurse", False),
     ("Software Engineer", False),
     ("Template Engineer", False),
