@@ -89,13 +89,6 @@ def test_load_from_path(tmp_path):
     assert cfg.companies[1].source == "lever"
 
 
-def test_a_retired_fit_profile_block_is_accepted_and_ignored():
-    # The fit scorer is gone; an existing config.yaml that still carries the block
-    # must keep loading rather than failing the worker at startup.
-    cfg = config.load_config("companies: []\nfit_profile: malformed\n")
-    assert cfg.companies == []
-
-
 def test_operational_config_is_still_validated():
     raw = "companies:\n  - { source: not-a-board, slug: x, name: X }\n"
     with pytest.raises(config.ConfigError, match="source"):
@@ -327,9 +320,3 @@ def test_config_parses_new_filters():
 def test_config_rejects_non_int_max_age():
     with pytest.raises(config.ConfigError):
         config.load_config("companies: []\nmax_age_days: soon\n")
-
-
-def test_a_retired_years_experience_key_is_accepted_and_ignored():
-    # The seniority classifier that read it is deleted; an old config must still load.
-    cfg = config.load_config("companies: []\ncandidate: {years_experience: 6}\n")
-    assert cfg.candidate.years_experience is None

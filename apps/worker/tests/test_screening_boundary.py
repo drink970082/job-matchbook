@@ -84,8 +84,7 @@ def test_screen_only_pass_avoids_legacy_imports_prompts_and_resume_reads():
             cfg.write_text("companies:\n"
                            "  - { source: greenhouse, slug: synthetic, name: Synthetic }\n"
                            "candidate:\n"
-                           "  highest_degree: bachelor's\n"
-                           "fit_profile: malformed\n")
+                           "  highest_degree: bachelor's\n")
             schema = Path("tests/fixtures/schema.sql").read_text()
             connection = sqlite3.connect(db)
             connection.executescript(schema)

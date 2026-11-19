@@ -26,11 +26,9 @@ behavior. Completed work belongs in CHANGELOG, not this queue.
   ~5,900 older screened postings stay `unassessed` and listed. Rollback = drop `--jev`
   from `ats-worker.service.d/20-screen-only.conf` and restart; the table is additive.
 
-- **Fit-scorer residue — unclaimed** `[SCORE · S]` (#174). Left:
-  (1) `fit_profile` and `candidate.years_experience` stay accepted-and-ignored
-  `config.yaml` keys until no config carries them (both live configs still do).
-  (2) Drop the columns nothing writes — `job_postings.score`, `attempts`,
-  `notify_attempts`, `deprioritized_at` — after #158 removes the web reads.
+- **Fit-scorer residue — unclaimed** `[SCORE · S]` (#174). Left: drop the columns
+  nothing writes — `job_postings.score`, `attempts`, `notify_attempts`,
+  `deprioritized_at` — after #158 removes the web reads.
 
 - **Daily Brief instructions for issue #94 — unattended acceptance remains open**
   [ORCH · M · branch docs/issue-94-daily-brief]. Public task instructions, an interactive

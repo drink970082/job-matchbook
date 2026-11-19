@@ -27,6 +27,9 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 - **Fit-scorer residue out of the worker and MCP reads** (#174): `list_jobs` rows drop
   `score`, `attempts`, `notify_attempts` and `deprioritized_at`; the screen queue no
   longer sorts on `deprioritized_at`. **Breaking:** the retired `--score-*`,
+  `--batch-size`, `--no-notify`, `--rescreen-discarded` and `--resume-dir` flags, a
+  top-level `fit_profile` block and `candidate.years_experience` now fail startup
+  instead of being ignored.
   `--batch-size`, `--no-notify`, `--rescreen-discarded` and `--resume-dir` flags now
   fail startup instead of being ignored.
 - **Web Server Actions split by domain** (#173). `lib/actions.ts` is now

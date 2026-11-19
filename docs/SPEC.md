@@ -483,8 +483,6 @@ worker modules are pure and dependency-injected; real services are wired only in
   startup error. `feeds` is an optional mapping of feed-name → settings (only
   `simplify` is valid in v1: `enabled`, `categories` keep-list, optional `url`);
   `companies` is now consumed only by the one-time watchlist import (see `run.py`).
-  A top-level `fit_profile` block (the retired fit scorer's vocabulary) is accepted and
-  ignored, so an existing `config.yaml` still loads.
 - **`fetch/` — board adapters.** One thin module per source, registered in
   `fetch/ADAPTERS`. Each returns the unified posting dict (`title`, `location`,
   `url`, full JD `description`, `external_id`). Two shapes:
