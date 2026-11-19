@@ -147,8 +147,8 @@ Acme,Backend Engineer,https://acme.com/jobs/1,2026-08-01,Software Engineering,Ap
                                 <code>date_applied</code> is <code>YYYY-MM-DD</code>.
                             </li>
                             <li>
-                                <code>status</code> must match exactly, otherwise the row imports as
-                                Applied: {STATUSES.join(', ')}.
+                                <code>status</code> is one of {STATUSES.join(', ')}; an older export&apos;s
+                                names (Phone Screen, Final Round, Ghosted...) are mapped, anything else imports as Applied.
                             </li>
                             <li>
                                 <code>category</code> is free-form (your own labels); blank becomes

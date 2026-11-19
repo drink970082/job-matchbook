@@ -80,8 +80,9 @@ export function TimelineHeatmap({ data }: TimelineHeatmapProps) {
 
     return (
         <div className="w-full relative" suppressHydrationWarning>
-            <div className="overflow-x-auto">
-                <svg width={svgW} height={svgH} className="block" suppressHydrationWarning>
+            {/* Scales to the card width (viewBox), so the whole year fits with no scrollbar. */}
+            <div>
+                <svg viewBox={`0 0 ${svgW} ${svgH}`} width="100%" className="block" suppressHydrationWarning>
                     {/* Month labels */}
                     {monthLabels.map((m, i) => (
                         <text key={`${m.label}-${i}`} x={LEFT + m.weekIndex * (CELL + GAP)} y={11} fill="#9ca3af" fontSize={9}>

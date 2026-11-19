@@ -1489,7 +1489,7 @@ worker modules are pure and dependency-injected; real services are wired only in
   `busy_timeout` to 5000 ms, matching the worker's `db.py` setting (§7.1), so a
   worker write-lock already makes web block-and-retry instead of throwing
   `SQLITE_BUSY`; no code change was needed.
-- **`lib/constants.ts`** — `STATUSES` (14), `DEFAULT_CATEGORIES` (9 — the *seed* for the
+- **`lib/constants.ts`** — `STATUSES` (7; `LEGACY_STATUS_MAP` from `legacy-statuses.json` maps the 14 pre-#205 names), `DEFAULT_CATEGORIES` (9 — the *seed* for the
   user-editable category vocabulary, which is stored per-install in `app_settings` and
   managed in the UI, no longer a fixed enum),
   `VALID_SOURCES` (11 watchlist-capable boards, mirrors the worker; feed-only sources
@@ -1510,7 +1510,7 @@ worker modules are pure and dependency-injected; real services are wired only in
   Applications table/form/charts and history modal) and `JobsView` (Discovered Jobs and
   the Mark Applied flow); only Applications, Settings and Mark Applied write;
   `SettingsPanel` (hard requirements + JEV profile) and `CategoriesEditor` (the category
-  vocabulary) make up `/settings`; `ApplicationTable` (inline status edit), `KPIGrid`,
+  vocabulary) make up `/settings`; `ApplicationTable` (inline status edit; job title links to `application_url`; Details opens the history/edit modal; dates show the year outside the current one; Company / Date / Status headers sort server-side via `getApplications` `sort`/`dir`, default date desc), `KPIGrid`,
   `StatusHistoryModal`, `AddApplicationForm`, `DiscoveredJobsTable` (the funnel: stage tabs
   Keep (default) / Unassessed / JEV skip / Screen rejected / Rule rejected / Applied-closed
   / All, each with its count from `getJobStageCounts`; filters are controlled by
@@ -1539,7 +1539,7 @@ worker modules are pure and dependency-injected; real services are wired only in
   it shows "<backend> login needs attention" with the snapshot's `login_command`),
   `JobDetailModal` (JD + score detail), and
   the four charts `TimelineHeatmap` /
-  `CategoryDonut` / `StatusFunnel` / `SankeyChart`, plus Radix-based `ui/` primitives.
+  `CategoryDonut` / `SankeyChart` (the heatmap scales to its card, so a full year fits), plus Radix-based `ui/` primitives.
 
 - **Offline assessment panel** (`lib/assessment-view.ts`,
   `components/preselection/AssessmentPanel.tsx`) renders only the bounded synthetic
@@ -1777,9 +1777,13 @@ not change other adapters.
 
 **Enums** (single source: `apps/web/src/lib/constants.ts`):
 
-- **Statuses** (funnel order): `Applied` → `Online Assessment` → `Phone Screen` →
-  `Interviewing: 1st…5th round` → `Final Round` → `Offer` → `Accepted`; terminals
-  `Rejected`, `Withdrew`, `Ghosted`.
+- **Statuses** (funnel order): `Applied` → `Screening` → `Interviewing` → `Offer` →
+  `Accepted`; terminals `Rejected`, `Withdrew`. The worker's MCP list
+  (`read_repository.APPLICATION_STATUS_ORDER`) is pinned to it by
+  `test_source_enums_sync.py`. `prisma/migrate-statuses-205.mjs` is the one-off data
+  migration from the 14 older names (Online Assessment / Phone Screen → Screening; the
+  interview rounds and Final Round → Interviewing; Ghosted → Rejected), dropping history
+  rows that repeat the previous status.
 - **Categories:** user-configurable, **not a fixed enum** — the list lives per-install
   in `app_settings` (key `categories`) and is edited in-app (the **Application categories**
   section of `/settings`). `DEFAULT_CATEGORIES` in `constants.ts` (Software
@@ -1972,10 +1976,12 @@ Triage evidence with duplicate object members at its root, screen map, or check 
 - **`deleteHistoryItem`** recomputes the application's current status to the most
   recent remaining history entry, or `Applied` if none remain — the delete +
   recompute + status update run in one `$transaction`.
-- **KPIs** (`getKPIs`): `applied` = total; `active` = total − rejected − offer −
-  withdrew − ghosted (offer bucket counts Offer + Accepted; interviewing bucket
-  counts Phone Screen + any Interviewing + Final Round).
-- **CSV import** requires columns `company_name, job_title, date_applied`; unknown
+- **KPIs** (`getKPIs`): `total` = every application; `active` = not Offer / Accepted /
+  Rejected / Withdrew and `last_updated` (else `date_applied`) within 60 days, so a
+  silent application drops out; `screening`, `interviewing`, `rejected`; `offer`
+  counts Offer + Accepted.
+- **CSV import** requires columns `company_name, job_title, date_applied`; a pre-#205
+  status name is mapped through `LEGACY_STATUS_MAP`; other unknown
   `status`/`category` values fall back to `Applied`/`Others`; existing
   `(company, title)` rows are skipped (reported in `{added, skipped, errors}`).
   The per-row loop runs in **chunked** `$transaction`s (100 rows each), so a large

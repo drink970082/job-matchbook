@@ -96,11 +96,11 @@ test('addApplication rejects a duplicate (company,title) atomically', async () =
 
 test('updateApplicationStatus transitions and records a noon-UTC history row', async () => {
     const app = await prisma.applications.create({ data: makeApplication({ status: 'Applied' }) })
-    const res = await updateApplicationStatus(app.id, 'Phone Screen', '2026-05-10')
+    const res = await updateApplicationStatus(app.id, 'Screening', '2026-05-10')
     expect(res.success).toBe(true)
 
     const updated = await prisma.applications.findUnique({ where: { id: app.id } })
-    expect(updated!.status).toBe('Phone Screen')
+    expect(updated!.status).toBe('Screening')
     const hist = await prisma.status_history.findMany({ where: { application_id: app.id } })
     expect(hist).toHaveLength(1)
     expect(hist[0].timestamp).toBe('2026-05-10T12:00:00.000Z')   // noon-UTC avoids day-shift
@@ -127,22 +127,20 @@ test('updateApplicationStatus refuses a no-op same-status transition', async () 
 
 // --- getKPIs: every status arm + the active arithmetic --------------------
 
-test('getKPIs aggregates all status buckets and the active formula', async () => {
-    const statuses = [
-        'Applied', 'Applied', 'Online Assessment', 'Phone Screen',
-        'Interviewing: 2nd round', 'Final Round', 'Offer', 'Accepted',
-        'Rejected', 'Withdrew', 'Ghosted',
-    ]
-    for (const s of statuses) await prisma.applications.create({ data: makeApplication({ status: s }) })
+test('getKPIs aggregates all status buckets and the 60-day active window', async () => {
+    const recent = new Date().toISOString()
+    const statuses = ['Applied', 'Applied', 'Screening', 'Interviewing', 'Interviewing', 'Offer', 'Accepted', 'Rejected', 'Withdrew']
+    for (const s of statuses) await prisma.applications.create({ data: makeApplication({ status: s, last_updated: recent }) })
+    // Silent for over 60 days: still counted in Total, no longer Active.
+    await prisma.applications.create({ data: makeApplication({ status: 'Applied', last_updated: '2020-01-01T00:00:00.000Z' }) })
 
     const k = await getKPIs()
-    expect(k.applied).toBe(11)            // total
-    expect(k.assessment).toBe(1)          // Online Assessment
-    expect(k.interviewing).toBe(3)        // Phone Screen + Interviewing:2nd + Final Round
+    expect(k.total).toBe(10)
+    expect(k.screening).toBe(1)
+    expect(k.interviewing).toBe(2)
     expect(k.rejected).toBe(1)
     expect(k.offer).toBe(2)               // Offer + Accepted
-    // active = total - rejected - offer - withdrew - ghosted = 11 - 1 - 2 - 1 - 1
-    expect(k.active).toBe(6)
+    expect(k.active).toBe(5)              // 2 Applied + Screening + 2 Interviewing, all recent
 })
 
 
@@ -164,6 +162,16 @@ test('getApplications paginates (skip = page*size) and orders by date desc', asy
     const p2 = await getApplications({ page: 2, size: 10 })
     expect(p2.data).toHaveLength(5)                       // skip 20 -> 5 remain
     expect(p2.data[0].date_applied).toBe('2026-01-05')
+})
+
+test('getApplications sorts by company or status on request, and ignores an unknown key', async () => {
+    for (const [c, st] of [['Beta', 'Rejected'], ['Acme', 'Screening'], ['Cora', 'Applied']]) {
+        await prisma.applications.create({ data: makeApplication({ company_name: c, status: st }) })
+    }
+    const names = async (q: any) => (await getApplications({ page: 0, size: 10, ...q })).data.map((a) => a.company_name)
+    expect(await names({ sort: 'company', dir: 'asc' })).toEqual(['Acme', 'Beta', 'Cora'])
+    expect(await names({ sort: 'status', dir: 'desc' })).toEqual(['Acme', 'Beta', 'Cora'])
+    expect(await names({ sort: 'id; DROP', dir: 'asc' })).toHaveLength(3)
 })
 
 
@@ -224,28 +232,28 @@ test('deleteApplication cascades status_history and nulls the posting back-link'
 // --- deleteHistoryItem: status reverts to the most recent remaining -------
 
 test('deleteHistoryItem reverts status to the latest remaining (or Applied)', async () => {
-    const app = await prisma.applications.create({ data: makeApplication({ status: 'Phone Screen' }) })
+    const app = await prisma.applications.create({ data: makeApplication({ status: 'Interviewing' }) })
     const h1 = await prisma.status_history.create({
-        data: makeStatusHistory({ application_id: app.id, status: 'Online Assessment', timestamp: '2026-01-02T12:00:00.000Z' }),
+        data: makeStatusHistory({ application_id: app.id, status: 'Screening', timestamp: '2026-01-02T12:00:00.000Z' }),
     })
     const h2 = await prisma.status_history.create({
-        data: makeStatusHistory({ application_id: app.id, status: 'Phone Screen', timestamp: '2026-01-03T12:00:00.000Z' }),
+        data: makeStatusHistory({ application_id: app.id, status: 'Interviewing', timestamp: '2026-01-03T12:00:00.000Z' }),
     })
 
     await deleteHistoryItem(h2.id)   // remove the latest -> revert to h1's status
-    expect((await prisma.applications.findUnique({ where: { id: app.id } }))!.status).toBe('Online Assessment')
+    expect((await prisma.applications.findUnique({ where: { id: app.id } }))!.status).toBe('Screening')
     await deleteHistoryItem(h1.id)   // none left -> fall back to 'Applied'
     expect((await prisma.applications.findUnique({ where: { id: app.id } }))!.status).toBe('Applied')
 })
 
 test('deleteHistoryItem atomically deletes and recomputes status', async () => {
     const app = await prisma.applications.create({ data: makeApplication({ status: 'Offer' }) })
-    await prisma.status_history.create({ data: makeStatusHistory({ application_id: app.id, status: 'Phone Screen', timestamp: '2026-01-01' }) })
+    await prisma.status_history.create({ data: makeStatusHistory({ application_id: app.id, status: 'Interviewing', timestamp: '2026-01-01' }) })
     const h2 = await prisma.status_history.create({ data: makeStatusHistory({ application_id: app.id, status: 'Offer', timestamp: '2026-02-01' }) })
     const res = await deleteHistoryItem(h2.id)
     expect(res.success).toBe(true)
     const after = await prisma.applications.findUnique({ where: { id: app.id } })
-    expect(after!.status).toBe('Phone Screen') // recomputed from remaining latest
+    expect(after!.status).toBe('Interviewing') // recomputed from remaining latest
 })
 
 
@@ -268,6 +276,8 @@ test('importApplicationsCSV handles escaping/dedup/invalid rows; export round-tr
 
     const beta = await prisma.applications.findFirst({ where: { company_name: 'Beta' } })
     expect(beta!.status).toBe('Applied')   // invalid status coerced
+    const acme = await prisma.applications.findFirst({ where: { company_name: 'Acme' } })
+    expect(acme!.status).toBe('Screening') // pre-#205 'Phone Screen' mapped
 
     const exp = await exportApplicationsCSV()
     expect(exp.success).toBe(true)

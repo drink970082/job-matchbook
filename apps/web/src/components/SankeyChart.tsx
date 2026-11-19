@@ -15,10 +15,9 @@ const TONE = {
     sky:      'rgb(140, 165, 184)', // start (Applied)
     indigo:   'rgb(151, 145, 184)', // assessments / screens
     amber:    'rgb(184, 165, 130)', // interviewing
-    gold:     'rgb(184, 156, 110)', // final round
     emerald:  'rgb(140, 178, 152)', // offer / accepted
     rose:     'rgb(184, 145, 145)', // rejected
-    stone:    'rgb(168, 160, 150)', // withdrew / ghosted / no-response
+    stone:    'rgb(168, 160, 150)', // withdrew / no-response
 }
 
 // `satisfies` keeps the runtime object exactly as written while making the key set
@@ -26,37 +25,23 @@ const TONE = {
 // until it has a tone, rather than quietly falling back to slate in getColor.
 const STATUS_TONE: Record<string, keyof typeof TONE> = {
     'Applied': 'sky',
-    'Online Assessment': 'indigo',
-    'Phone Screen': 'indigo',
-    'Interviewing: 1st round': 'amber',
-    'Interviewing: 2nd round': 'amber',
-    'Interviewing: 3rd round': 'amber',
-    'Interviewing: 4th round': 'amber',
-    'Interviewing: 5th round': 'amber',
-    'Final Round': 'gold',
+    'Screening': 'indigo',
+    'Interviewing': 'amber',
     'Offer': 'emerald',
     'Accepted': 'emerald',
     'Rejected': 'rose',
     'Withdrew': 'stone',
-    'Ghosted': 'stone',
     'No Response': 'stone',
 } satisfies Record<ChartStatus, keyof typeof TONE>
 
 // Order determines column position — earlier stages first
 const STAGE_ORDER: string[] = [
     'Applied',
-    'Online Assessment',
-    'Phone Screen',
+    'Screening',
     'No Response',
-    'Interviewing: 1st round',
-    'Interviewing: 2nd round',
-    'Interviewing: 3rd round',
-    'Interviewing: 4th round',
-    'Interviewing: 5th round',
-    'Final Round',
+    'Interviewing',
     'Rejected',
     'Withdrew',
-    'Ghosted',
     'Offer',
     'Accepted',
 ]
@@ -253,14 +238,6 @@ export function SankeyChart({ data }: SankeyChartProps) {
                 {/* Nodes */}
                 {Array.from(nodePositions.entries()).map(([name, pos]) => {
                     const color = getColor(name)
-                    const SHORT_NAMES: Record<string, string> = {
-                        'Interviewing: 1st round': 'Interview: 1st',
-                        'Interviewing: 2nd round': 'Interview: 2nd',
-                        'Interviewing: 3rd round': 'Interview: 3rd',
-                        'Interviewing: 4th round': 'Interview: 4th',
-                        'Interviewing: 5th round': 'Interview: 5th',
-                    }
-                    const shortName = SHORT_NAMES[name] || name
                     return (
                         <g key={name}>
                             <rect
@@ -286,7 +263,7 @@ export function SankeyChart({ data }: SankeyChartProps) {
                                 fontWeight={400}
                                 letterSpacing={0.2}
                             >
-                                {shortName}
+                                {name}
                             </text>
                             <text
                                 x={pos.x + pos.w - 10}

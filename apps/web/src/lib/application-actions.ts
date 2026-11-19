@@ -5,6 +5,10 @@ import { Prisma } from '@prisma/client'
 import { type Actor, STATUSES } from '@/lib/constants'
 import { checkedActor, searchClause, CATEGORY_FALLBACK } from '@/lib/action-helpers'
 
+// Header sort on the Applications table (#205): one column, server-side (paginated).
+export type ApplicationSort = { sort: 'company' | 'date' | 'status'; dir: 'asc' | 'desc' }
+const SORT_FIELD = { company: 'company_name', date: 'date_applied', status: 'status' } as const
+
 export async function getApplications(params: {
     page?: number
     size?: number
@@ -12,13 +16,15 @@ export async function getApplications(params: {
     historicalStatus?: string
     category?: string
     search?: string
-}) {
+} & Partial<ApplicationSort>) {
     const page = Math.max(0, Math.floor(params.page || 0))
     const size = Math.min(100, Math.max(1, Math.floor(params.size || 10)))
     const status = params.status === 'all' ? undefined : params.status
     const historicalStatus = params.historicalStatus === 'all' ? undefined : params.historicalStatus
     const category = params.category === 'all' ? undefined : params.category
     const search = params.search || ''
+    const sortKey = params.sort && params.sort in SORT_FIELD ? params.sort : 'date'
+    const dir = params.dir === 'asc' ? 'asc' : 'desc'
 
     const where: Prisma.applicationsWhereInput = {
         AND: [
@@ -34,7 +40,7 @@ export async function getApplications(params: {
             where,
             skip: page * size,
             take: size,
-            orderBy: { date_applied: 'desc' },
+            orderBy: [{ [SORT_FIELD[sortKey]]: dir }, { id: 'desc' }],
         }),
         prisma.applications.count({ where }),
     ])

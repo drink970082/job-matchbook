@@ -37,7 +37,7 @@ describe('Backend Actions', () => {
       expect(mockPrisma.applications.findMany).toHaveBeenCalledWith(expect.objectContaining({
         skip: 0,
         take: 10,
-        orderBy: { date_applied: 'desc' }
+        orderBy: [{ date_applied: 'desc' }, { id: 'desc' }]
       }))
     })
 
@@ -169,7 +169,7 @@ describe('Backend Actions', () => {
   describe('updateApplicationStatus', () => {
     it('should update status and add history', async () => {
       const appId = 1
-      const newStatus = 'Interviewing: 1st round'
+      const newStatus = 'Interviewing'
       
       mockPrisma.applications.findUnique.mockResolvedValue({ id: appId, status: 'Applied' } as any)
       // $transaction is overloaded (batch array + interactive callback); only `any`
@@ -194,23 +194,24 @@ describe('Backend Actions', () => {
 
   describe('getKPIs', () => {
     it('should calculate KPIs correctly', async () => {
+      const recent = new Date().toISOString()
       const mockApps = [
-        { status: 'Applied' },
-        { status: 'Applied' },
-        { status: 'Rejected' },
-        { status: 'Offer' },
-        { status: 'Interviewing: 1st round' },
+        { status: 'Applied', last_updated: recent, date_applied: '2026-01-01' },
+        { status: 'Applied', last_updated: null, date_applied: '2020-01-01' }, // silent > 60 days
+        { status: 'Rejected', last_updated: recent, date_applied: '2026-01-01' },
+        { status: 'Offer', last_updated: recent, date_applied: '2026-01-01' },
+        { status: 'Interviewing', last_updated: recent, date_applied: '2026-01-01' },
       ]
 
       mockPrisma.applications.findMany.mockResolvedValue(mockApps as any)
 
       const kpis = await getKPIs()
 
-      expect(kpis.applied).toBe(5) // total count
+      expect(kpis.total).toBe(5)
       expect(kpis.rejected).toBe(1)
       expect(kpis.offer).toBe(1)
       expect(kpis.interviewing).toBe(1)
-      expect(kpis.active).toBe(3) // Total - Rejected - Offer = 5 - 1 - 1
+      expect(kpis.active).toBe(2) // recent Applied + Interviewing
     })
   })
 

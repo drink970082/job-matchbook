@@ -51,10 +51,7 @@ PIPELINE_STATUSES = frozenset({
 })
 # Mirrors STATUSES in apps/web/src/lib/constants.ts, in the same order.
 APPLICATION_STATUS_ORDER = (
-    "Applied", "Online Assessment", "Phone Screen", "Interviewing: 1st round",
-    "Interviewing: 2nd round", "Interviewing: 3rd round", "Interviewing: 4th round",
-    "Interviewing: 5th round", "Final Round", "Offer", "Accepted", "Rejected",
-    "Withdrew", "Ghosted",
+    "Applied", "Screening", "Interviewing", "Offer", "Accepted", "Rejected", "Withdrew",
 )
 APPLICATION_STATUSES = frozenset(APPLICATION_STATUS_ORDER)
 

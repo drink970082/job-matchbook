@@ -35,6 +35,17 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 
 ### Changed
 
+- **Applications: 7 statuses** (#205): `Applied / Screening / Interviewing / Offer /
+  Accepted / Rejected / Withdrew` replace the 14. Online Assessment and Phone Screen
+  become Screening, the interview rounds and Final Round become Interviewing, Ghosted
+  becomes Rejected — in `prisma/migrate-statuses-205.mjs` (data-only, idempotent; back up
+  `db/` first) and on CSV import of an older export. MCP `update_application_status`
+  accepts only the new names. KPIs read Total / Active / Screening / ...; Active now
+  excludes applications untouched for 60 days. The Status Funnel is gone (the Sankey
+  shows the same flow); the timeline fits a year without scrolling; the table links job
+  titles to their URL, renames History to Details, shows the year on older dates and
+  sorts by Company / Date / Status.
+
 - **Web shell: one route per tab** (#211): `/applications` (`/` redirects there), `/jobs`,
   `/sources`, `/activity` and `/settings` replace the single-page tab state, so refresh,
   Back and links work and each page loads only its own data. KPIs and CSV import/export
