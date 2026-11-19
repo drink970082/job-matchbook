@@ -14,9 +14,13 @@ everything to disable disqualification):
 - `highest_degree` — none | High School | Associate | Bachelor's | Master's | PhD
 - `work_authorization` — citizen | permanent resident | authorized-no-sponsorship | needs visa sponsorship
 - `security_clearance` — none | confidential | secret | top secret
-- `locations` — where they can actually work (e.g. `["remote"]`, `["USA"]`); on-site
-  roles elsewhere are discarded. The LLM judges by meaning ("USA" covers "New York").
+- `locations` — EVERY country or state they will work in, plus `remote` if remote roles
+  count (e.g. `["USA", "remote"]`). No country is assumed: `["remote"]` alone discards
+  on-site US postings. Matching is deterministic; a country covers its cities and states
+  ("USA" covers "New York"). Blank = open to anywhere (no location screening).
 - `exclude_internships` — `true`/`false` (deterministic, by title).
+- `exclude_contract` — `true`/`false`: skip contract / part-time / temporary roles
+  (deterministic, by title).
 
 Optionally set `title_filter` — a coarse, **title-only** substring keep-list applied
 at fetch time, before any model call. Leave it empty unless a high-volume company

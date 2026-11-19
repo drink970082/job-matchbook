@@ -372,7 +372,7 @@ def _jev_inputs(conn, cfg, *, now: str):
 def _candidate_dict(c) -> dict:
     return {"highest_degree": c.highest_degree, "work_authorization": c.work_authorization,
             "security_clearance": c.security_clearance, "locations": list(c.locations),
-            "exclude_internships": c.exclude_internships}
+            "exclude_internships": c.exclude_internships, "exclude_contract": c.exclude_contract}
 
 
 def _candidate_for_pass(conn, cfg, *, now: str) -> dict | None:

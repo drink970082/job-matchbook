@@ -839,7 +839,13 @@ worker modules are pure and dependency-injected; real services are wired only in
   the policy hash is the files' hash; after that the row wins and differing files are
   logged. `--jev` refuses to start with neither a `jev_dir` nor a stored row. Only the
   profile and experience context are editable (`set_jev_profile`); the question packs
-  come from `jev_dir` only. Measured basis (2026-11, model-proxy, not human truth):
+  come from `jev_dir` only. Their source of truth is a form (`lib/jev-profile-form.ts`):
+  target roles / open to / not interested, education rows (degree, field) and experience
+  rows (title, company, years; total = the sum). It renders `profile_text` (a JSON
+  document of those fields) and `yoe_context` deterministically, so an unchanged form
+  re-saves the same bytes. A stored profile counts as a form only when re-rendering
+  reproduces both texts exactly; otherwise the web opens it in an Advanced raw-text
+  editor, and the first form save replaces it (one paid re-assessment). Measured basis (2026-11, model-proxy, not human truth):
   preference skips 57-69% of screened candidates per day with 0 of 7 real applications
   skipped; the experience question agreed with a blind review on 50 of 52; together they
   leave about a quarter of screened candidates. Ranking within `keep` was measured and
@@ -1114,13 +1120,18 @@ worker modules are pure and dependency-injected; real services are wired only in
   and unresolved rows are down to **1.0%** (`tests/fixtures/location_corpus.jsonl`).
   Exempting *unambiguous* city names from corroboration was measured (+26 rows) and
   **rejected**: it discarded a US university building as Tanzania (via "Coast") and an
-  Israeli site as Italy. US-state and remote strings keep, so a
+  Israeli site as Italy. Only the places the user lists count — no country is assumed
+  (a user who will work in the US lists it; `["remote"]` alone discards on-site US
+  postings). The location gate is code-only, so a
   `locations`-only candidate makes no SCREEN call (any backend). The screen prompt
   carries no location clause. The screen prompt is
   `prompts/screen.txt`, shared by every backend. Separately, when
   `candidate.exclude_internships` is set,
   intern/co-op roles are disqualified by a whole-word match on the job title (no LLM
-  call — runs even when no other screen clause is configured). A SCREEN **provider**
+  call — runs even when no other screen clause is configured); `exclude_contract` does
+  the same for contract / part-time / temporary titles (`_is_non_fulltime`; a bare
+  `contract` before a role noun such as `Manager` is a job about contracts and keeps),
+  recorded under the screen key `employment_type`. A SCREEN **provider**
   failure errs toward keep (not disqualified) and stamps `provider_error` on the
   verdict; `run_screen` stores it as a retryable error, and a run of them
   circuit-breaks the pass (§9).
@@ -1344,9 +1355,11 @@ worker modules are pure and dependency-injected; real services are wired only in
   slug/source/duplicate checks and messages), `remove_source(source_id)` (returns the
   removed row), `override_triage(job_id, keep|skip|clear, reason?)`, `set_preferences`
   (the screen's hard requirements; omitted fields keep their value, `locations` replaces
-  the list), `set_jev_profile(profile_text?, yoe_context?)` (replaces the profile text
-  verbatim; typed plain `str` because the SDK JSON-decodes JSON-looking `str | None`
-  arguments), and `update_application_notes(application_id, text)`, which appends
+  the list), `set_jev_profile(target_roles?, open_to?, not_interested?, education?,
+  experience?)` (the web form's fields, sent as `{form}`: the given fields replace the
+  stored form's, a free-text profile needs all five once), or Advanced
+  `profile_text?`/`yoe_context?` (replaces the text verbatim; typed plain `str` because
+  the SDK JSON-decodes JSON-looking `str | None` arguments), and `update_application_notes(application_id, text)`, which appends
   after a blank line and never replaces. The append is read-then-`PATCH` of the whole
   field with no version check: a web edit to the same notes in that window is
   overwritten (accepted for a single operator; a web-side append is the fix if it bites). Annotations are `readOnlyHint=false`,
@@ -1509,7 +1522,11 @@ worker modules are pure and dependency-injected; real services are wired only in
 - **`components/`** — `ApplicationsView` (KPI grid, Export/Import CSV, the
   Applications table/form/charts and history modal) and `JobsView` (Discovered Jobs and
   the Mark Applied flow); only Applications, Settings and Mark Applied write;
-  `SettingsPanel` (hard requirements + JEV profile) and `CategoriesEditor` (the category
+  `SettingsPanel` (hard requirements as controls: degree and clearance selects with
+  `(do not screen)`, locations with an explicit "open to anywhere" blank state and a
+  remote checkbox writing the `remote` entry, internship and contract checkboxes) and
+  `JevProfileForm` (the JEV form plus the Advanced raw editor; the save confirms the
+  paid re-assessment estimate) and `CategoriesEditor` (the category
   vocabulary) make up `/settings`; `ApplicationTable` (inline status edit; job title links to `application_url`; Details opens the history/edit modal; dates show the year outside the current one; Company / Date / Status headers sort server-side via `getApplications` `sort`/`dir`, default date desc), `KPIGrid`,
   `StatusHistoryModal`, `AddApplicationForm`, `DiscoveredJobsTable` (the funnel: stage tabs
   Keep (default) / Unassessed / JEV skip / Screen rejected / Rule rejected / Applied-closed
@@ -1725,6 +1742,7 @@ model candidate_preferences {    // the screen's hard requirements; one row, id=
   security_clearance  String  @default("")
   locations           String  @default("[]") // JSON string array
   exclude_internships Boolean @default(false)
+  exclude_contract    Boolean @default(false) // contract / part-time / temporary titles
   version             Int     @default(1)    // +1 per actual change
   actor               String                 // config (seed) | web | mcp
   changed_at          String?                // last change after the seed; null = seeded values

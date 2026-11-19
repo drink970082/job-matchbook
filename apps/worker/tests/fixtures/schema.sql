@@ -147,6 +147,7 @@ CREATE TABLE "candidate_preferences" (
     "security_clearance" TEXT NOT NULL DEFAULT '',
     "locations" TEXT NOT NULL DEFAULT '[]',
     "exclude_internships" BOOLEAN NOT NULL DEFAULT false,
+    "exclude_contract" BOOLEAN NOT NULL DEFAULT false,
     "version" INTEGER NOT NULL DEFAULT 1,
     "actor" TEXT NOT NULL,
     "changed_at" TEXT,

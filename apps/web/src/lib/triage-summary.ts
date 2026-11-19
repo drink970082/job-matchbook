@@ -30,9 +30,9 @@ const KNOWN_PIPELINE_STATUSES = new Set([
 ])
 const ACTIVE_CANDIDATE_STATUSES = new Set(['new', 'scored', 'notified'])
 const SUPPORTED_SCREEN_CHECKS = new Set([
-    'location', 'internships', 'degree', 'authorization', 'clearance',
+    'location', 'internships', 'employment_type', 'degree', 'authorization', 'clearance',
 ])
-const DETERMINISTIC_SCREEN_CHECKS = new Set(['location', 'internships'])
+const DETERMINISTIC_SCREEN_CHECKS = new Set(['location', 'internships', 'employment_type'])
 const MAX_TRIAGE_REASON_CHARS = 300
 const MAX_SAFE_JSON_REVISION = Number.MAX_SAFE_INTEGER
 

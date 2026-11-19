@@ -1197,3 +1197,39 @@ def test_screen_schema_is_strict_mode_valid():
     # strict json_schema; a missing `required` key 400s every call on those backends.
     bad = list(_strict_mode_violations(screen_prompts.SCREEN_SCHEMA, "SCREEN_SCHEMA"))
     assert not bad, "strict-mode violations:\n" + "\n".join(bad)
+
+
+# #206: contract / part-time / temporary, decided from the title like internships.
+@pytest.mark.parametrize("title,hit", [
+    ("Software Engineer (Contract)", True),
+    ("Backend Engineer - Contractor", True),
+    ("Part-Time Data Analyst", True),
+    ("Part time Barista", True),
+    ("Temporary Accountant", True),
+    ("Temp Receptionist", True),
+    ("Contract-to-Hire QA Engineer", True),
+    ("Contract Manager", False),          # a job ABOUT contracts
+    ("Contracts Specialist", False),
+    ("Contract Administrator", False),
+    ("Software Engineer", False),
+    ("Template Engineer", False),
+    ("Full-Time Software Engineer", False),
+])
+def test_is_non_fulltime_title(title, hit):
+    assert screen_engine._is_non_fulltime(title) is hit
+
+
+def test_exclude_contract_disqualifies_without_a_screen_call():
+    http = FakeHttp()
+    out = screen_engine.screen_posting({**POSTING, "job_title": "Engineer (Contract)"},
+                                       extract=_ollama(http), candidate={"exclude_contract": True})
+    assert len(http.calls) == 0
+    assert out["disqualified"] is True
+    assert "contract/part-time/temporary role" in out["disqualification_reason"]
+
+
+def test_contract_title_kept_without_the_flag():
+    out = screen_engine.deterministic_screen(
+        {"screen": {}, "disqualified": False, "disqualification_reason": ""},
+        {**POSTING, "job_title": "Engineer (Contract)"}, {"exclude_internships": True})
+    assert out["disqualified"] is False

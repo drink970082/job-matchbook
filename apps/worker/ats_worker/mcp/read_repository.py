@@ -110,9 +110,9 @@ _JEV_FILTERS = frozenset({"keep", "skip", "all"})
 _KNOWN_PIPELINE_STATUSES = frozenset(PIPELINE_STATUSES)
 _ACTIVE_CANDIDATE_STATUSES = frozenset({"new", "scored", "notified"})
 _SUPPORTED_SCREEN_CHECKS = frozenset({
-    "location", "internships", "degree", "authorization", "clearance",
+    "location", "internships", "employment_type", "degree", "authorization", "clearance",
 })
-_DETERMINISTIC_SCREEN_CHECKS = frozenset({"location", "internships"})
+_DETERMINISTIC_SCREEN_CHECKS = frozenset({"location", "internships", "employment_type"})
 _UTC_EPOCH = datetime(1970, 1, 1, tzinfo=timezone.utc)
 _SAFE_SCREEN_JSON_SQL = "CASE WHEN json_valid(s.result_json) THEN s.result_json ELSE '{}' END"
 _MAX_TIMESTAMP_CHARS = MAX_RFC3339_CHARS
@@ -1060,6 +1060,7 @@ class ReadOnlyATSRepository:
         out = dict(row)
         out["locations"] = json.loads(out["locations"] or "[]")
         out["exclude_internships"] = bool(out["exclude_internships"])
+        out["exclude_contract"] = bool(out["exclude_contract"])
         return {"preferences": out}
 
     def get_jev_profile(self) -> dict[str, Any]:
@@ -1095,7 +1096,7 @@ class ReadOnlyATSRepository:
             conn.execute("BEGIN")
             pref = conn.execute(
                 "SELECT version,changed_at,highest_degree,work_authorization,security_clearance,"
-                "locations,exclude_internships FROM candidate_preferences WHERE id=1").fetchone()
+                "locations,exclude_internships,exclude_contract FROM candidate_preferences WHERE id=1").fetchone()
             sources = conn.execute("SELECT COUNT(*) FROM watched_companies").fetchone()[0]
             categories = conn.execute(
                 "SELECT COUNT(*) FROM app_settings WHERE key='categories'").fetchone()[0]
@@ -1108,7 +1109,7 @@ class ReadOnlyATSRepository:
         configured = pref is not None and any((
             pref["highest_degree"].strip(), pref["work_authorization"].strip(),
             pref["security_clearance"].strip(), json.loads(pref["locations"] or "[]"),
-            pref["exclude_internships"]))
+            pref["exclude_internships"], pref["exclude_contract"]))
         missing = [step for step, done in (
             ("preferences: set_preferences (hard requirements the screen disqualifies on)", configured),
             ("sources: add_source (company boards to fetch)", sources > 0)) if not done]

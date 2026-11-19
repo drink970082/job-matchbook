@@ -24,6 +24,15 @@ CLEARANCE_TOKENS = re.compile(
 
 _INTERN_TITLE = re.compile(r"\bintern(ship)?s?\b|\bco[\s-]?op\b", re.IGNORECASE)
 
+# Contract / part-time / temporary in the TITLE (#206; job_postings stores no
+# employment-type field). A bare "contract" followed by a role noun is a job about
+# contracts ("Contract Manager"), not a contract job, so it keeps.
+_NON_FULLTIME_TITLE = re.compile(
+    r"\bcontractor\b|\bpart[\s-]?time\b|\btemporary\b|\btemp\b|"
+    r"\bcontract\b(?![\s-]+(?:manager|management|specialist|administrator|administration|"
+    r"analyst|negotiator|attorney|lawyer|counsel|officer|coordinator|associate|director|lead|"
+    r"compliance|lifecycle)\b)", re.IGNORECASE)
+
 def deterministic_screen(screen: dict, posting: dict, candidate: dict | None) -> dict:
     """Apply the two CODE-only screen gates — intern/co-op title, and location string
     (resolve_location off posting['location']) — merging their verdicts into `screen`
@@ -39,6 +48,15 @@ def deterministic_screen(screen: dict, posting: dict, candidate: dict | None) ->
         screen["disqualification_reason"] = (
             f"{prior}; internship/co-op role" if prior else "internship/co-op role"
         )
+    if candidate and candidate.get("exclude_contract") and _is_non_fulltime(
+        str(posting.get("job_title") or "")
+    ):
+        screen.setdefault("screen", {})["employment_type"] = {
+            "pass": False, "note": "contract/part-time/temporary role"}
+        prior = screen.get("disqualification_reason") or ""
+        reason = "contract/part-time/temporary role"
+        screen["disqualified"] = True
+        screen["disqualification_reason"] = f"{prior}; {reason}" if prior else reason
     if candidate and candidate.get("locations"):
         passed, note = resolve_location(posting.get("location"), candidate["locations"])
         screen.setdefault("screen", {})["location"] = {"pass": passed, "note": note}
@@ -579,6 +597,10 @@ def _check_clearance(entry: dict, cand_clearance, evidence: str = "") -> tuple[b
     if _flag(entry.get("requires_clearance")) and CLEARANCE_TOKENS.search(evidence or ""):
         return False, "requires security clearance"
     return True, ""
+
+def _is_non_fulltime(title: str) -> bool:
+    """Whole-word contract/part-time/temporary match on the job title."""
+    return bool(_NON_FULLTIME_TITLE.search(title or ""))
 
 def _is_internship(title: str) -> bool:
     """Whole-word intern/internship/co-op match on the job title."""

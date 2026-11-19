@@ -480,10 +480,9 @@ def location_verdict(location_str, allowed_locations) -> dict:
     allowed_norm = {_norm_loc(a) for a in allowed_locations if str(a).strip()}
     remote_allowed = any(_fold(a) == "remote" for a in allowed_locations)
     allowed_codes = {c for c in (_country_code(a) for a in allowed_locations) if c}
-    # ponytail: US always keep-worthy — the operator is US-based, and the shipped example
-    # config is `locations: ["remote"]`, which resolves to NO country codes at all. Without
-    # this, "New York, NY" would discard.
-    keep_codes = allowed_codes | {"US"}
+    # Only the places the user listed count (#206): no country is assumed, so a user who
+    # will work in the US must list it.
+    keep_codes = allowed_codes
 
     tokens = _tokenize(location_str)
     classified = _expand_unresolved([(t, *_classify_token(t)) for t in tokens])

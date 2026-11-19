@@ -155,7 +155,7 @@ def import_watchlist(conn: sqlite3.Connection, companies, *, now: str) -> int:
 # written by the web API / MCP). config.yaml `candidate:` seeds it once when absent.
 
 PREFERENCE_FIELDS = ("highest_degree", "work_authorization", "security_clearance",
-                     "locations", "exclude_internships")
+                     "locations", "exclude_internships", "exclude_contract")
 
 
 def get_preferences(conn: sqlite3.Connection) -> dict | None:
@@ -166,6 +166,7 @@ def get_preferences(conn: sqlite3.Connection) -> dict | None:
     out = dict(row)
     out["locations"] = json.loads(out["locations"] or "[]")
     out["exclude_internships"] = bool(out["exclude_internships"])
+    out["exclude_contract"] = bool(out["exclude_contract"])
     return out
 
 
@@ -176,11 +177,12 @@ def seed_preferences(conn: sqlite3.Connection, candidate: dict, *, now: str) -> 
     values["locations"] = json.dumps(list(values["locations"]), ensure_ascii=False,
                                      separators=(",", ":"))
     values["exclude_internships"] = int(bool(values["exclude_internships"]))
+    values["exclude_contract"] = int(bool(values["exclude_contract"]))
     cur = conn.execute(
         "INSERT INTO candidate_preferences (id, highest_degree, work_authorization, "
-        "security_clearance, locations, exclude_internships, version, actor, updated_at) "
+        "security_clearance, locations, exclude_internships, exclude_contract, version, actor, updated_at) "
         "VALUES (1, :highest_degree, :work_authorization, :security_clearance, "
-        ":locations, :exclude_internships, 1, 'config', :now) "
+        ":locations, :exclude_internships, :exclude_contract, 1, 'config', :now) "
         "ON CONFLICT(id) DO NOTHING", {**values, "now": now})
     conn.commit()
     return cur.rowcount == 1

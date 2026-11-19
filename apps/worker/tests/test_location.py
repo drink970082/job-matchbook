@@ -220,8 +220,11 @@ def test_a_discard_always_names_a_country_the_string_actually_mentions():
     ("Hyderabad, TS", ["Canada", "USA", "remote"], True, ""),   # accepted miss, now escalated
     ("Atlanta, Georgia", ["remote", "USA"], True, ""),          # state beats country
     ("885 GEORGIA ST W:VANCOUVER", ["remote", "USA"], True, ""),  # ...and in free text too
-    ("Chicago, IL", ["New York"], True, ""),                    # US postal code, not Israel
-    ("Sacramento, CA", ["New York"], True, ""),                 # CA=California, not Canada
+    ("Chicago, IL", ["USA"], True, ""),                    # US postal code, not Israel
+    # #206: no country is assumed - only listed places count.
+    ("New York, NY", ["Canada"], False, "on-site in United States"),
+    ("New York, NY", ["remote"], False, "on-site in United States"),
+    ("Sacramento, CA", ["USA"], True, ""),                 # CA=California, not Canada
     ("", ["remote", "USA"], True, ""),
     (None, ["remote", "USA"], True, ""),
 ])

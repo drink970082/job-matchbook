@@ -341,7 +341,7 @@ def create_server(repository: ReadOnlyATSRepository | None = None,
     @server.tool(annotations=_READ_ONLY)
     def get_preferences() -> dict[str, Any]:
         """The hard requirements the screen disqualifies postings on (degree, work
-        authorization, clearance, locations, exclude_internships), with version and actor;
+        authorization, clearance, locations, exclude_internships, exclude_contract), with version and actor;
         null when none are set. Read before set_preferences."""
         return read(repo.get_preferences)
 
@@ -442,6 +442,8 @@ def _add_write_tools(server: MCPServer, repo: ReadOnlyATSRepository, writer: ATS
             max_length=50, description="Where the operator can work, e.g. ['remote', 'Boston']. "
             "Replaces the whole list; [] stops screening on location.")] = None,
         exclude_internships: bool | None = None,
+        exclude_contract: Annotated[bool | None, Field(description=(
+            "Skip contract, part-time and temporary roles (decided from the job title)."))] = None,
     ) -> dict[str, Any]:
         """Set the hard requirements the worker's screen disqualifies postings on, only as
         the operator states them. Omitted fields keep their stored value. A change bumps the
@@ -449,29 +451,42 @@ def _add_write_tools(server: MCPServer, repo: ReadOnlyATSRepository, writer: ATS
         (get_setup_status counts them). Skills and fit preferences do not belong here."""
         body = drop_none(highest_degree=highest_degree, work_authorization=work_authorization,
                          security_clearance=security_clearance, locations=locations,
-                         exclude_internships=exclude_internships)
+                         exclude_internships=exclude_internships, exclude_contract=exclude_contract)
         if not body:
             raise ToolError("Give at least one preference field")
         return {"preferences": write("PUT", "/api/v1/preferences", body)}
 
     @server.tool(annotations=_WRITE)
     def set_jev_profile(
+        target_roles: list[Annotated[str, Field(max_length=200)]] | None = None,
+        open_to: list[Annotated[str, Field(max_length=200)]] | None = None,
+        not_interested: list[Annotated[str, Field(max_length=200)]] | None = None,
+        education: Annotated[list[dict[str, str]] | None, Field(description=(
+            "Rows of {degree, field}, e.g. {degree: \"Master's\", field: \"Computer Science\"}."))] = None,
+        experience: Annotated[list[dict[str, Any]] | None, Field(description=(
+            "Rows of {title, company, years}; years is a number the operator states."))] = None,
         # Plain `str` (not Optional): the SDK JSON-decodes a JSON-looking argument typed
         # `str | None`, which would replace the operator's exact text with a dict.
         profile_text: Annotated[str, Field(max_length=16000, description=(
-            "The whole profile JSON document; it replaces the stored one byte for byte. "
-            "Omit to keep it."))] = "",
+            "Advanced: the whole profile JSON document, replacing the stored one byte for "
+            "byte. Use the structured fields instead unless the operator asks."))] = "",
         yoe_context: Annotated[str, Field(max_length=2000, description=(
-            "Education and experience facts for the required-years question. Omit to keep."))] = "",
+            "Advanced: education and experience text. Omit to keep."))] = "",
     ) -> dict[str, Any]:
-        """Update the JEV filter's profile and/or experience facts, only as the operator
-        states them. First get_jev_profile, edit from its profile_text, and tell the operator
-        the change re-assesses reassess_on_change postings (paid) on the next worker pass;
-        write once they agree. A restatement is a no-op. The question packs cannot be set here."""
-        body = {k: v for k, v in (("profile_text", profile_text), ("yoe_context", yoe_context)) if v}
-        if not body:
-            raise ToolError("Give profile_text and/or yoe_context")
-        return {"jev_profile": write("PUT", "/api/v1/jev-profile", body)}
+        """Update the JEV filter's profile, only as the operator states it. The structured
+        fields (the same form the web Settings page edits) replace only what is given and
+        render the profile and experience text; a stored free-text profile needs all five
+        once. First get_jev_profile, and tell the operator the change re-assesses
+        reassess_on_change postings (paid) on the next worker pass; write once they agree.
+        A restatement is a no-op. The question packs cannot be set here."""
+        form = drop_none(target_roles=target_roles, open_to=open_to, not_interested=not_interested,
+                         education=education, experience=experience)
+        raw = {k: v for k, v in (("profile_text", profile_text), ("yoe_context", yoe_context)) if v}
+        if form and raw:
+            raise ToolError("Give the structured fields or profile_text/yoe_context, not both")
+        if not form and not raw:
+            raise ToolError("Give the structured fields, or profile_text and/or yoe_context")
+        return {"jev_profile": write("PUT", "/api/v1/jev-profile", {"form": form} if form else raw)}
 
     @server.tool(annotations=_WRITE)
     def add_source(

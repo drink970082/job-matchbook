@@ -374,14 +374,22 @@ async def test_set_preferences_sends_only_given_fields_through_the_api(tmp_path)
 
 @pytest.mark.anyio
 async def test_set_jev_profile_sends_the_text_verbatim(tmp_path):
-    writer, session = _client(FakeResponse(200, {"data": {"version": 2, "unchanged": False}}))
+    writer, session = _client(FakeResponse(200, {"data": {"version": 2, "unchanged": False}}),
+                              FakeResponse(200, {"data": {"version": 3, "unchanged": False}}))
     server = create_server(ReadOnlyATSRepository(bootstrap_db(tmp_path / "m.db")), writer)
     text = '{\n  "profile": {"wants": "infra"}\n}  '
     async with Client(server, raise_exceptions=True) as client:
         ok = await client.call_tool("set_jev_profile", {"profile_text": text})
         assert ok.structured_content == {"jev_profile": {"version": 2, "unchanged": False}}
         empty = await client.call_tool("set_jev_profile", {})
-        assert empty.content[0].text.endswith("Give profile_text and/or yoe_context")
+        assert empty.content[0].text.endswith("Give the structured fields, or profile_text and/or yoe_context")
+        both = await client.call_tool("set_jev_profile", {"open_to": ["Data"], "profile_text": text})
+        assert both.is_error is True
+        form = await client.call_tool("set_jev_profile", {
+            "open_to": ["Data"], "experience": [{"title": "SWE", "company": "Acme", "years": 2}]})
+        assert form.is_error is False
     assert [(c["method"], c["url"].removeprefix("http://web.test"), c["json"]) for c in session.calls] == [
         ("PUT", "/api/v1/jev-profile", {"profile_text": text}),
+        ("PUT", "/api/v1/jev-profile", {"form": {
+            "open_to": ["Data"], "experience": [{"title": "SWE", "company": "Acme", "years": 2}]}}),
     ]

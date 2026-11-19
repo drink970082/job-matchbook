@@ -223,8 +223,8 @@ test('preferences: first set creates v1, a change bumps the version, a no-op wri
     const same = (await (await put({ locations: ['remote'] })).json()).data
     expect([same.version, same.unchanged]).toEqual([1, true])
 
-    const v2 = (await (await put({ highest_degree: "Master's", exclude_internships: true })).json()).data
-    expect([v2.version, v2.highest_degree, v2.exclude_internships, v2.locations]).toEqual([2, "Master's", true, ['remote']])
+    const v2 = (await (await put({ highest_degree: "Master's", exclude_internships: true, exclude_contract: true })).json()).data
+    expect([v2.version, v2.highest_degree, v2.exclude_internships, v2.exclude_contract, v2.locations]).toEqual([2, "Master's", true, true, ['remote']])
 
     const log = await prisma.audit_log.findMany({ orderBy: { id: 'asc' } })
     expect(log.map((l) => [l.actor, l.action, l.entity, l.entity_id])).toEqual([
@@ -242,6 +242,7 @@ test('preferences reject off-vocabulary, wrong types, unknown fields and an empt
     expect(await bad({ work_authorization: 'F-1 OPT' })).toEqual([400, expect.stringContaining('work_authorization must be blank or one of')])
     expect(await bad({ locations: 'remote' })).toEqual([400, 'locations must be a list of strings'])
     expect(await bad({ exclude_internships: 'yes' })).toEqual([400, 'exclude_internships must be true or false'])
+    expect(await bad({ exclude_contract: 1 })).toEqual([400, 'exclude_contract must be true or false'])
     expect(await bad({ years_experience: 3 })).toEqual([400, 'Unknown preference field(s): years_experience'])
     expect(await bad({})).toEqual([400, 'No preference fields given'])
     expect((await putPreferences(req({ highest_degree: 'PhD' }, READ, 'PUT'))).status).toBe(403)
@@ -290,4 +291,22 @@ test('jev profile rejects packs, non-object JSON, an empty body and a missing se
     expect((await putJevProfile(req({ yoe_context: 'x' }, READ, 'PUT'))).status).toBe(403)
     expect((await prisma.jev_profile.findUniqueOrThrow({ where: { id: 1 } })).version).toBe(1)
     expect(await prisma.audit_log.count()).toBe(0)
+})
+
+test('jev profile form: a free-text profile needs the whole form; then partial updates merge', async () => {
+    await prisma.jev_profile.create({ data: SEEDED_JEV })
+    const put = async (form: unknown) => {
+        const res = await putJevProfile(req({ form }, RW, 'PUT'))
+        return [res.status, (await res.json())]
+    }
+    expect(await put({ target_roles: ['Backend'] })).toEqual([400, { error: expect.stringContaining('stored profile is free text') }])
+    const full = { target_roles: ['Backend'], open_to: [], not_interested: ['Sales'],
+        education: [{ degree: 'BS', field: 'CS' }], experience: [{ title: 'SWE', company: 'Acme', years: 2 }] }
+    expect((await put(full))[0]).toBe(200)
+    expect((await put({ open_to: ['Data'] }))[0]).toBe(200)          // merges over the stored form
+    const row = await prisma.jev_profile.findUniqueOrThrow({ where: { id: 1 } })
+    expect(JSON.parse(row.profile_text)).toMatchObject({ target_roles: ['Backend'], open_to: ['Data'], not_interested: ['Sales'] })
+    expect(row.yoe_context).toContain('Total years of experience: 2.')
+    expect(row.version).toBe(3)
+    expect((await put({ open_to: ['Data'] }))[1].data.unchanged).toBe(true)  // same bytes
 })

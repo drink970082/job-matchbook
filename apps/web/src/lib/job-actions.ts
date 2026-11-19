@@ -100,9 +100,9 @@ const KNOWN_PIPELINE_STATUSES_SQL = ['new', 'scored', 'notified', 'applied', 'di
     .map((status) => `'${status}'`).join(',')
 const CANDIDATE_PIPELINE_STATUSES_SQL = ['new', 'scored', 'notified']
     .map((status) => `'${status}'`).join(',')
-const SUPPORTED_SCREEN_CHECKS_SQL = ['location', 'internships', 'degree', 'authorization', 'clearance']
+const SUPPORTED_SCREEN_CHECKS_SQL = ['location', 'internships', 'employment_type', 'degree', 'authorization', 'clearance']
     .map((check) => `'${check}'`).join(',')
-const DETERMINISTIC_SCREEN_CHECKS_SQL = ['location', 'internships']
+const DETERMINISTIC_SCREEN_CHECKS_SQL = ['location', 'internships', 'employment_type']
     .map((check) => `'${check}'`).join(',')
 const MAX_SAFE_JSON_REVISION_SQL = '9007199254740991'
 
