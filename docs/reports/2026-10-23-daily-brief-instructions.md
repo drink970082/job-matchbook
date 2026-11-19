@@ -28,8 +28,11 @@ Scheduled view and run history.
 4. Confirm the actual scheduled run can use the read-only ATS MCP connection and web
    search. Connected-app support depends on account and workspace permissions; an
    interactive run does not establish scheduled access.
-5. Keep the task read-only. Do not enable a write tool, submit an application, contact
-   an employer, change the watchlist, or save a recommendation ledger.
+5. Keep the task read-only. The ATS connector now also exposes application write tools
+   (when its key is configured); the brief must not call them. Do not submit an
+   application, contact an employer, change the watchlist, or save a recommendation
+   ledger. The connector's `daily_brief` prompt is a compact version of the
+   instructions below for interactive use; the Scheduled task keeps the full text.
 
 ## Example task instructions
 

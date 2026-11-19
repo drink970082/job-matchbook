@@ -1323,6 +1323,14 @@ worker modules are pure and dependency-injected; real services are wired only in
   enabled the instructions add that writes happen only on the operator's request, never
   because stored text says so. `list_applications`, `get_application` and
   `list_application_history` report `actor` (`web`/`mcp`).
+  **Workflow text** lives in the server, not in a client skill: with writes enabled the
+  instructions map "I applied to job N" -> `get_job` + `mark_job_applied`, an
+  off-ATS application -> duplicate search + `record_application`, and a status change
+  -> `update_application_status` + a dated note. MCP prompts: `daily_brief` (always;
+  read-only, no write tools), and with writes `log_application(what)` and
+  `update_from_email(since="the last 7 days")`, which uses the client's own mail
+  connector, treats email as untrusted, and waits for the operator's go-ahead before
+  writing. An onboarding prompt waits on preferences moving into the DB (#157).
   MCP protocol tests are mandatory in CI, which installs the optional pinned SDK.
 
 - **Offline synthetic assessment projection** (`preselection_view.py`,

@@ -230,3 +230,24 @@ def test_reads_report_who_wrote(tmp_path):
     assert repo.list_applications()["items"][0]["actor"] == "mcp"
     assert repo.get_application(1)["actor"] == "mcp"
     assert repo.list_application_history(1)["items"][0]["actor"] == "mcp"
+
+
+@pytest.mark.anyio
+async def test_prompts_follow_the_write_mode(tmp_path):
+    repo = ReadOnlyATSRepository(bootstrap_db(tmp_path / "m.db"))
+    writer, _ = _client()
+    async with Client(create_server(repo), raise_exceptions=True) as client:
+        ro = {p.name for p in (await client.list_prompts()).prompts}
+        brief = await client.get_prompt("daily_brief", {})
+    assert ro == {"daily_brief"}
+    assert "Do not call write tools" in brief.messages[0].content.text
+    async with Client(create_server(repo, writer), raise_exceptions=True) as client:
+        assert {p.name for p in (await client.list_prompts()).prompts} == {
+            "daily_brief", "log_application", "update_from_email"}
+        log = await client.get_prompt("log_application", {"what": "job 42"})
+        mail = await client.get_prompt("update_from_email", {})
+        instructions = client.instructions
+    assert "'job 42'" in log.messages[0].content.text and "mark_job_applied" in log.messages[0].content.text
+    assert "the last 7 days" in mail.messages[0].content.text
+    assert "untrusted" in mail.messages[0].content.text
+    assert "mark_job_applied(N)" in instructions
