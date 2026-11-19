@@ -214,12 +214,12 @@ is left is filling in values **only the user can give you**. Fill them into
   key. `SCREEN_BACKEND=api` reaches any OpenAI-compatible endpoint (OpenAI,
   OpenRouter, Gemini, LM Studio, ...): it needs `SCREEN_MODEL`, usually
   `SCREEN_API_BASE_URL` and `SCREEN_API_KEY`, and hosted vendors bill per call.
-- **Keep/skip filter** — ask separately from the screen; off is a fine answer. **If
-  they have 3+ years of experience, recommend off**: it skips every posting that
-  requires 3+ years, regardless of theirs. If they want it: in `apps/worker`,
-  `mkdir -p resume/jev && cp jev.example/* resume/jev/`, rewrite `profile-binding.json`
-  and `yoe-context.txt` from what they told you, and set `jev_dir: resume/jev` in
-  `config.yaml`. Then `JEV_BACKEND=openrouter-native` (default, metered; needs
+- **Keep/skip filter** — ask separately from the screen; off is a fine answer. If
+  they want it: in `apps/worker`, `mkdir -p resume/jev && cp jev.example/* resume/jev/`,
+  rewrite `profile-binding.json` and `yoe-context.txt` from what they told you, and set
+  `jev_dir: resume/jev` in `config.yaml`. `yoe-context.txt` **must state their degree
+  and full-time years** — the experience question skips postings that require more
+  than that, so a missing or wrong number hides real matches. Then `JEV_BACKEND=openrouter-native` (default, metered; needs
   `OPENROUTER_API_KEY`) or `JEV_BACKEND=extract` (reuses the screen backend, no extra
   key, sends the profile to it). Both are unmeasured with the example packs. The stage
   runs only with `--jev` (Step 8). Never set `OPENROUTER_API_KEY` for any other

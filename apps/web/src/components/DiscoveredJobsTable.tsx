@@ -87,6 +87,7 @@ export const STAGES: { value: JobStageFilter; label: string }[] = [
 const JEV_REASON_LABELS: Record<string, string> = {
     preference_weak: 'weak match to your preferences',
     required_yoe_3_plus: 'asks for 3+ years',
+    required_yoe_above_candidate: 'asks for more years than you have',
 }
 
 const JEV_STATUS_LABELS: Record<string, string> = {

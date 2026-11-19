@@ -824,8 +824,10 @@ worker modules are pure and dependency-injected; real services are wired only in
   calls (`typesafe/jev-1.13`): the preference question pack with the approved profile,
   and a one-question required-experience pack with education/experience facts only. The
   verdict is `skip` when preference is `weak` or the applicable mandatory experience
-  floor is `three_plus` years (the route matching the candidate's degree; ranges use
-  the lower bound); everything else, including `unknown`, is `keep`. One latest row per
+  floor (the route matching the candidate's degree; ranges use the lower bound) answers
+  a `jev.YOE_SKIP` key: `three_plus` (a fixed 3-year floor, the operator's measured
+  pack) or `above_candidate` (above the years stated in the experience context, the
+  example pack); everything else, including `unknown`, is `keep`. One latest row per
   posting lives in `job_jev_assessments`; `pipeline_status` and screen state are never
   touched. An operator override (`job_triage_overrides`, set through MCP
   `override_triage`) is read-side only: JEV still assesses the posting and never reads or
@@ -877,9 +879,9 @@ worker modules are pure and dependency-injected; real services are wired only in
   ordered list of labels for `score`, none for `noul` (`ranking/native.py` validates).
   `question-pack.json` must hold a `choice` question `preference` whose keys include
   `weak`; `yoe-pack.json` must hold `required_yoe_for_candidate` whose keys include
-  `three_plus` (`jev._pack` refuses a pack without them). The 3-year floor is fixed in
-  `decide`, so the filter fits candidates with under 3 years. The example packs are
-  unmeasured. Other questions are answered and stored but do not change the verdict.
+  `three_plus` or `above_candidate` (`jev._pack` refuses a pack without them). The
+  example YOE pack uses `above_candidate`, so it fits any experience level once
+  `yoe-context.txt` states the candidate's years. The example packs are unmeasured. Other questions are answered and stored but do not change the verdict.
 
   **Import boundary.** No fit module exists to import, and no résumé is loaded.
   Provider-free review-batch, rehearsal, profile, and replay imports are guarded in fresh

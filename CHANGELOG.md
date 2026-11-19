@@ -84,7 +84,10 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
   holds a synthetic `jev_dir` (profile, both packs, experience context) a fresh checkout
   can run `--jev` against; SPEC documents the pack format; SETUP Path C2 adds a
   what-works-with-what-you-have matrix; onboard-me asks for the keep/skip backend
-  separately from the screen.
+  separately from the screen. A new YOE skip criterion `above_candidate` compares the
+  posting with the candidate's stated years (the example pack uses it); `three_plus`
+  keeps the measured fixed 3-year floor, so existing verdicts and hashes do not move.
+  A pack without its skip criterion is refused at load.
 - **Sources and Activity tabs (#158)**: Sources replaces Watchlist and Unresolved,
   read-only, with each board's postings in the last 30 days; Activity lists recent
   applications, status changes and audited changes by actor (web or MCP).

@@ -89,8 +89,8 @@ python -m ats_worker.run --screen-only ... --jev --jev-backend extract --once # 
 Verdicts live in `job_jev_assessments`; MCP `list_jobs` hides a current `skip` by
 default. Native without the key logs a line and skips the stage.
 
-**The experience check is fixed at 3 years.** Any posting that requires 3+ years is
-`skip`, whatever your own experience — leave keep/skip off if you have 3+ years.
+State your years of experience in `yoe-context.txt`: the example experience question
+skips a posting whose required minimum is above them.
 
 **What works with what you have** (screen = hard requirements; keep/skip = `--jev`):
 
