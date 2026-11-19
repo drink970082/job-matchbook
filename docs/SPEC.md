@@ -827,7 +827,8 @@ worker modules are pure and dependency-injected; real services are wired only in
   experience context, the resolved model, the rule version) or the posting's source
   revision changes; provider errors retry oldest-first after fresh work. Only postings
   from the last 7 days (`pipeline.JEV_MAX_AGE_DAYS`; `posted_at`, else `created_at`) are
-  assessed or retried; older ones stay `unassessed` and listed. A pass is
+  assessed or retried; older ones stay `unassessed` and listed, and an out-of-window
+  `failed` or `stale` label is final (shown, never re-assessed). A pass is
   sequential with no in-pass retries, capped by `--jev-limit` (default 300) and
   `--jev-max-usd` (default 0.10, settled charges including partial failures, checked
   before each posting, so a pass can exceed it by one posting's two calls). An unknown

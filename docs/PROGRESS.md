@@ -20,7 +20,9 @@ behavior. Completed work belongs in CHANGELOG, not this queue.
   in ChatGPT, "track company X" adds a known-ATS board, the next worker pass fetches
   it, and a removal shows "via MCP" with Re-add in the Watchlist tab.
 
-- **JEV keep/skip filter — deployed, acceptance open** `[JEV · M]` (#139).
+- **JEV keep/skip filter — acceptance: the first pass after the 7-day window deploys
+  attempts only postings from the last 7 days (worker `[jev]` tally); then delete this
+  entry** `[JEV · M]` (#139).
   The worker unit runs `--jev --jev-limit 300 --jev-max-usd 0.10` from `ats-runtime` at
   main; private inputs are `resume/pivot/jev-prod-v1/` (profile `level` line at 3 years).
   JEV assesses only the last 7 days of postings, so there is no backlog to drain; the

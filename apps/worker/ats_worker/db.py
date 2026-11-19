@@ -355,7 +355,7 @@ _JEV_ELIGIBLE = (
 
 
 def get_jev_candidates(conn: sqlite3.Connection, policy_sha: str,
-                       posted_since: str = "") -> list[dict]:
+                       posted_since: str) -> list[dict]:
     """Screened, not-disqualified `new` postings needing a JEV verdict under `policy_sha`,
     posted on or after `posted_since` (YYYY-MM-DD; posted_at, else created_at).
 

@@ -260,7 +260,7 @@ def test_run_jev_errors_are_stored_and_retried_after_fresh_work(tmp_path):
     row = _rows(conn)["a"]
     assert row["state"] == "provider_error" and row["verdict"] is None
     assert row["error_category"] == "provider_error"
-    order = [r["external_id"] for r in db.get_jev_candidates(conn, "policy-a")]
+    order = [r["external_id"] for r in db.get_jev_candidates(conn, "policy-a", "")]
     assert order == ["a"]
     assert _run(conn, _assess_with())["keep"] == 1
 
@@ -387,8 +387,8 @@ def test_oversized_requests_are_not_retried_until_their_input_changes(tmp_path):
     def too_big(posting):
         raise jev.JevError("request_too_large")
     assert _run(conn, too_big)["errors"] == 1
-    assert db.get_jev_candidates(conn, "policy-a") == []
-    assert len(db.get_jev_candidates(conn, "policy-b")) == 1
+    assert db.get_jev_candidates(conn, "policy-a", "") == []
+    assert len(db.get_jev_candidates(conn, "policy-b", "")) == 1
 
 
 def test_run_jev_assesses_only_the_last_seven_days(tmp_path):
@@ -404,3 +404,16 @@ def test_run_jev_assesses_only_the_last_seven_days(tmp_path):
     # A policy change re-queues only postings inside the window.
     assert db.get_jev_candidates(conn, "policy-b", "2026-05-29") and not [
         r for r in db.get_jev_candidates(conn, "policy-b", "2026-05-29") if r["external_id"] in ("edge", "old")]
+
+
+def test_run_jev_does_not_retry_an_error_that_aged_out_and_falls_back_to_created_at(tmp_path):
+    conn = _screened_db(tmp_path, ["aged", "dateless"])
+    _run(conn, lambda posting: (_ for _ in ()).throw(jev.JevError("provider_error")))
+    assert {r["state"] for r in _rows(conn).values()} == {"provider_error"}
+    # "aged" now dates 8 days back; "dateless" has no posted_at, so created_at (NOW) counts.
+    conn.execute("UPDATE job_postings SET posted_at='2026-05-27' WHERE external_id='aged'")
+    conn.execute("UPDATE job_postings SET posted_at=NULL WHERE external_id='dateless'")
+    conn.commit()
+    tally = _run(conn, _assess_with())
+    assert tally["attempted"] == 1 and _rows(conn)["dateless"]["verdict"] == "keep"
+    assert _rows(conn)["aged"]["state"] == "provider_error"
