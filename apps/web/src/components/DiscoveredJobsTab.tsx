@@ -3,7 +3,7 @@
 
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { DiscoveredJobsTable, type JobPosting } from './DiscoveredJobsTable'
-import { ScorerUsageBar } from './ScorerUsageBar'
+import { QuotaBar } from './QuotaBar'
 import type { JobViewScope } from '@/lib/job-actions'
 import type { JobTableFilters } from './DiscoveredJobsTable'
 
@@ -50,7 +50,7 @@ export function DiscoveredJobsTab({
                 <CardTitle className="text-lg">Discovered Jobs</CardTitle>
             </CardHeader>
             <CardContent>
-                <ScorerUsageBar />
+                <QuotaBar />
                 <DiscoveredJobsTable
                     data={data}
                     total={total}

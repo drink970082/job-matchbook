@@ -46,7 +46,7 @@ def test_all_present_no_core_failure(tmp_path):
     _make_db(str(db))
     checks = _run(db_path=str(db),
                   env={"TELEGRAM_BOT_TOKEN": "t", "TELEGRAM_CHAT_ID": "c",
-                       "ANTHROPIC_API_KEY": "k", "OPENAI_API_KEY": "k",
+                       "SCREEN_MODEL": "m",
                   "OPENROUTER_API_KEY": "k"})
     assert all(c.ok for c in checks)
     assert [c for c in checks if c.core and not c.ok] == []
@@ -155,3 +155,10 @@ def test_the_daemon_dep_row_flags_apscheduler_before_the_unit_crash_loops():
 
     [row] = [c for c in _run() if c.label == "daemon dep"]
     assert row.ok is True
+
+
+def test_backend_row_lists_the_registry_and_flags_an_unknown_value():
+    row = _by_label(_run(env={"SCREEN_BACKEND": "api"}))["screen backend"]
+    assert row.ok and "api (metered)" in row.detail and "SCREEN_MODEL" in row.detail
+    bad = _by_label(_run(env={"SCREEN_BACKEND": "openai-api"}))["screen backend"]
+    assert not bad.ok and not bad.core

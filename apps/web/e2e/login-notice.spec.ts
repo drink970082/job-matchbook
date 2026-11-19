@@ -2,9 +2,10 @@ import { expect, test } from '@playwright/test'
 
 test('Codex login notice appears and clears after the next healthy snapshot', async ({ page }) => {
     let authRequired = true
-    await page.route('**/api/scorer-usage', route => route.fulfill({
+    await page.route('**/api/quota', route => route.fulfill({
         json: {
             backend: 'codex', auth_required: authRequired,
+            login_command: 'codex login --device-auth',
             limits: [], plan_type: null, as_of: null,
         },
     }))
@@ -15,6 +16,6 @@ test('Codex login notice appears and clears after the next healthy snapshot', as
     authRequired = false
     await page.reload()
     await page.getByRole('button', { name: /Discovered Jobs/i }).click()
-    await expect(page.getByText('No scorer usage recorded yet.')).toBeVisible()
+    await expect(page.getByText('No subscription usage recorded yet.')).toBeVisible()
     await expect(page.getByText('Codex login needs attention', { exact: false })).toHaveCount(0)
 })

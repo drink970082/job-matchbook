@@ -1,52 +1,11 @@
-"""Screen backends: the six `extract(prompt, schema) -> dict` adapters."""
+"""Screen backends: the `extract(prompt, schema) -> dict` adapters."""
 import json
-import sys
 import types
 
 import pytest
 
 from ats_worker.screening import backends as backends_screen
 from ats_worker.screening.errors import ModelResponseError as ScoreError
-
-
-def _fake_anthropic(captured, text='{"screen": {}}'):
-    """A stand-in `anthropic` module. The real SDK is never imported in tests."""
-    mod = types.ModuleType("anthropic")
-
-    class _Messages:
-        @staticmethod
-        def create(**kwargs):
-            captured.update(kwargs)
-            block = types.SimpleNamespace(type="text", text=text)
-            return types.SimpleNamespace(content=[block])
-
-    class Anthropic:
-        def __init__(self, api_key=None):
-            captured["api_key"] = api_key
-            self.messages = _Messages()
-
-    mod.Anthropic = Anthropic
-    return mod
-
-
-def test_claude_api_extract_returns_parsed_json(monkeypatch):
-    captured = {}
-    monkeypatch.setitem(sys.modules, "anthropic", _fake_anthropic(captured))
-    extract = backends_screen.make_claude_api_extract("sk-test")
-    assert extract("the prompt", {"type": "object"}) == {"screen": {}}
-    assert captured["model"] == "claude-haiku-4-5"
-    assert captured["api_key"] == "sk-test"
-    # The schema must actually constrain the response, not just ride along.
-    assert captured["output_config"]["format"]["type"] == "json_schema"
-    assert captured["output_config"]["format"]["schema"] == {"type": "object"}
-
-
-def test_claude_api_extract_raises_score_error_on_non_json(monkeypatch):
-    monkeypatch.setitem(sys.modules, "anthropic",
-                        _fake_anthropic({}, text="not json {{{"))
-    extract = backends_screen.make_claude_api_extract("sk-test")
-    with pytest.raises(ScoreError):
-        extract("p", {})
 
 
 class _FakeResp:
@@ -63,39 +22,77 @@ class _FakeResp:
 
 
 class _FakeHttp:
-    def __init__(self, payload, status=200):
-        self._payload = payload
-        self._status = status
+    """Answers each post with the next (payload, status) in `replies`."""
+
+    def __init__(self, *replies):
+        self._replies = list(replies)
         self.calls = []
 
     def post(self, url, json=None, headers=None, timeout=None):
         self.calls.append({"url": url, "json": json, "headers": headers})
-        return _FakeResp(self._payload, self._status)
+        payload, status = self._replies.pop(0)
+        return _FakeResp(payload, status)
 
 
-def test_openai_api_extract_returns_parsed_json():
-    http = _FakeHttp({"choices": [{"message": {"content": '{"screen": {}}'}}]})
-    extract = backends_screen.make_openai_api_extract("sk-oa", http=http)
-    assert extract("the prompt", {"type": "object"}) == {"screen": {}}
-    assert http.calls[0]["url"] == "https://api.openai.com/v1/chat/completions"
-    body = http.calls[0]["json"]
-    assert body["model"] == "gpt-5.6-luna"
-    assert http.calls[0]["headers"]["Authorization"] == "Bearer sk-oa"
-    assert body["response_format"]["type"] == "json_schema"
+def _ok(content):
+    return ({"choices": [{"message": {"content": content}}]}, 200)
 
 
-def test_openai_api_extract_raises_score_error_on_empty_choices():
-    http = _FakeHttp({"choices": []})
-    extract = backends_screen.make_openai_api_extract("sk-oa", http=http)
+def _api(http, **kw):
+    kw.setdefault("base_url", "https://api.openai.com/v1")
+    return backends_screen.make_api_extract(api_key=kw.pop("api_key", "sk-x"),
+                                            model=kw.pop("model", "m-1"), http=http, **kw)
+
+
+def test_api_extract_sends_strict_schema_and_parses():
+    http = _FakeHttp(_ok('{"screen": {}}'))
+    assert _api(http)("the prompt", {"type": "object"}) == {"screen": {}}
+    call = http.calls[0]
+    assert call["url"] == "https://api.openai.com/v1/chat/completions"
+    assert call["headers"]["Authorization"] == "Bearer sk-x"
+    assert call["json"]["model"] == "m-1"
+    fmt = call["json"]["response_format"]
+    assert fmt["type"] == "json_schema" and fmt["json_schema"]["strict"] is True
+    assert fmt["json_schema"]["schema"] == {"type": "object"}
+
+
+def test_api_extract_reaches_any_base_url_without_a_key():
+    http = _FakeHttp(_ok('{"a": 1}'))
+    extract = _api(http, base_url="http://localhost:1234/v1", api_key=None)
+    assert extract("p", {}) == {"a": 1}
+    assert http.calls[0]["url"] == "http://localhost:1234/v1/chat/completions"
+    assert "Authorization" not in http.calls[0]["headers"]
+
+
+def test_api_extract_falls_back_once_when_strict_schema_is_rejected():
+    # An endpoint that rejects json_schema with a 400 is retried without
+    # response_format; the fallback sticks for later calls (no doubled requests).
+    http = _FakeHttp(({"error": "response_format unsupported"}, 400),
+                     _ok('{"a": 1}'), _ok('{"b": 2}'))
+    extract = _api(http)
+    assert extract("p", {"type": "object"}) == {"a": 1}
+    assert "response_format" in http.calls[0]["json"]
+    assert "response_format" not in http.calls[1]["json"]
+    assert extract("p", {"type": "object"}) == {"b": 2}
+    assert len(http.calls) == 3 and "response_format" not in http.calls[2]["json"]
+
+
+def test_api_extract_other_http_errors_raise():
+    http = _FakeHttp(({"error": "nope"}, 401))
+    with pytest.raises(RuntimeError):
+        _api(http)("p", {})
+
+
+def test_api_extract_tolerates_think_tags_and_fences():
+    raw = '<think>let me see</think>\n```json\n{"a": 1}\n```'
+    assert _api(_FakeHttp(_ok(raw)))("p", {}) == {"a": 1}
+
+
+@pytest.mark.parametrize("payload", [{"choices": []},
+                                     {"choices": [{"message": {"content": "no {{"}}]}])
+def test_api_extract_raises_score_error_on_unusable_reply(payload):
     with pytest.raises(ScoreError):
-        extract("p", {})
-
-
-def test_openai_api_extract_raises_score_error_on_non_json():
-    http = _FakeHttp({"choices": [{"message": {"content": "not json {{{"}}]})
-    extract = backends_screen.make_openai_api_extract("sk-oa", http=http)
-    with pytest.raises(ScoreError):
-        extract("p", {})
+        _api(_FakeHttp((payload, 200)))("p", {})
 
 
 def _fake_runner(stdout="", returncode=0, writes=None):

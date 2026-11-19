@@ -240,15 +240,6 @@ def load_golden() -> list[dict]:
     return rows
 
 
-# `claude-code` is absent on purpose: make_claude_code_extract(None) lets the CLI pick,
-# so there is no constant here to name.
-_BACKEND_DEFAULT_MODEL = {
-    "codex": run.DEFAULT_CODEX_SCREEN_MODEL,
-    "claude-api": run.DEFAULT_CLAUDE_SCREEN_MODEL,
-    "openai-api": run.DEFAULT_OPENAI_SCREEN_MODEL,
-}
-
-
 def run_live() -> int:
     backend = os.environ.get("SCREEN_BACKEND", run.DEFAULT_SCREEN_BACKEND)
     if backend == "none":
@@ -256,13 +247,10 @@ def run_live() -> int:
               file=sys.stderr)
         return 2
     import requests
-    # Mirror run.main's model resolution EXACTLY. `make_screener` takes the model as a
-    # KEYWORD, never from `env` (which it reads only for OLLAMA_HOST and the API keys):
-    # --model / OLLAMA_MODEL drives ollama, --screen-model / SCREEN_MODEL drives the
-    # hosted backends, and for ollama `screen_model` is ignored outright. Passing neither
-    # ran every eval on the built-in defaults while the report header printed whatever
-    # the env said — which silently voids this tool's one premise, that eval-model ==
-    # production-model, and mislabels any A/B.
+    # Mirror run.main's model resolution EXACTLY (run.screen_model_for): `make_screener`
+    # takes the model as a KEYWORD, never from `env`. Passing neither ran every eval on
+    # the built-in defaults while the report header printed whatever the env said —
+    # which silently voids this tool's one premise, that eval-model == production-model.
     ollama_model = os.environ.get("OLLAMA_MODEL") or run.DEFAULT_OLLAMA_MODEL
     screen_model = os.environ.get("SCREEN_MODEL") or None
     # Same reason, same premise: run.main threads OLLAMA_NUM_CTX into BOTH the screener
@@ -274,8 +262,8 @@ def run_live() -> int:
                                 num_ctx=num_ctx)
     # Name the model the run will ACTUALLY use. "{backend} default" is what a reader
     # diffs across A/B runs, and it names nothing.
-    model = ollama_model if backend == "ollama" else (
-        screen_model or _BACKEND_DEFAULT_MODEL.get(backend) or f"{backend} default")
+    model = run.screen_model_for(backend, screen_model=screen_model,
+                                 ollama_model=ollama_model) or f"{backend} default"
 
     rows = load_golden()
     results = []

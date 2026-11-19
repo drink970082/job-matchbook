@@ -79,11 +79,11 @@ pick this user's path; never demand all of them go green.
 | doctor row | If `[no]` |
 |---|---|
 | worker python deps · database | **Blocking** — re-run `make setup`; nothing runs without these |
+| screen backend | Shows the selected `SCREEN_BACKEND`, what it needs, and every choice (`api` is marked metered). `[no]` = the value is not a backend; fix `.env` |
 | ollama | The screen has no backend. Start Ollama, **or** point `OLLAMA_HOST` at a remote/cloud instance — a local GPU is *not* required |
 | codex CLI | Only needed for `SCREEN_BACKEND=codex` (ChatGPT subscription, `codex login`) |
 | claude CLI | Only needed for `SCREEN_BACKEND=claude-code` (subscription, no key) |
-| anthropic api key | Only needed for `SCREEN_BACKEND=claude-api` (metered) |
-| openai api key | Only needed for `SCREEN_BACKEND=openai-api` (metered) |
+| screen api | Only needed for `SCREEN_BACKEND=api` (metered for hosted vendors): `SCREEN_MODEL` is required |
 | openrouter api key | Only needed for the optional paid `--jev` filter |
 | node · docker | Only for the web app, not the pipeline |
 
@@ -211,7 +211,9 @@ is left is filling in values **only the user can give you**. Fill them into
   Ollama. Set it whenever the `ollama` row was `[no]` but they have one elsewhere.
 - **Screen backend** — default `ollama` is free and local. No GPU? `SCREEN_BACKEND=codex`
   (ChatGPT subscription, `codex login`) or `claude-code` (Claude subscription) need no
-  key; `claude-api` / `openai-api` need a key and are metered.
+  key. `SCREEN_BACKEND=api` reaches any OpenAI-compatible endpoint (OpenAI,
+  OpenRouter, Gemini, LM Studio, ...): it needs `SCREEN_MODEL`, usually
+  `SCREEN_API_BASE_URL` and `SCREEN_API_KEY`, and hosted vendors bill per call.
 - `OPENROUTER_API_KEY` — only for the optional paid `--jev` filter. Leave it unset
   unless they already have prepared JEV packs; nothing else needs it.
 

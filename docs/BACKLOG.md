@@ -21,7 +21,7 @@ session boot path. Revalidate an entry against current code and data before sele
 - **Intake policy:** inspect title/location/age gates before moving preferences into the
   DB (#157). Cutting discovery to match a model budget is not the product priority.
 - **Usage telemetry:** after a `codex` screen the pass takes one best-effort HTTP usage
-  snapshot (`scorer_usage.json`), which has failed intermittently with 403. It is a
+  snapshot (`quota.json`), which has failed intermittently with 403. It is a
   display, not a spend limit; JEV's limit is `--jev-max-usd`.
 - **Infrastructure:** retain SQLite directory/WAL mounts, health/autoheal verification,
   schema ownership, privacy boundaries and SSRF residual review for future fetch tools.

@@ -22,6 +22,20 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 
 ### Changed
 
+- **Screen backends are one registry, with a generic OpenAI-compatible `api` backend**
+  (#177). `ats_worker/screen_providers.py` lists `ollama` (default, free), `codex`,
+  `claude-code`, `api` and `none`; `run.py` and `doctor` read it instead of if-chains.
+  `api` reaches OpenAI, OpenRouter, Gemini, LM Studio, vLLM and the like via
+  `SCREEN_API_BASE_URL` / `SCREEN_API_KEY` / `SCREEN_MODEL` (required), sends strict
+  `json_schema` and retries once without it on a 400. `claude-code` passes now record
+  quota too. The codex default model is `gpt-5.6-luna` everywhere (it already was for
+  real passes); for `ollama`, `--screen-model` now wins over `--model`.
+  **Breaking:** `SCREEN_BACKEND=openai-api` / `claude-api` fail startup (use `api`;
+  Claude via OpenRouter), `OPENAI_API_KEY` / `ANTHROPIC_API_KEY` are no longer read, and
+  the `anthropic` dependency is gone. The quota bar is renamed with its file:
+  `QuotaBar`, `/api/quota`, `quota.json`, `QUOTA_FILE` (deploy worker and web together;
+  the old `scorer_usage.json` can be deleted). The login notice shows the worker's
+  `login_command` for any backend.
 - **`run_expire` rechecks `new` postings too** (#174). Nothing writes `scored`/`notified`
   any more, so new detail-source postings were never checked for closure.
 - **Fit-scorer residue out of the worker and MCP reads** (#174): `list_jobs` rows drop

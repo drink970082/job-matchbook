@@ -1193,7 +1193,7 @@ def _strict_mode_violations(node, path="$"):
 
 
 def test_screen_schema_is_strict_mode_valid():
-    # SCREEN_SCHEMA reaches `codex exec --output-schema` and the openai-api backend's
+    # SCREEN_SCHEMA reaches `codex exec --output-schema` and the api backend's
     # strict json_schema; a missing `required` key 400s every call on those backends.
     bad = list(_strict_mode_violations(screen_prompts.SCREEN_SCHEMA, "SCREEN_SCHEMA"))
     assert not bad, "strict-mode violations:\n" + "\n".join(bad)

@@ -29,20 +29,17 @@ from . import config as config_mod
 from . import db, jev, pipeline
 from .fetch import fetch_company, fetch_one_company, smartrecruiters
 from .feed import embedded_gh, simplify
-from .screening import (DEFAULT_CLAUDE_SCREEN_MODEL, DEFAULT_CODEX_SCREEN_MODEL,
-                        DEFAULT_OPENAI_SCREEN_MODEL, make_claude_api_extract,
-                        make_claude_code_extract, make_codex_extract,
-                        make_ollama_extract, make_openai_api_extract,
-                        screen_posting)
+from .screen_providers import PROVIDERS, RETIRED
+from .screening import screen_posting
 
 # qwen3.5:4b runs fully on an 8GB GPU (~3GB resident) and returns clean JSON in
 # ~2s/posting with thinking disabled. The 9b (6.6GB) spills to
 # CPU on an 8GB card (~100s/call), so it's a poor fit here. Override per-deploy
 # with --model or the OLLAMA_MODEL env var.
-DEFAULT_OLLAMA_MODEL = "qwen3.5:4b"
+DEFAULT_OLLAMA_MODEL = PROVIDERS["ollama"].default_model
 
 # The ONLY .env keys argparse defaults read from os.environ (see run.main below).
-# Secrets (ANTHROPIC_API_KEY, OPENAI_API_KEY) are deliberately excluded: every consumer
+# Secrets (SCREEN_API_KEY, OPENROUTER_API_KEY) are deliberately excluded: every consumer
 # reads them from the in-process `env` dict (run_once(..., env=env) / make_screener),
 # never os.environ, so promoting them would only leak them to subprocesses that inherit
 # the full environment (the codex CLI).
@@ -57,51 +54,39 @@ def capture_usage(*args, **kwargs):
     return capture(*args, **kwargs)
 
 
-# The screen's default stays the free local backend. AUTO-DETECTION MUST NEVER SELECT
-# A PAID BACKEND — spending money is explicit opt-in via SCREEN_BACKEND. `make doctor`
-# reports which providers are actually installed; the operator (or onboard-me Step 0)
-# chooses from that, and this function never guesses.
+# The screen's default stays the free local backend; see screen_providers for the rule
+# that auto-detection never selects a paid one.
 DEFAULT_SCREEN_BACKEND = "ollama"
-DEFAULT_SCREEN_ONLY_CODEX_MODEL = "gpt-5.6-luna"
+# The subscription quota snapshot, next to the shared DB; the web's /api/quota reads it.
+QUOTA_FILE = "quota.json"
 SCREEN_EFFORT_VALUES = ("none", "low", "medium", "high", "xhigh", "max")
-SCREEN_BACKENDS = ("ollama", "codex", "claude-code", "claude-api", "openai-api", "none")
+SCREEN_BACKENDS = tuple(PROVIDERS)
+
+
+def screen_model_for(backend: str, *, screen_model=None, ollama_model=None):
+    """The model a pass actually uses (and records as provenance): --screen-model, else
+    --model for ollama, else the provider's default (None lets the claude CLI pick)."""
+    if screen_model:
+        return screen_model
+    if backend == "ollama" and ollama_model:
+        return ollama_model
+    return PROVIDERS[backend].default_model
 
 
 def make_screener(backend: str, *, env, http=None, model=None, screen_model=None,
                   screen_effort=None, num_ctx: int = 8192):
-    """Pick the screen backend, returning the `extract(prompt, schema) -> dict`
-    callable `screen_posting` consumes — or None for `none`, which runs the
-    deterministic gates only (documented as LOW RECALL on sponsorship: it falls back
-    to the closed NO_SPONSOR_PHRASES list, ~2/11 recall).
-
-    `model` is the Ollama model tag (--model); `screen_model` is the hosted-backend
-    model override (--screen-model, added in Task 6) — kept separate so a `--model`
-    aimed at Ollama never leaks into a claude-api/openai-api call and vice versa.
-    """
-    if backend == "none":
-        return None
-    if backend == "ollama":
-        return make_ollama_extract(
-            http=http, model=model or DEFAULT_OLLAMA_MODEL,
-            ollama_host=env.get("OLLAMA_HOST", "http://localhost:11434"),
-            num_ctx=num_ctx,
-        )
-    if backend == "codex":
-        model_name = screen_model or DEFAULT_CODEX_SCREEN_MODEL
-        if screen_effort is None:
-            return make_codex_extract(model_name)
-        return make_codex_extract(model_name, reasoning_effort=screen_effort)
-    if backend == "claude-code":
-        return make_claude_code_extract(screen_model)
-    if backend == "claude-api":
-        return make_claude_api_extract(env["ANTHROPIC_API_KEY"],
-                                       screen_model or DEFAULT_CLAUDE_SCREEN_MODEL)
-    if backend == "openai-api":
-        return make_openai_api_extract(env["OPENAI_API_KEY"],
-                                       screen_model or DEFAULT_OPENAI_SCREEN_MODEL,
-                                       http=http)
-    raise ValueError(
-        f"unknown screen backend: {backend!r} (want one of {', '.join(SCREEN_BACKENDS)})")
+    """The `extract(prompt, schema) -> dict` callable for `backend`, or None for
+    `none` (deterministic gates only, LOW RECALL on sponsorship). `model` is the Ollama
+    tag (--model); `screen_model` the --screen-model override."""
+    provider = PROVIDERS.get(backend)
+    if provider is None:
+        raise ValueError(
+            f"unknown screen backend: {backend!r} (want one of {', '.join(SCREEN_BACKENDS)})")
+    resolved = screen_model_for(backend, screen_model=screen_model, ollama_model=model)
+    if provider.model_required and not resolved:
+        raise ValueError(f"SCREEN_BACKEND={backend} needs SCREEN_MODEL (or --screen-model)")
+    return provider.build(env, http, resolved,
+                          screen_effort if provider.effort else None, num_ctx)
 
 # The feed fetches concurrently (pipeline.run_feed uses a thread pool). requests'
 # Session isn't safe to share across threads, so hand each worker thread its own
@@ -256,16 +241,10 @@ def run_once(cfg, *, db_path, env,
             print(f"rescreen-screened: cleared {cleared} cached result(s) for eligible "
                   "new postings")
         num_ctx = int(env.get("OLLAMA_NUM_CTX", "8192"))
-        effective_model = screen_model
-        if screen_backend == "codex" and not effective_model:
-            effective_model = DEFAULT_SCREEN_ONLY_CODEX_MODEL
-        elif screen_backend == "ollama" and not effective_model:
-            effective_model = ollama_model or DEFAULT_OLLAMA_MODEL
-        elif screen_backend == "claude-api" and not effective_model:
-            effective_model = DEFAULT_CLAUDE_SCREEN_MODEL
-        elif screen_backend == "openai-api" and not effective_model:
-            effective_model = DEFAULT_OPENAI_SCREEN_MODEL
-        effective_effort = (screen_effort or "medium") if screen_backend == "codex" else None
+        provider = PROVIDERS[screen_backend]
+        effective_model = screen_model_for(screen_backend, screen_model=screen_model,
+                                           ollama_model=ollama_model)
+        effective_effort = (screen_effort or "medium") if provider.effort else None
         screen_extract = make_screener(
             screen_backend, env=env, http=requests, model=ollama_model,
             screen_model=effective_model, screen_effort=effective_effort,
@@ -282,9 +261,9 @@ def run_once(cfg, *, db_path, env,
             screen_workers=screen_workers or 1, clock=_now)
         # Refresh the quota bar (and its re-login notice) for the subscription the
         # screen just spent; one free GET, best-effort by contract.
-        if screen_backend == "codex":
+        if provider.quota:
             capture_usage(os.path.join(
-                os.path.dirname(os.path.realpath(db_path)), "scorer_usage.json"), "codex")
+                os.path.dirname(os.path.realpath(db_path)), QUOTA_FILE), screen_backend)
         if jev_enabled:
             _run_jev(conn, cfg, env=env, limit=jev_limit, max_usd=jev_max_usd, now=now)
     finally:
@@ -697,6 +676,13 @@ def main(argv=None) -> None:
                         default=int(os.environ.get("SCREEN_WORKERS", "0")),
                         help="concurrent screen calls (0 = 1)")
     args = parser.parse_args(argv)
+    # argparse checks `choices` only on a typed flag, not on the SCREEN_BACKEND default,
+    # so an env value is validated here, before any fetch runs.
+    if args.screen_backend not in PROVIDERS:
+        hint = (f"; use SCREEN_BACKEND={RETIRED[args.screen_backend]}"
+                if args.screen_backend in RETIRED else "")
+        parser.error(f"unknown screen backend {args.screen_backend!r} "
+                     f"(want one of {', '.join(SCREEN_BACKENDS)}){hint}")
 
     # `--run-now` is the daemon's eager first pass; `--once` runs a pass and exits. Asking
     # for both is asking for two different programs, and the likely intent (just run one

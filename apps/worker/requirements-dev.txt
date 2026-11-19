@@ -1,5 +1,5 @@
 # Test/dev dependencies for the worker's hermetic suite. The suite is fully
-# dependency-injected and imports the heavy runtime deps (anthropic / apscheduler)
+# dependency-injected and imports the heavy runtime deps (apscheduler)
 # only lazily, so it needs just the test tooling + the libs imported at module
 # load (requests, PyYAML, pycountry) plus geonamescache, which screening/location.py
 # imports lazily at first use inside the suite (the location gate exercised by

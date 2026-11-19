@@ -2,7 +2,7 @@
  * @jest-environment node
  */
 // node env so the Web Request/Response globals next/server needs are present.
-// Unit test for /api/scorer-usage: it serves the worker's quota snapshot, adds the
+// Unit test for /api/quota: it serves the worker's quota snapshot, adds the
 // file mtime as `as_of`, and degrades to an empty state (not a 500) when the file
 // is absent — the worker may not have scored yet. See docs/SPEC.md §13.
 jest.mock('node:fs', () => ({
@@ -10,7 +10,7 @@ jest.mock('node:fs', () => ({
 }))
 
 import { promises as fs } from 'node:fs'
-import { GET } from '@/app/api/scorer-usage/route'
+import { GET } from '@/app/api/quota/route'
 
 const readFile = fs.readFile as unknown as jest.Mock
 const stat = fs.stat as unknown as jest.Mock
@@ -18,7 +18,7 @@ const stat = fs.stat as unknown as jest.Mock
 beforeEach(() => {
     readFile.mockReset()
     stat.mockReset()
-    process.env.SCORER_USAGE_FILE = '/data/scorer_usage.json'
+    process.env.QUOTA_FILE = '/data/quota.json'
 })
 
 test('serves the snapshot with as_of from the file mtime', async () => {

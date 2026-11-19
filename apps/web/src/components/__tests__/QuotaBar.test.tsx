@@ -1,4 +1,4 @@
-import { windowLabel, formatResetsIn, backendLabel } from '@/components/ScorerUsageBar'
+import { windowLabel, formatResetsIn, backendLabel } from '@/components/QuotaBar'
 
 describe('windowLabel', () => {
     test('maps the known windows to friendly names', () => {
@@ -24,8 +24,8 @@ describe('backendLabel', () => {
         expect(backendLabel('claude')).toBe('Claude Code')
     })
     test('an absent/unknown backend degrades to a neutral label, never a guess', () => {
-        expect(backendLabel(null)).toBe('Scorer')
-        expect(backendLabel('gemini')).toBe('Scorer')
+        expect(backendLabel(null)).toBe('Subscription')
+        expect(backendLabel('gemini')).toBe('Subscription')
     })
 })
 

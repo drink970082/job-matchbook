@@ -1,7 +1,9 @@
 """Subscription quota telemetry: read the operator's remaining budget from the
-provider's own usage endpoint and persist a small snapshot for the web UI's bar.
+provider's own usage endpoint and persist a small snapshot (`quota.json`) for the
+web UI's bar.
 
-One HTTP GET per pass against the subscription backend in use, retried
+One HTTP GET per screen pass against the subscription backend that ran (a
+`screen_providers` row with `quota=True`: codex, claude-code), retried
 on a retryable failure (see `_ATTEMPTS`). Both
 providers answer with the same three facts — a plan name, a percent used, and when
 the window resets — so `_snapshot` folds them into one shape and the web bar renders
@@ -16,11 +18,13 @@ the same accounting directly, so codex calls are `--ephemeral` again and nothing
 written to disk to be cleaned up.
 
 **Which budget this describes.** For codex it is the ChatGPT subscription that
-`codex login` authenticated — the same budget the codex screen spends. For claude it is the
-**Claude Code subscription**, which is NOT what the `claude-api` screen spends: that
-backend bills `ANTHROPIC_API_KEY` (metered API), a separate budget with no
-percent-of-quota endpoint. The snapshot therefore records `backend` and the web labels
-the bar with it, so the two are never silently conflated.
+`codex login` authenticated — the same budget the codex screen spends. For claude it
+is the **Claude Code subscription** the `claude-code` screen spends. The metered `api`
+backend has no percent-of-quota endpoint and writes no snapshot. The snapshot records
+`backend` and the web labels the bar with it.
+
+A logged-out backend publishes `auth_required` plus a ready-to-paste
+`login_command`; the web shows it as-is, with no per-backend branching.
 """
 from __future__ import annotations
 
@@ -223,6 +227,8 @@ def _codex_login_required() -> dict:
         if real != os.path.join(user, ".codex"):
             out["codex_home"] = ("$HOME" + real[len(user):]
                                  if real.startswith(user + os.sep) else real)
+    out["login_command"] = (f'CODEX_HOME="{out["codex_home"]}" codex login --device-auth'
+                            if "codex_home" in out else "codex login --device-auth")
     return out
 
 
@@ -341,7 +347,7 @@ def fetch_claude_usage() -> dict | None:
     """Claude Code subscription quota as a snapshot, or None if unavailable.
 
     Read the module docstring before wiring this to a spend decision: this is the
-    **subscription** budget, while `make_claude_scorer` bills `ANTHROPIC_API_KEY`."""
+    **subscription** budget the `claude-code` screen spends."""
     token = _claude_token()
     if not token:
         print("[quota] claude: not logged in (no readable credentials)")
@@ -366,17 +372,16 @@ def fetch_claude_usage() -> dict | None:
 
 # --- persistence ----------------------------------------------------------
 
-# `claude-api` is deliberately absent: it bills a metered API key, so there is no
-# subscription window to read and `capture_usage` correctly writes no snapshot for it.
-# Before the 2026-08-02 rename this map keyed on "claude" and pointed the SUBSCRIPTION
-# fetcher at the METERED backend — the bar described a budget nothing spent.
+# Keyed on SCREEN_BACKEND names; a `screen_providers` row with `quota=True` must have an
+# entry (test_screen_providers pins it). The metered `api` backend has no subscription
+# window, so it is absent and gets no capture call.
 _FETCHERS = {"codex": fetch_codex_usage, "claude-code": fetch_claude_usage}
 
 
 def capture_usage(path: str, backend: str) -> bool:
     """Best-effort: fetch `backend`'s quota and atomically write the snapshot to
     `path`. Returns whether a snapshot was written. Never raises — telemetry must not
-    fail a scoring pass, and a stale snapshot beats an aborted run.
+    fail a screen pass, and a stale snapshot beats an aborted run.
 
     A transient failed fetch leaves the PREVIOUS snapshot in place. Missing Codex
     credentials or a 401 publish auth_required while retaining previous quota values.
@@ -400,10 +405,10 @@ def capture_usage(path: str, backend: str) -> bool:
             return False                 # the fetcher already said why
         if snapshot.get("auth_required"):
             previous = _read_json(path)
-            if isinstance(previous, dict) and previous.get("backend") == "codex":
-                snapshot = {**{k: v for k, v in previous.items() if k != "codex_home"},
-                            **{k: snapshot[k] for k in ("auth_required", "codex_home")
-                               if k in snapshot}}
+            if isinstance(previous, dict) and previous.get("backend") == snapshot.get("backend"):
+                hints = ("auth_required", "codex_home", "login_command")
+                snapshot = {**{k: v for k, v in previous.items() if k not in hints},
+                            **{k: snapshot[k] for k in hints if k in snapshot}}
         snapshot["as_of"] = datetime.now().astimezone().isoformat(timespec="seconds")
         tmp = f"{path}.{os.getpid()}.{threading.get_ident()}.tmp"
         with open(tmp, "w", encoding="utf-8") as fh:
