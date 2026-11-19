@@ -69,11 +69,14 @@ class JevInputs:
                         "yoe_context": sha(self.yoe_context.encode())}))
 
 
-def _pack(text: str, name: str, required_question: str) -> dict:
+def _pack(text: str, name: str, required_question: str, skip_key: str) -> dict:
+    """`decide` skips on `skip_key`; a pack without it would silently keep everything."""
     value = json.loads(text)
-    ids = {q.id for q in jev_question_set_from_value(value).questions}
-    if required_question not in ids:
-        raise ValueError(f"{name} lacks the {required_question!r} question")
+    questions = {q.id: q for q in jev_question_set_from_value(value).questions}
+    q = questions.get(required_question)
+    if q is None or q.question_type != "choice" or skip_key not in dict(q.choice_criteria):
+        raise ValueError(f"{name} needs a choice question {required_question!r} "
+                         f"with a {skip_key!r} criterion")
     return value
 
 
@@ -95,8 +98,8 @@ def read_files(directory: str | Path) -> dict[str, str]:
 def inputs_from_texts(texts: dict[str, str]) -> JevInputs:
     return JevInputs(
         profile_text=texts["profile_text"],
-        c_pack=_pack(texts["c_pack"], "question-pack.json", PREFERENCE_Q),
-        yoe_pack=_pack(texts["yoe_pack"], "yoe-pack.json", YOE_Q),
+        c_pack=_pack(texts["c_pack"], "question-pack.json", PREFERENCE_Q, "weak"),
+        yoe_pack=_pack(texts["yoe_pack"], "yoe-pack.json", YOE_Q, "three_plus"),
         yoe_context=texts["yoe_context"].strip(),
     )
 

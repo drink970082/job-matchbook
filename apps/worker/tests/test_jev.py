@@ -129,6 +129,12 @@ def test_load_inputs_requires_both_questions(tmp_path):
     (tmp_path / "yoe-pack.json").write_text(json.dumps(C_PACK))
     with pytest.raises(ValueError, match="required_yoe_for_candidate"):
         jev.load_inputs(tmp_path)
+    renamed = json.loads(json.dumps(C_PACK))
+    renamed["questions"][0]["criteria"]["poor"] = renamed["questions"][0]["criteria"].pop("weak")
+    (tmp_path / "yoe-pack.json").write_text(json.dumps(YOE_PACK))
+    (tmp_path / "question-pack.json").write_text(json.dumps(renamed))
+    with pytest.raises(ValueError, match="'weak'"):    # would silently keep everything
+        jev.load_inputs(tmp_path)
 
 
 class _Resp:

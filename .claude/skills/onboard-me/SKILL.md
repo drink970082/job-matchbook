@@ -48,6 +48,7 @@ edited after that through MCP `set_jev_profile`.
 | 5 | `apps/worker/resume/resume.txt` | you read their résumé → clean text |
 | 6 | watchlist rows (DB) | **delegate to the `onboard-board` skill** |
 | 7 | `apps/worker/.env` | you fill values the user gives (prereqs came from Step 0) |
+| 7 | optional `apps/worker/resume/jev/` + `config.yaml` `jev_dir` | copied from `jev.example/`, two texts rewritten |
 | 8 | first pass | `python -m ats_worker.run --once` |
 
 Steps are **ordered but independent.** A brand-new user wants the whole run; someone
@@ -199,7 +200,7 @@ watchlist (`add_watched.py`). Don't reimplement that here; invoke it per company
 they named none, that's fine — they can add boards anytime in the web **Watchlist**
 tab or by asking to "add <company>" later.
 
-## Step 7 — secrets (`.env`)
+## Step 7 — secrets (`.env`) and the optional keep/skip filter
 
 Step 0's `make doctor` already told you which of these are missing — don't re-probe
 with `curl` or `codex doctor`; re-run `make doctor` if you need a fresh read. All that
@@ -213,13 +214,16 @@ is left is filling in values **only the user can give you**. Fill them into
   key. `SCREEN_BACKEND=api` reaches any OpenAI-compatible endpoint (OpenAI,
   OpenRouter, Gemini, LM Studio, ...): it needs `SCREEN_MODEL`, usually
   `SCREEN_API_BASE_URL` and `SCREEN_API_KEY`, and hosted vendors bill per call.
-- **Keep/skip backend** — ask separately from the screen; off is a fine answer. If
-  they want it: `cp -r apps/worker/jev.example apps/worker/resume/jev`, rewrite the
-  example `profile-binding.json` and `yoe-context.txt` from what they told you, set
-  `jev_dir: resume/jev`. Then `JEV_BACKEND=openrouter-native` (default, measured,
-  metered; needs `OPENROUTER_API_KEY`) or `JEV_BACKEND=extract` (reuses the screen
-  backend, no extra key, sends the profile to it, unvalidated). Never set
-  `OPENROUTER_API_KEY` for any other purpose. Leave the question packs as shipped.
+- **Keep/skip filter** — ask separately from the screen; off is a fine answer. **If
+  they have 3+ years of experience, recommend off**: it skips every posting that
+  requires 3+ years, regardless of theirs. If they want it: in `apps/worker`,
+  `mkdir -p resume/jev && cp jev.example/* resume/jev/`, rewrite `profile-binding.json`
+  and `yoe-context.txt` from what they told you, and set `jev_dir: resume/jev` in
+  `config.yaml`. Then `JEV_BACKEND=openrouter-native` (default, metered; needs
+  `OPENROUTER_API_KEY`) or `JEV_BACKEND=extract` (reuses the screen backend, no extra
+  key, sends the profile to it). Both are unmeasured with the example packs. The stage
+  runs only with `--jev` (Step 8). Never set `OPENROUTER_API_KEY` for any other
+  purpose. Leave the question packs as shipped.
 
 **Verify, don't fabricate.** Never invent a token or key. If a prereq is genuinely
 missing, say so plainly and point at `docs/SETUP.md` — a clear "you still need X" is
@@ -232,6 +236,9 @@ End on the activation event — one pass, so they see it work:
 ```bash
 cd apps/worker && python -m ats_worker.run --once
 ```
+
+If they turned on keep/skip in Step 7, add `--jev` (and keep it on the daemon command);
+without the flag the stage never runs.
 
 Screened postings land in the web app's **Discovered Jobs** tab. Once they're
 happy, dropping `--once` runs it on the schedule (`schedule_hours`, default 24h).

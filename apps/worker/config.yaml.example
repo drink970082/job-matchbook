@@ -135,7 +135,8 @@ enable_browser_sources: false
 
 # OPTIONAL: the JEV keep/skip filter (`--jev`; see docs/SETUP.md Path C2 for backends).
 # A directory of PRIVATE inputs — keep it outside git (e.g. under apps/worker/resume/).
-# Start from the synthetic set: cp -r jev.example resume/jev, then edit the two texts:
+# Start from the synthetic set: mkdir -p resume/jev && cp jev.example/* resume/jev/,
+# then edit the two texts. Relative to the worker's working directory (apps/worker).
 #   profile-binding.json  approved profile sent with the preference question
 #   question-pack.json    the preference question pack (must contain `preference`)
 #   yoe-pack.json         the required-experience pack (`required_yoe_for_candidate`)

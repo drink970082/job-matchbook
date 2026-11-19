@@ -877,7 +877,9 @@ worker modules are pure and dependency-injected; real services are wired only in
   ordered list of labels for `score`, none for `noul` (`ranking/native.py` validates).
   `question-pack.json` must hold a `choice` question `preference` whose keys include
   `weak`; `yoe-pack.json` must hold `required_yoe_for_candidate` whose keys include
-  `three_plus`. Other questions are answered and stored but do not change the verdict.
+  `three_plus` (`jev._pack` refuses a pack without them). The 3-year floor is fixed in
+  `decide`, so the filter fits candidates with under 3 years. The example packs are
+  unmeasured. Other questions are answered and stored but do not change the verdict.
 
   **Import boundary.** No fit module exists to import, and no résumé is loaded.
   Provider-free review-batch, rehearsal, profile, and replay imports are guarded in fresh
