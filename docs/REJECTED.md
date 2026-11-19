@@ -164,3 +164,6 @@
   *Render cost:* Citi (~3.5k postings), Barclays (~1k), Bloomberg, Moody's — a `browser`
   `detail:` block costs one Chromium render per posting with no stub gate. Reopen when
   `custom` gains a chained detail call (or an HTML mode, for Citi/Barclays).
+- **Feed-resolution targets not worth a resolver.** Greenhouse embed-token links carry a
+  job id but no board slug, so they cannot resolve to a watchlist row; SuccessFactors
+  does not appear in the feed at all.

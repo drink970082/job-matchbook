@@ -904,9 +904,9 @@ worker modules are pure and dependency-injected; real services are wired only in
   step. It also retires the "anticipate every innocent English sentence"
   problem: an EEO line is simply `neither` to a classifier.
 
-  **Why this way round.** The previous design had the halves swapped — the MODEL did
-  retrieval (read 16K chars, find the sentence, copy it verbatim) and CODE did
-  classification (three regex vetoes deciding whether that sentence was a refusal).
+  **Why this way round.** The reverse split — the MODEL retrieves (reads 16K chars,
+  finds the sentence, copies it verbatim) and CODE classifies (regex vetoes deciding
+  whether that sentence is a refusal) — fails.
   Retrieval on a keyword is trivially deterministic; regexes are bad at stance. Three
   rounds of whack-a-mole, PR #22's five false positives, and the screen eval's 8-of-16
   sponsorship recall — on rows whose refusal sentence was *inside the text handed to the
@@ -1261,17 +1261,23 @@ worker modules are pure and dependency-injected; real services are wired only in
   database, seeds settings, or performs DDL. `ATS_DB_PATH` selects the database; when
   unset, the repository resolves the web Prisma database path from the checkout.
   The `MCPServer` entrypoint is `python -m ats_worker.mcp` and its default transport is
-  stdio; it binds no listener. Registered tools are `get_ats_overview`, `list_jobs`,
-  `get_job`, `get_job_description`, `list_applications`, `get_application`,
-  `get_application_notes`, `list_application_history`, `list_ats_records`, and
-  `get_ats_record`. Every tool carries read-only/closed-world annotations, but the
-  connection-level SQLite settings enforce the boundary. The eight model names are a
-  closed enum, identifiers are selected from an internal allowlist, values are bound,
-  and no tool accepts SQL, filesystem paths, HTTP targets, or mutation requests.
+  stdio; it binds no listener. Fourteen read tools are always registered:
+  `get_ats_overview`, `list_jobs`, `get_job`, `get_job_description`,
+  `list_applications`, `get_application`, `get_application_notes`,
+  `list_application_history`, `list_ats_records`, `get_ats_record`, `list_sources`,
+  `get_setup_status`, `get_jev_profile`, `get_preferences`. They carry read-only/
+  closed-world annotations, and the connection-level SQLite settings enforce the
+  boundary. With `ATS_API_KEY` set, nine write tools are added, each a call to the web's
+  loopback `/api/v1` (never a DB write): `record_application`, `mark_job_applied`,
+  `update_application_status`, `update_application_notes`, `override_triage`,
+  `set_preferences`, `set_jev_profile`, `add_source` (known-platform boards only) and
+  `remove_source`. The seven entity names are a closed enum, identifiers are selected
+  from an internal allowlist, values are bound, and no tool accepts SQL, filesystem
+  paths or HTTP targets.
   Lists use filter-scoped opaque keyset cursors (default 25, maximum 100); pages are live
   rather than one cross-call snapshot. Job descriptions and application notes use
   explicit character chunks up to 16,000; null and empty values remain distinct.
-  The tools expose all eight current Prisma models, including unknown lifecycle states,
+  The record tools expose those seven models, including unknown lifecycle states,
   links, complete text, and raw/parsed legacy JSON. `app_settings` exposes the approved
   `categories` value only; other setting values are withheld until reviewed. `custom`
   and `browser` recipes retain their ordinary fields and header names while all header
@@ -2001,13 +2007,11 @@ CI guard (`tools/check_schema_drift.mjs`, `make check-schema`).
 
 - **Two pipeline passes never overlap on the same database.** The guard is keyed on the
   `resolve()`d `--db` path (`<db>.pass.lock`, beside the DB), which is the resource it
-  actually protects: that DB plus its provider accounts. It used to key on
-  `tempfile.gettempdir()`, and the difference was not academic — a daemon started from
-  cron or from a systemd unit with `PrivateTmp=yes` resolves a *different* temp dir than
-  an interactive shell that exports `TMPDIR`, so both acquired and both scored the same
-  DB, the paid double-spend the lock exists to prevent. Keying on the DB closes that and
-  also lets two checkouts pointed at two DBs run at once, which the shared temp path
-  wrongly serialized. `resolve()` is load-bearing: the guard is void the moment two
+  actually protects: that DB plus its provider accounts. A lock keyed on
+  `tempfile.gettempdir()` does not hold — a daemon under cron or a systemd unit with
+  `PrivateTmp=yes` resolves a *different* temp dir than an interactive shell that
+  exports `TMPDIR`, so both would acquire it and double-spend on the same DB. Keying on
+  the DB also lets two checkouts pointed at two DBs run at once. `resolve()` is load-bearing: the guard is void the moment two
   passes name the same file differently, and `apps/web/prisma/applications.db` is a
   symlink to `db/applications.db`. APScheduler's `max_instances=1`
   stops the scheduler overlapping *itself* (a long pass makes the next firing skip), but

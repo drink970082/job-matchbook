@@ -27,7 +27,7 @@ feature is implemented; see the [feature readiness matrix](docs/ROADMAP.md#featu
 - **Work through your assistant (MCP):** bounded read tools for postings, full JD chunks,
   screenings, applications/history, the watchlist and settings; with a write key, tools
   to log applications, update status/notes, override keep/skip, manage the watchlist and
-  set preferences. Works with ChatGPT (via a tunnel), Claude Code or Codex.
+  set preferences and the JEV profile. Works with ChatGPT (via a tunnel), Claude Code or Codex.
 - **Track:** manual application entry, Mark Applied, status history, CSV import/export,
   KPIs and charts; the web shows the watchlist and activity read-only.
 - **Assist optionally:** hard-requirement screening (local Ollama by default, or a

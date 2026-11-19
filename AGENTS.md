@@ -2,7 +2,7 @@
 
 Instructions for any coding agent working in this repo. Claude Code reads
 [`CLAUDE.md`](./CLAUDE.md), which carries the same rules plus Claude-Code-specific
-conduct (doc length, subagent policy) that will not apply to you.
+conduct (subagent policy) that will not apply to you.
 
 This is a real file, not a symlink to `CLAUDE.md`, on purpose: a symlinked `AGENTS.md`
 is served as its 9-byte target path over `raw.githubusercontent.com`, and degrades into
@@ -64,6 +64,10 @@ of *what happened*. So, everywhere else:
 
 ## Working rules
 
+- **Doc length matches substance.** `SPEC.md`/`PROGRESS.md`/`CHANGELOG.md` are
+  already large and every session reloads them. Write the clause the change needs —
+  no padded sections, restated summaries, or boilerplate. Same for specs and plans
+  under `docs/superpowers/`.
 - **The verify gate is the verification.** `docs/DEVELOPMENT.md` §5 means run the
   commands and paste the output — that *is* the check. Don't stack a self-review on top;
   §7's pre-merge review is a separate gate on *merging*, not a second verification.

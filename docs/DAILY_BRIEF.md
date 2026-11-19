@@ -25,11 +25,10 @@ instructions interactively or use the server's `daily_brief` prompt.
    must remain available. Verify file access in the actual scheduled context. Do not commit
    the private materials or paste them into a public report. See the [official Scheduled
    tasks guide](https://learn.chatgpt.com/docs/automations).
-4. Confirm the actual scheduled run can use the read-only ATS MCP connection and web
-   search. Connected-app support depends on account and workspace permissions; an
+4. Confirm the actual scheduled run can use the ATS MCP connection and web search. Connected-app support depends on account and workspace permissions; an
    interactive run does not establish scheduled access.
-5. Keep the task read-only. The ATS connector now also exposes application write tools
-   (when its key is configured); the brief must not call them. Do not submit an
+5. Keep the task read-only: the brief must not call any write tool (the connector has
+   them when its write key is configured). Do not submit an
    application, contact an employer, change the watchlist, or save a recommendation
    ledger. The connector's `daily_brief` prompt is a compact version of the
    instructions below for interactive use; the Scheduled task keeps the full text.

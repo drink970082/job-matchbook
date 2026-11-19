@@ -1,7 +1,7 @@
 # CLAUDE.md
 
 Guidance for Claude Code (and humans) working in this repo. [`AGENTS.md`](./AGENTS.md)
-is the same guidance for other agents, minus the doc-length and delegation rules below —
+is the same guidance for other agents, minus the delegation rule below —
 a real file, not a symlink (a symlinked `AGENTS.md` serves as its 9-byte target path
 over `raw.githubusercontent.com` and degrades silently on Windows). Keep the two in
 sync by hand.

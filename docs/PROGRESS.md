@@ -12,11 +12,6 @@ behavior. Completed work belongs in CHANGELOG, not this queue.
   for a policy change (hash verified equal at deploy); then delete this entry**
   `[WORKER+WEB · M]` (#157).
 
-- **MCP source tools — deployed, acceptance open** `[MCP · S]` (#156, epic #152).
-  `audit_log` is pushed to production, web and the MCP tunnel run the new code. Open:
-  in ChatGPT, "track company X" adds a known-ATS board, the next worker pass fetches
-  it, and a removal shows "via MCP" in the Activity tab.
-
 - **JEV keep/skip filter — acceptance: the first pass after the 7-day window deploys
   attempts only postings from the last 7 days (worker `[jev]` tally); then delete this
   entry** `[JEV · M]` (#139).
@@ -61,7 +56,7 @@ owns active branch claims. Documentation plans do not launch agents or deploy se
   that cost money to rebuild. Do not switch production to it before a measurement path
   exists.
 - Optional model quality remains bounded by corpus provenance. Luna/medium screening
-  lacks an effort-identified accuracy run; legacy fit labels include unsupported inputs.
+  lacks an effort-identified accuracy run.
   These limitations matter for judgment changes, not as blockers for unrelated work.
 
 ## Evaluation and cost

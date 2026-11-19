@@ -22,7 +22,7 @@ data before selecting it.
 - **Intake policy:** inspect title/location/age gates before moving preferences into the
   DB (#157). Cutting discovery to match a model budget is not the product priority.
   Onboarding a new user's free filters is an open design discussion in
-  [the onboarding spec](superpowers/specs/2026-08-02-universal-onboarding-design.md).
+  [#203](https://github.com/drink970082/job-matchbook/issues/203).
 - **Usage telemetry:** after a `codex` screen the pass takes one best-effort HTTP usage
   snapshot (`quota.json`), which has failed intermittently with 403. It is a
   display, not a spend limit; JEV's limit is `--jev-max-usd`.
@@ -51,12 +51,17 @@ data before selecting it.
   unmeasured.
 - **Recipe validation happens a pass late:** a bad `mode`, an unmatched `item_path` or
   missing field path fails silently at fetch time and shows up as `feed_unresolved` rows.
-  A `validate_recipe()` at config load and in MCP `add_source` would move it to write
-  time, beside the existing SSRF check.
+  A `validate_recipe()` at config load and watchlist write would move it to write time,
+  beside the existing SSRF check.
 - **`custom` has no chained detail call.** It is what Uber/Netflix/Morgan Stanley need
   (list JSON without a body), and what makes an `html` mode useful: an `html` recipe can
   only produce a description if the listing card carries the full JD, so without it
-  every row is dropped as bodyless. A built-once `html` executor was not merged.
+  every row is dropped as bodyless. A built-once `html` executor was not merged; a
+  rebuild must avoid its defects: a list-form `description` raised `AttributeError`,
+  `page: {type: url}` was silently ignored (page 1 looks like success), `type: page`
+  started at 0 (most pagers are 1-indexed), `resp.text` mojibaked bodies without a
+  `charset` (use `resp.content`), and its tests asserted the field set, not a non-empty
+  description.
 - **Boards blocked on an executor primitive:** Meta (page-then-POST with a per-session
   `lsd` token, plus a virtualized scroller); Balyasny's Salesforce Aura endpoint (a
   `fwuid` that rotates each release). Jacobs Levy and Balyasny's static listing are

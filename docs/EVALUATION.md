@@ -58,7 +58,8 @@ proposing or spending on a run. Never repair ID-only labels by fuzzy title remap
     token in a non-security sense (customs/import clearance, permits, trading
     pre-clearance, background checks, a defense JD saying "Minimum Clearance Required to
     Start: None", a "Trade Clearance & Settlement" title). The data holds no genuinely
-    optional security clearance.
+    optional security clearance. The ~38 "ability to obtain" rows are golden `true`
+    (a hard bar without a clearance): they measure recall and cannot fix the tautology.
   - "Must be able to obtain and maintain a TS/SCI clearance" is labelled
     `requires_clearance: true`.
   - The sponsorship half rests on 11 gate-eligible rows of 21: a non-`refuses` row that

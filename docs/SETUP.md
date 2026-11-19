@@ -108,7 +108,8 @@ skips a posting whose required minimum is above them.
 
 The MCP server is a stdio process started by your AI client. It reads the shared SQLite
 database read-only; with a write key it can also log applications, update statuses and
-notes, override keep/skip, manage the watchlist and set preferences, all through the
+notes, override keep/skip, manage the watchlist and set preferences and the JEV
+profile, all through the
 web's `/api/v1`. It has no user authentication of its own: connect it only to a client or
 workspace you trust, and it exposes whatever its tools return to that chat.
 
