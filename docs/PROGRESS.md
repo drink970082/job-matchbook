@@ -23,6 +23,8 @@ behavior. Completed work belongs in CHANGELOG, not this queue.
   (2) Columns nothing writes any more — `job_postings.score`, `notify_attempts`,
   `deprioritized_at` — and the web's score filter / Matched buckets that read them. The
   web half waits for #158.
+  (3) `run_expire` rechecks only `scored`/`notified` rows, so new postings are never
+  checked for closure (SPEC limitation). Fix alongside the MCP/JEV work.
 
 - **Daily Brief instructions for issue #94 — unattended acceptance remains open**
   [ORCH · M · branch docs/issue-94-daily-brief]. Public task instructions, an interactive
