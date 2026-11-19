@@ -8,12 +8,6 @@ behavior. Completed work belongs in CHANGELOG, not this queue.
 
 ## In flight
 
-- **MCP write path, first slice — acceptance open** `[MCP · S]` (#154, #159, epic #152).
-  Web `/api/v1`, the MCP write tools, workflow prompts and the web "via MCP" marks are
-  merged and deployed (web built from `ats-runtime`; the MCP launcher exports
-  `ATS_API_KEY`). Open: in a fresh ChatGPT chat with only the connector, "I applied to job
-  N" then a status change completes, and both show "via MCP" in web.
-
 - **JEV keep/skip filter — deployed, backlog draining until about early December** `[JEV · M]` (#139).
   The worker unit runs `--jev --jev-limit 300 --jev-max-usd 0.10` from `ats-runtime` at
   main; private inputs are `resume/pivot/jev-prod-v1/` (profile `level` line at 3 years).
