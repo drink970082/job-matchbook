@@ -12,10 +12,11 @@ guess at content or to write a placeholder file.
 
 ## Multi-version naming (from `apps/worker/resume/README.md`)
 
-**Every `*.txt` in `apps/worker/resume/` is loaded as a résumé version.** So:
+The worker loads none of these; the convention keeps versions legible to the AI client
+the user attaches them to:
 
 - One résumé → `resume.txt`, nothing else.
-- Role-targeted versions → name them `resume_<label>.txt` **and delete the generic
-  `resume.txt`**, or the generic one gets scored alongside the targeted ones.
+- Role-targeted versions → `resume_<label>.txt`, and drop the generic `resume.txt` so
+  the client is not handed two competing versions.
 
 These files are gitignored personal data — never commit them.

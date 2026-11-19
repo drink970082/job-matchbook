@@ -1,4 +1,5 @@
-# personal_profile.txt — about-you context for the FIT SCORER (optional).
+# personal_profile.txt — about-you context for your AI client's fit review (optional;
+# the worker never reads it).
 #
 # Copy this to `personal_profile.txt` and rewrite every section for YOUR search.
 # This is NOT a résumé: it never adds a skill you can't show on paper — it only

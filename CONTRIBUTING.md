@@ -14,7 +14,7 @@ the product overview.
 
 ## Prerequisites
 
-- Node.js 20+ and npm
+- Node.js 24+ and npm
 - Python 3.11+
 - (Optional, for the full pipeline) Docker + Docker Compose, and a screen backend:
   Ollama (the free default), or the Codex/Claude CLI, or a metered API key
@@ -40,7 +40,7 @@ make test-worker    # pytest (cd apps/worker && python -m pytest)
 ```
 
 The worker suite is **fully dependency-injected** — every external service
-(Ollama, the Codex CLI, Claude, Telegram) is mocked, so it runs anywhere
+(Ollama, the Codex/Claude CLIs, the provider APIs) is mocked, so it runs anywhere
 Python + pytest exist, with no network and no API keys.
 
 CI (`.github/workflows/ci.yml`) runs both suites on every pull request, on pushes

@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1.7
 
-# node:20-alpine
-FROM node:20-alpine@sha256:fb4cd12c85ee03686f6af5362a0b0d56d50c58a04632e6c0fb8363f609372293 AS base
+# node:24-alpine (active LTS)
+FROM node:24-alpine@sha256:116b800c3754b440ee0aa3ed2f20f5bf3d99a554bfd9adeea09ea8017f6e85f5 AS base
 
 # ---------- deps ----------
 FROM base AS deps

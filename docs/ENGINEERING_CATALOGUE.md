@@ -1,11 +1,11 @@
 # Engineering catalogue — retained investigations
 
 > **Status:** deferred/untriaged technical context. [ROADMAP](ROADMAP.md) owns
-> priorities; [BACKLOG](BACKLOG.md) owns current triage. Source/score counts and cost
-> claims inside individual entries are samples requiring revalidation, not live
-> deployment state. Do not execute old evals, cut intake, add providers or change
-> defaults merely because an entry proposes them. [EVALUATION](EVALUATION.md) governs
-> model work; screen and fit remain optional supported capabilities.
+> priorities; [BACKLOG](BACKLOG.md) owns current triage. Counts and cost claims inside
+> individual entries are samples requiring revalidation, not live deployment state. Do
+> not execute old evals, cut intake, add providers or change defaults merely because an
+> entry proposes them. [EVALUATION](EVALUATION.md) governs model work. The fit scorer
+> is removed; entries describe the screen, fetch, web and infra as they are now.
 
 ## Unverified / deferred — behavior may be fine, but nothing proves it, or a decision is pending
 
@@ -16,69 +16,9 @@
   not corpus accuracy evidence. Do not rerun the unchanged evaluation solely to attach
   an effort label to the historical measurement.
 
-- **`GATE_MIN_FRACTION = 0.5` is a made-up number, and the choice is deferred to the
-  scoring redesign** — `[SCORE · XS · decision pending]`.
-  `score_eval.py`'s gate floor: PASS requires that at least half the corpus rows actually
-  reached the gate. It exists because `marked: true` is a one-word edit per line and
-  marked rows are gate-exempt in both directions, so marking the unreachable rows would
-  turn the gate green having relabelled nothing (and `verdicts_match({}, {})` is True, so
-  `--batched` reported PASS over ZERO rows). The floor closes that.
-  **Unlike the gate's other thresholds — >=85% agreement, <20% flip-rate — it has no
-  measurement behind it.** It is a don't-be-absurd line, not a calibrated one. It is also
-  slack against every real number: 69/93 = 74% today, 91/93 = 98% after the relabel, so
-  it fires only on the marking path.
-  **Operator's call: leave it** — the scoring subsystem is being redesigned and tuning
-  this now may be wasted. Revisit when the redesign settles what the gate measures; the
-  fallback if the fraction is unwanted is `n_gate > 0` alone, which still closes the
-  PASS-over-zero-rows case but reopens the marking path.
-
-- **Capture the quota snapshot at pass START, not after the fit phase** —
-  `[SCORE · XS · would sidestep the 403 entirely]`. `capture_usage` runs at the end of a
-  pass, i.e. immediately after a burst of paid calls on the same account. That is exactly
-  the moment a rate limiter would refuse, and the 403 this system keeps hitting is
-  consistent with (though not proven to be) one. Capturing before the fit phase costs the
-  same single call and lands it when the account is cold.
-  **The trade is what the bar shows:** a pre-pass snapshot omits the pass's own spend, so
-  the web bar would lag by one pass. Capturing at both ends doubles the call but is still
-  free of quota. **Decide only after the WARNING rate has been measured across days** — if
-  the shipped retry drops it near zero, this is unnecessary complexity.
-  **The rate has been measured once and it is not yet decidable — read the denominator
-  before quoting it.** Only **three** passes in the whole journal both fit-scored and ran
-  with the WARNING live (passes that fit-score 0 rows never make the guarded call, so they
-  are in neither numerator nor denominator): 2 of those 3 missed the snapshot. At n=3 the
-  match with the ~2-in-3 per-call rate the hand probes suggested is worth nothing.
-  **And it measures the PRE-retry rate** — the retry has never executed in a live pass,
-  because every scoring pass in that journal predates the merge. The question this entry
-  gates on ("does the retry drop it near zero") has no data behind it and cannot get any
-  until the daemon runs again. **Do not decide this entry off the 2/3.**
-- **The seniority title-token floor: measured 2026-07-31, ambiguous, and the decision is
-  the operator's** — `[SCORE · XS · decision pending]`. SCORING §5.7 declined to build a
-  floor for the *"Senior ..."* titles the model returns an empty object on, asking for its
-  own measurement first. The measurement ran and split:
-
-  | | in-sample (446 rows) | held-out (32 rows) |
-  |---|---|---|
-  | shipped rules only | P 0.975, R 0.793 | 0 false demotions |
-  | + title floor | P 0.970, **R 0.900** | **1 false demotion, 0 recovered** |
-
-  It is **the largest recall win available** — 35 of the 61 misses carry a rank word in
-  their title, and it recovers 27 of them — and it owns the **only** out-of-sample false
-  demotion any candidate produced across every combination tried (Onto Innovation `Senior
-  Software Engineer`, `domain=mismatch`, model returned nothing, floor fired alone). Both
-  corpora still pass the gate; 32 rows carrying 3 positives cannot settle it.
-  **The argument against is not the number, it is the shape:** a floor that fires on a
-  title with no model verdict behind it is the unevidenced-demotion pattern the vetoes
-  exist to prevent, and the one dataset that could contradict it does.
-  **If it is ever built, one narrowing is already measured:** a title naming *both* levels
-  ("Jr/Sr Engineer") states no single bar, and guarding on a junior token removed a false
-  demotion at zero recall cost (Micron `Jr/Sr Engineer, STPG PE System`).
-  Reproduce with `make eval-seniority`; the rejected sibling (widening
-  `rank_stated_in`'s vocabulary) is recorded in SCORING §5.7 as provably redundant.
-
 - **The blind-backend residual: `sponsorship_labels: null` and `[]` still reach the phrase
-  floor** — `[SCREEN · open by decision, the operator's call]`. The defect this came from
-  shipped a fix 2026-07-29 (SPEC §7.1 + §9, CHANGELOG); the fork it left open is stated as
-  one in SCORING §3.7. A live-but-blind response is deliberately **not** flagged
+  floor** — `[SCREEN · open by decision, the operator's call]`. The fork is stated as one
+  in SCORING §3.7. A live-but-blind response is deliberately **not** flagged
   `provider_error`, so the floor stays an independent deterministic signal and a JD that
   literally says *"we do not sponsor work visas"* is still caught with no model data. The
   counter-argument — a blind backend then discards on a substring the model never
@@ -133,7 +73,7 @@
     truncate again); use a +/-780 *character* window centred on the match.
 
 - **The sponsorship `+/-1 sentence` window degenerates to the whole JD on bullet-list
-  postings** — `[SCREEN · S · found by the PR #24 pre-merge review 2026-07-28, verified]`.
+  postings** — `[SCREEN · S · verified]`.
   `_sentences` collapses whitespace (so newlines and bullets are gone) and splits only on
   `[.!?]`, so a JD whose bullets carry no terminal punctuation is **one sentence** and the
   documented "~400 chars" window becomes the entire description. The clean case is id
@@ -176,8 +116,8 @@
   Retrieve-then-classify took false disqualifications 2 → 0 (behavior in SPEC §7.1,
   reasoning in CHANGELOG). What stays open is the other direction: the
   `sponsor`-only retrieval vocabulary gives up bars phrased without that word — **7 of the
-  13 corpus must-flag sentences** — and each is a miss costing one paid fit call that
-  reaches the human. `test_the_narrowed_vocabulary_names_exactly_which_bars_it_gives_up`
+  13 corpus must-flag sentences** — and each is a miss that keeps the posting and
+  reaches JEV or the human. `test_the_narrowed_vocabulary_names_exactly_which_bars_it_gives_up`
   pins the count in **both** directions so the trade cannot drift silently.
   **Do not widen the vocabulary to "fix" it.** Every false positive ever recorded on this
   path came from a word that is not "sponsor" — `citizen` (EEO boilerplate, "a good
@@ -195,8 +135,7 @@
 - **The location gate's tiers 2 and 3 — not built** — `[SCREEN · M]`. Tier 1 is the
   evidence-tiered gate (SPEC §7.1; the trade is pinned in CI at 0 false discards over
   1,611 live strings, residual leak exactly 6 strings / 14 rows). **Still open:** a free
-  Ollama fallback for the 3.1% of rows the gazetteer cannot resolve, and the fit scorer as
-  a second net.
+  Ollama fallback for the 3.1% of rows the gazetteer cannot resolve.
 
 - **Workday prose-date age-gating is a dead lever — the reduction is ZERO and the gate
   structurally cannot fire. Do not re-open it** — `[FETCH · closed]`.
@@ -269,43 +208,10 @@
   holding the DB, so a fresh `open()` fails while the existing fd survives — the shape of a
   stale mount. Throwaway copy, throwaway container, same rig as the recovery drill.
   (SPEC §6.)
-- **`onboard-me` evals are owed a run — two scenarios, two different reasons** —
-  `[DOCS · S]`. The harness is subagent-driven and has not run since either change landed.
-  **id 4 `fresh-checkout-no-telegram-remote-ollama` — written, never run.** Step 0's
-  *factual* claims were verified against shipped code (all 9 doctor row labels match live
-  output), but the *behavioral* assertion — that an agent leads with `make setup` +
-  `make doctor` and reads the status lines instead of treating every row as mandatory —
-  is unproven.
-  **id 2 `profile-and-docx-resume-design` — passed before, now at risk.** `7e2e93f` moved
-  the profile-authoring rules out of `SKILL.md` into `references/profile.md` behind a
-  read-this-first pointer. The structural assertions are safe — the six section headers
-  and the `<w:t>` extraction rule stayed in the body (grep-verified) — but
-  `profile_targets_correct` (ANTI-TARGETS scoped to the disliked day-to-day, not a bare
-  title that overlaps a target) now depends on the agent actually opening the reference.
-  That is the one assertion progressive disclosure could regress here, and only a run
-  shows it. If it fails, pull the ANTI-TARGETS rule back inline rather than reverting
-  the split.
-- **The recipe-sourced `custom`/`browser` SCORED path is still unexercised** — `[SCORE · S]`.
-  The 2026-07-22 full fetch proved both executors work through `run_fetch` (custom
-  1,411 `new`, browser 662 — CHANGELOG). But the one bounded `--score-only` batch hit
-  the oldest ids, which were the original greenhouse+phenom config boards, so no
-  recipe-sourced row has ever been screened, fit-scored or notified. Closing it needs a
-  score run that reaches `custom`/`browser` ids — a larger `--score-limit`, or a
-  source-filtered slice.
-- **Route a local `degree`/`clearance` fail to the strong model as `needs_confirmation`**
-  — `[SCREEN · shipped 2026-07-29 · one residual open by decision]`.
-  **The behavior, the pre-fix 83%/24% rates and why `authorization` is excluded are
-  now in SCORING §5.3** — read it there; those rates are pre-fix and must not be re-quoted
-  as current.
-  **What stays here is one deliberate hole:** a degree/clearance-only fail on a JD thinner
-  than the low-context threshold is kept *without* confirmation, because it takes the
-  thin-JD path and spends no fit call. A thin JD cannot support a degree-bar reading either
-  way, and those rows are already held back from notify and shown for human review.
-  **And one shape decision, so it is not re-proposed:** routing is an in-pass decision plus
-  a `score_detail` marker, **not** a new `pipeline_status` — screen and fit run in the same
-  pass, so no row is ever stored in that state, and a real status would mean new
-  `constants.ts` values and UI buckets for something nobody can observe.
-
+- **`onboard-me` evals are owed a run** — `[DOCS · S]`. The harness is subagent-driven and
+  has not run against the current skill. The behavioral assertion worth a run: an agent
+  leads with `make setup` + `make doctor` and reads the status lines instead of treating
+  every row as mandatory.
 - **`detail_fetch_failed` conflates a 404 with a transient timeout or 429** —
   `[FETCH · XS · labelling limit, not a defect]`. `_detail_fetch` catches bare `Exception`
   without inspecting status, so the reason string cannot distinguish them. Neither is a
@@ -320,55 +226,8 @@
   the DB stores the GUID; 0 of 2,598 workday rows have an `external_id` starting with
   `/`), so every feed-surfaced workday listing pays one CXS GET per pass, absorbed
   silently by `ON CONFLICT DO NOTHING`. That wasted GET is the only real cost.
-- **Queued rows age past `max_age_days` and become paid calls the config would refuse** —
-  `[SCORE · XS · title half shipped, age half open]`. The leak is structural, not a
-  backlog artifact: `prefilter_postings` runs at *ingest* only, and `screen_posting`
-  re-checks the deterministic intern/location gate but never title or age. So any row that
-  sits long enough ages out of the config and still costs a fit call. The queue regrows
-  this on its own, roughly a day's worth at a time. `run_score`'s free phase-0 sweep now
-  re-applies `title_filter`/`title_exclude` to already-queued rows, which covers the title
-  half.
-  **Measuring it is timing-sensitive:** `_too_old` truncates both sides to a date
-  (`[:10]`), so every posting ages a full day the instant UTC rolls over — the same queue
-  measured 198 and 275 rows 88 minutes apart across that boundary. Any count here is a
-  snapshot.
-  **The AGE half is REFUSED, and this is the reasoning so it is not re-proposed as an
-  obvious symmetry.** It looks like the same fix and is a different thing:
-  - a title refusal is **recoverable** — widen `title_filter`, run `--rescreen-discarded`,
-    the row survives phase 0 and comes back. An age refusal is **not**: the row only gets
-    older, so raising `max_age_days` never catches up with it.
-  - **474 of the 587 age-refusals were INSIDE the window when they were ingested.** They
-    aged out *waiting in the queue*, so discarding them is a queue-TTL policy, not "the
-    config refuses this posting". At the measured ~200-250 rows/day of drain it would
-    terminally delete on the order of 5,300 rows over 30 days.
-  - it would fight the one escape hatch. `--rescreen-discarded` requeues 919 hydrated
-    discards; 881 of them die at the location/intern gates *before* the stale check is
-    consulted, so the population at risk is the 38 that survive. Of those, the
-    age-inclusive version re-kills 26 — **12 carrying `degree:` and 14 `authorization:`** —
-    overwriting the `score_detail` they carried, against 4 (all `authorization:`) under
-    the shipped title-only check. The evidence lost is NOT the `location:` verdicts:
-    `deterministic_screen` regenerates those byte-identically every pass. It is the
-    LLM-derived ones, which nothing recomputes — small in count, bad in kind.
-  **One variant was NOT considered when this was refused, and it may be the right
-  answer — it is queued, not declined.** Judge age against the row's **own
-  `created_at`** rather than `now`:
-  `max_age_days=cfg.max_age_days, now=(posting.get("created_at") or "")[:10]`. That is
-  recoverable in exactly the sense the refusal demands — the verdict for a given row is
-  computed against a fixed timestamp, so it never changes with elapsed time, and widening
-  `max_age_days` plus `--rescreen-discarded` brings the row back. It cannot delete ~5,300
-  rows over 30 days because it is not a function of elapsed time at all. It refuses the
-  **112 rows that were ALREADY past `max_age_days` when they were ingested** — which is
-  precisely the population the title half exists for, rows that entered under a looser
-  knob — and after that only genuinely-stale arrivals. The refusal above treats "age" as
-  indivisible; it splits cleanly along the line its own measurement draws. A second
-  unconsidered option: sort stale rows last in phase 0's queue order instead of
-  discarding them — non-destructive by construction. (No column for that exists on this
-  branch; it would need one, or an ordering key.)
-  If the operator does want a queue TTL, it wants the shape a deliberate sweep has — a
-  saved id list and a pre-run DB copy, revertible row for row — not a silent
-  six-times-a-day deletion.
 - **The feed's age gate judges Simplify's `date_posted`, not the board's `date_updated`** —
-  `[FETCH · XS · found by the pre-merge review 2026-07-28 · accepted]`. **Measured on the
+  `[FETCH · XS · accepted]`. **Measured on the
   live feed:** of the 1,044 listings refused as stale, **108 carry a `date_updated` inside
   the window** — still being refreshed, and dropped on the older field. Accepted because
   the pre-resolve gate is where the fetch cost is saved and `date_posted` is what the
@@ -376,10 +235,9 @@
   `max(date_posted, date_updated)`. (The other half of this item — that nothing re-checked
   the `posted_at` the board actually returned, so a feed row could be *stored* older than
   `max_age_days` — is closed: `run_feed` now re-runs `prefilter_postings` before the
-  upsert. It was leaking 127 of the 2,568 rows ingested 2026-07-29.)
-- **`max_age_days` silently gained feed scope on upgrade** — `[FETCH · XS · found by the
-  pre-merge review 2026-07-28 · accepted]`. The key previously meant "watchlist fetch
-  freshness"; it now also governs feed discovery, which on this config removes ~half the
+  upsert. It was leaking ~5% of ingested feed rows.)
+- **`max_age_days` silently gained feed scope on upgrade** — `[FETCH · XS · accepted]`. The key previously meant "watchlist
+  fetch freshness"; it now also governs feed discovery, which on this config removes ~half the
   feed's surface. That is the intended fix, but an existing checkout gets it with no
   notice — the only announcement is a comment in `config.yaml.example`, which a live
   `config.yaml` never re-reads. There is no per-feed override. Left as-is: a second
@@ -419,190 +277,6 @@
   whose list entry carries no description, while serving full ones for the rest — a
   partial-drop board, so there is no watchlist decision to make and no board-wide detail
   step to add. Non-destructive (the guard drops them and records them in `feed_unresolved`).
-- **Intake-cut evidence — the numbers are ready, the decision is the operator's**
-  — `[FETCH · S · Q3 · one board-side filter applied, rest declined]`. Q3 is the only lever
-  that reduces *demand* rather than re-ordering it. Three findings.
-  **1. Boards differ enormously in how much of what they fetch dies free.** Measured over
-  a 9,381-row queue, 37% died on the free deterministic gates — fetched, stored, and
-  discarded without a model ever reading them. Per board, the share of its queued rows
-  that died there (a snapshot; the sweep below has since harvested this population):
-
-  | board | queued | free-killed | waste |
-  |---|---|---|---|
-  | Micron | 678 | 484 | 71% |
-  | Oracle | 126 | 77 | 61% |
-  | Jane Street | 162 | 94 | 58% |
-  | TikTok | 1,367 | 782 | 57% |
-  | BlackRock | 148 | 84 | 57% |
-  | Cisco | 551 | 303 | 55% |
-  | Snowflake | 101 | 52 | 51% |
-  | Goldman Sachs | 281 | 134 | 48% |
-  | ByteDance | 155 | 75 | 48% |
-  | Amazon | 987 | 357 | 36% |
-  | Google | 759 | 13 | **2%** |
-  | Qualcomm | 150 | 0 | **0%** (0% null locations) |
-  | AMD | 103 | 0 | **0%** (0% null locations) |
-
-  Google, Qualcomm and AMD are the control: a board CAN be nearly all-relevant, so a
-  57-71% waste rate is a property of that board's geography mix, not of the gate.
-  **Susquehanna looks like a 0% control and is NOT one — read this before using the
-  table.** All 151 of its queued rows carry a **NULL location**, and
-  `resolve_location(None, ...)` errs toward keep, so the gate cannot evaluate that board
-  at all. Its 0% means "unjudgeable", not "all relevant" — and the consequence runs the
-  other way: those rows sail past the free gate and go on to pay full model cost, which
-  makes SIG one of the more expensive boards per row rather than an exemplary one. Every
-  other board in the table has ~0% nulls. Check the null-location share before reading any
-  0% as a good sign. The cheapest
-  intake cut is a per-board location constraint or dropping the worst offenders — but
-  note this is *fetch* cost only, since the gate is free and (as of 2026-07-31) no longer
-  spends a budget slot either.
-  **Only ONE of the five `custom` boards can be filtered board-side, and the four
-  negatives are the useful part.** The idea was to push the location
-  constraint upstream into each board's own query so the wasted rows are never fetched.
-  Scope was `custom` boards only — the three `workday` offenders (Micron 484, Cisco 303,
-  BlackRock 84) need `appliedFacets` with opaque per-tenant GUIDs and were ruled out
-  without probing. Live results:
-
-  | board | free-killed | board-side country filter? |
-  |---|---|---|
-  | Amazon | 357 | **yes** — `normalized_country_code[]=USA`, 2,036 → 1,267 hits (38%) |
-  | TikTok | 782 | no — `location_code_list` takes **city** codes only |
-  | ByteDance | 75 | no — same API as TikTok |
-  | Jane Street | 94 | no — static `main.json`, no query params at all |
-  | Oracle | 77 | no — opaque `GeographyId`, level unverifiable |
-
-  **The TikTok negative is the load-bearing one, because it is the biggest board.** Its
-  `city_info` exposes a clean city → state → country hierarchy (`CT_` → `ST_` → `CN_`), so
-  a country filter looks available: US is `CN_6`. It is not. Measured against the live
-  endpoint, `location_code_list: ["CN_6"]` returns **0**, `["ST_1002078"]` returns **0**,
-  and only city codes work — `["CT_114"]` (New York) 181, `["CT_114","CT_157"]` (+Seattle)
-  491, against a 3,651 baseline. Filtering TikTok therefore means enumerating US city
-  codes, which silently drops every US city not on the list and rots the moment
-  `candidate.locations` changes — the failure being indistinguishable from a quiet board.
-  Declined on that basis, not on effort.
-  **Oracle looked possible and could not be confirmed.** `selectedLocationsFacet` and
-  `locationId` both narrow 2,314 → 1,544 with a clean 25/25 US sample, but the value is a
-  15-digit `GeographyId` scraped off one requisition, the facet list is not requestable
-  (`expand=filters.facets.items` → HTTP 400), and 50 rows carry 24 distinct ids — so
-  whether that id means "United States" or a region that happens to contain 1,544 jobs is
-  unknown. Same class as the Workday GUIDs, for the smallest payoff of the five.
-  **Amazon is verified rather than assumed:** 300 of 300 rows sampled across offsets 0,
-  100 and 1,100 come back `USA`, `hits` holds at 1,267, and pagination is unaffected.
-  **And the null-field trap was checked explicitly, because this file teaches that
-  lesson two findings up.** Walking the **whole unfiltered board** (2,035 rows, offsets
-  0-2,000) and reading `normalized_country_code` on every row: **0 rows carry no country
-  code.** The split is `USA 1267 · IND 371 · CAN 111 · ISR 47 · IRL 41 · GBR 28 · BRA 26 ·
-  AUS 23 · MEX 22 · CHN 20 · DEU 15 · ESP 14 · …`, summing to 2,035 — so the filter is an
-  exact partition, not a heuristic, and there is no unjudgeable bucket to drop silently.
-  That is the difference between this and the Susquehanna 0% above, where a NULL field
-  meant "cannot be evaluated" rather than "matches nothing". The
-  38% API-side cut lines up with the 36% free-kill rate this table measured for Amazon.
-  **That agreement is a coincidence, not a check** — the 36% is over rows that reached the
-  *gate*, the 38% over rows *fetched*; different numerators over different denominators.
-  The real corroboration is the A/B below, which compares the two survivor sets directly.
-  **The Amazon filter is applied** — `watched_companies.recipe.url` for `custom/amazon`
-  ends `&normalized_country_code%5B%5D=USA`, verified by driving the real `fetch_company`
-  with the stored recipe rather than the probe: 1,267 postings, all USA, so ~768 rows/pass
-  are no longer fetched, parsed or stored. Revert by deleting the parameter. (`requests`
-  merges `params=` with a URL that already carries a query string, so the
-  `offset`/`result_limit` pagination the recipe adds is unaffected.)
-  **The A/B through the production fetch + gates says the filter is LOSSLESS — this is the
-  number that settles it:**
-
-  | arm | fetched | past `title_filter`/age | past the free gate |
-  |---|---|---|---|
-  | unfiltered | 2,035 | 640 | **411** |
-  | filtered | 1,267 | 411 | **411** |
-
-  Identical survivor set. Of the **768** rows the filter removes from the fetch, **0**
-  would have survived every free gate — so nothing is lost, and the 229 rows the location
-  gate used to kill for Amazon (640 → 411) are simply never fetched now. `prefilter_postings`
-  was called with an explicit `now=`; its default silently disables the age rule.
-  **Do not re-quote the 37% as a live figure.** Driving `deterministic_screen` over the
-  queue after the free-gate sweep gives **0 free-gate kills on 4,430 `new` rows** — what
-  remains is the survivor set by construction. The harness was positive-controlled before
-  that 0 was believed: fed 200 rows already `discarded` with a `location:` reason, it
-  re-killed 200/200. A 0% means the waste was harvested, not that the gate stopped working.
-  **Beyond `custom`: `workday` and `greenhouse` are both measured NOs, and they cover 129
-  of the 172 watchlist rows.** Queue share by source:
-  `custom` 1,599 · `workday` 738 · `greenhouse` 571 · `browser` 529 · `phenom` 239 ·
-  `icims` 148 · `ashby` 128 · rest <30 each.
-  **Workday (28 boards) has no country tier, and fails in the dangerous direction.** The
-  well-known global Workday country GUID for the USA
-  (`bc33aa3152ec42d4995f4791a106ed09`, the reason the "per-tenant GUID" objection looked
-  beatable) was applied as `appliedFacets: {"locationCountry": [...]}` to Micron, Cisco and
-  BlackRock: totals came back **2,725 → 2,725**, **1,018 → 1,018**, **257 → 257**, with
-  Japan and London rows still present. **An unrecognised facet key is silently ignored, not
-  rejected** — so this ships looking like it works. The response's own `facets` array is
-  the authority, and Micron advertises only `timeType`, `workerSubType`, `jobFamilyGroup`
-  and `locationMainGroup`; the last expands to a flat **site-level** list
-  (`Boise, ID - Main Site`, `Bengaluru, India`, `Arzano (NA), Italy`) keyed by per-tenant
-  GUIDs. Filtering Workday therefore means enumerating individual sites per tenant — the
-  TikTok city-enumeration shape, and worse, because the ids are not portable between
-  boards. Read `facets` before believing any Workday filter.
-  **Greenhouse (101 boards) accepts no filter at all**, same silent-ignore shape:
-  `boards-api.greenhouse.io/v1/boards/optiverus/jobs` returns **180** jobs with
-  `?location=United States`, `?country=US` and `?offices=US` alike. Its board genuinely
-  carries the waste (Amsterdam 33, Sydney 31, Shanghai 28 of 180) — there is simply no
-  lever. That is what a board-embed API is *for*: it serves the whole board.
-  **So the generalisation is that this does NOT generalise.** Amazon worked because
-  `amazon.jobs` is a faceted *search* API; the ATS platforms are not. `browser` (529),
-  `phenom` (239), `icims` (148) and `ashby` (128) are unprobed — worth a look only if
-  someone is already in that adapter, since the remaining per-board upside is a fraction
-  of Amazon's 768 rows/pass and every negative so far has cost a live probe to establish.
-  **Whatever is applied, record the board's own pre/post total** (`total_path` for TikTok/
-  ByteDance, `hits` for Amazon). A server-side filter that over-narrows reads exactly like
-  a healthy quiet board, which is the confusion the eighteen zero-yield rows below already
-  caused once.
-  **2. Eighteen watchlist rows have produced ZERO postings, ever** — `ashby/hebbia-ai`,
-  `ashby/uniswap`, `browser/citadel.com`, `greenhouse/aurosglobal`, `b2c2`, `crabel`,
-  `davinciderivatives`, `exoduspoint`, `genevatrading`, `mwinternshipprogram`,
-  `radixexperienced`, `simplextrading`, `walleyecapital-external-students`,
-  `weissassetmanagement`, `lever/tgsmc`, `lever/voleon`,
-  `workday/mlp/wd5/mlpcareers`, `workday/wellington/wd5/Campus`.
-  **It read as nineteen first, and the extra one is a lesson about the query, not the
-  board:** matching postings to watchlist rows by `company_name` wrongly included
-  `greenhouse/headlandstechnologiesllc`, whose watchlist name is *"Headlands
-  Technologies"* while its one ingested posting says *"Headlands Tech Holdings"*. Match
-  on `(source, slug)` — the watchlist's actual key — not on the display name. Zero is not proof of a
-  broken slug — a small board may genuinely carry nothing past `title_filter` — but each
-  costs a fetch six times a day for nothing. This supersedes the three-row deletion
-  decision below: it is eighteen, not three.
-  **The mechanism is now MEASURED, and it is age, not `title_filter` — 2026-07-31.**
-  Fifteen of these boards were probed live through the production `fetch_company`: every
-  slug resolved, every adapter returned cleanly, **not one was broken**. Three serve
-  genuinely nothing (`lever/voleon`, `lever/tgsmc`, `workday/mlp/wd5/mlpcareers`). The rest
-  serve postings that **pass** `title_filter` and then die on `max_age_days` — Virtu 48
-  served / 31 title-ok / 0 surviving, Geneva Trading 14 / 10 / 0, Radix experienced 7 / 6 /
-  0, Maven 36 / 18 / 1. So the zero is a freshness effect on a slow-moving board, not a
-  title-vocabulary one, and a board can sit at zero for weeks while being entirely healthy.
-  Counts as of that date: **5 of 39 `config.yaml` rows and 16 of 172 `watched_companies`
-  rows** at zero lifetime ingest.
-  **Do not measure this with "rows ingested in the last N days".** `upsert_postings` is
-  `ON CONFLICT DO NOTHING`, so a board with stable inventory inserts nothing while serving
-  normally — that metric reports healthy boards as dead. It read as "15 of 39 stale" before
-  being re-run on `(source, slug)` and on lifetime counts.
-  **3. The current filters would refuse 775 of the queued rows that survive the free
-  gates (13% of 5,941)** — **587 on AGE**, 206 on title, 18 on both (569 age-only, 188
-  title-only). At the measured ~0.8
-  paid messages/row that is ~620 messages, over 30% of a weekly window, spent on postings
-  the operator's own config refuses today. A pre-screen re-apply of `prefilter_postings`
-  collects all 775 for free.
-  **A first pass at this measurement said "438, and essentially none on age", and it was
-  an artifact — the lesson is worth more than the number.** `_too_old(posted_at, now,
-  max_age_days)` parses `now` with `date.fromisoformat(str(now)[:10])` and returns
-  **False on ValueError** ("unparseable -> keep"), so calling `prefilter_postings`
-  without an explicit `now` — its own default — silently disables the age rule entirely
-  and reports only title refusals. The err-toward-keep default is right for production
-  and quietly wrong for measurement. Any offline use of this helper must pass `now`.
-  **Yield, for scale:** 18 rows notified in the system's entire history, **5** of them on
-  a watchlist `(source, slug)` — Optiver x2, Tower Research, WorldQuant and Goldman Sachs.
-  Whether any of those came via the *watchlist* rather than the *feed* is **not
-  recoverable from the DB**: nothing records the ingestion path, and both paths write the
-  same `(source, external_id)`. Do not let a board-drop decision rest on it. Per-board
-  *notify* yield is not measurable yet either — 9,381 rows have never been scored — so
-  the decision rests on intake cost and waste share.
-
 - **Boards deliberately held off the watchlist** — `[FETCH · XS · decision recorded]`. Nine
   boards were validated but NOT added, for two reasons that are properties of the
   board, not bugs. (1) *Empty JD*: Uber (277 postings), Netflix (463), Morgan Stanley
@@ -615,19 +289,6 @@
   Chromium render per posting with no stub gate (`browser.py:159`), all of it before
   screening. Uber/Netflix/Morgan Stanley become viable if `custom` gains a
   chained detail call; Citi/Barclays if `custom` gains an HTML mode (both above).
-- **Every paid codex fit call deposits the résumé in `~/.codex/state_5.sqlite`** —
-  `[SCORE · XS · privacy, operator's call]`. `--ephemeral` is unconditional
-  (`backends_codex.py`) and `~/.codex/sessions/` is empty, so no session *rollout* is
-  written — but the prompts persist in the CLI's own state DB anyway: of 318 rows in its
-  `threads` table, **208 carry the `=== RESUME` block inline**, in **three** columns
-  (`first_user_message`, `preview`, `title`). `preview` and `title` are what a session
-  picker renders, so this store is *more* exposed than the rollouts it replaced. It sits
-  outside the repo, so `.gitignore` and `make check-privacy` have never covered it.
-  **Deleting is riskier than reaping a log file** — this is live CLI state, so a row delete
-  wants the CLI stopped and a file copy taken first. Verify read-only before acting:
-  `select count(*) from threads where first_user_message like '%=== RESUME%'`.
-  (`score_workers=4` is unaffected and correct: the concurrency concern here was a rollout
-  cleanup that no longer exists.)
 - **SSRF residual shapes** — `[FETCH · M]`. Three shapes remain reachable (browser-path
   redirect GET · DNS-rebinding · statically-internal hostnames — accepted meanwhile,
   SPEC §11). Closing the DNS shapes needs a resolve-then-check with a TOCTOU-safe
@@ -638,35 +299,16 @@
   invariant (`addApplication`, `markJobApplied`, `importApplicationsCSV`). The hard
   constraint needs a backup + dedupe migration first — the real table may hold
   legitimate duplicate rows (re-applications), so `prisma db push` can't build the
-  index without `--accept-data-loss`. Deferral operator-confirmed 2026-07-19.
+  index without `--accept-data-loss`. Deferral is operator-confirmed.
 - **No schema migration path** — `[INFRA · L]`. `prisma db push` keeps no migration history,
   so a *destructive* change (drop/rename a column) has no backfill or rollback and
   can lose retained `applications` / `status_history` data. Back up
   `db/applications.db` before schema changes. (SPEC §8.)
-- **The claude scoring backend has never run in this deployment** — `[SCORE · XS ·
-  residual of #33]`. `ANTHROPIC_API_KEY` is not set here, so `--score-backend claude`
-  cannot execute at all; the quota half of #33 is verified against the live
-  `/api/oauth/usage` endpoint, but no claude *scoring* pass has ever been observed —
-  `make_claude_scorer` and the `backend: "claude"` snapshot path are covered by tests
-  only. Separately and by design, that endpoint reports the Claude Code SUBSCRIPTION
-  budget while the scorer bills the metered key; the bar states this outright and the
-  honest source for actual spend would be the `anthropic-ratelimit-*` response headers
-  off each call — a different shape (short-window headroom, not a weekly budget), not
-  built. (SPEC §7.1 "Quota telemetry", §7.2.)
-  **Check the SDK floor before the first live run.** `make_claude_scorer` calls
-  `thinking={"type": "adaptive"}` and `output_config={"format": {"type": "json_schema"}}`,
-  while `requirements.txt` floors at `anthropic>=0.40` — old enough to reject both kwargs.
-  The worker runs on system python3, not `apps/worker/.venv` (which has 0.107.1), so
-  confirm the installed version there and raise the floor to match. A first run that dies
-  on a `TypeError` proves nothing about the backend.
-
 ### Found by the deep-clean pass, deferred as behavior changes
 
 The cleanup pass (CLEAN-01..09) was scoped to change no observable behavior. These
 findings each WOULD change behavior, so none was touched; they are recorded here
-rather than left in a PR description. Each cites the evidence that found it. Two of the
-original seven — the `todayISO` UTC rollover and `removeAllInView`'s missing `lowcontext`
-branch — shipped 2026-08-03 and left for CHANGELOG.
+rather than left in a PR description. Each cites the evidence that found it.
 
 - **`util.to_iso_date` returns a 10-char slice where its docstring promises `None`** —
   `[FETCH · S · filter change, governed by err-toward-keep]`. `to_iso_date("not a real
@@ -679,23 +321,14 @@ branch — shipped 2026-08-03 and left for CHANGELOG.
   match is the real fix.
 
 - **`location_verdict`'s `resolved` / `ask_llm` are documented, tested, and then
-  discarded** — `[SCORE · M · contract contradiction, touches SPEC §9]`.
+  discarded** — `[SCREEN · M · contract contradiction, touches SPEC §9]`.
   `location.py:441-445` states that an unresolved location "must NOT be recorded as a
   passing location check", because leaving the key absent is what lets a later free
   extraction fill the gap. But `resolve_location` drops both fields, and
-  `deterministic_screen` (`screen.py:112-114`) writes
+  `deterministic_screen` (`screening/engine.py`) writes
   `screen["location"] = {"pass": passed, ...}` unconditionally. So either the docstring
-  is wrong or the gate is silently blessing unresolved locations. Verified directly on
-  2026-08-01. Resolving it changes screen outcomes and touches a SPEC §9 clause.
-
-- **`no_sponsorship_quote` is a required schema field with no consumer, and the prompt
-  makes a false promise about it** — `[SCORE · S · prompt-byte change, needs
-  eval-screen]`. `score/prompts.py:97` requires the field and `prompts/score.txt:33`
-  tells the model it "is verified against the posting and a sentence that does not
-  appear there is discarded". `_quote_in` was deleted (see `screen.py:687`); nothing
-  reads the field. Removing either changes prompt BYTES, hence model output
-  distribution, hence the Claude cache prefix — so it needs `make eval-screen`, not a
-  cleanup patch. Overlaps `fix/sponsorship-positive-evidence`.
+  is wrong or the gate is silently blessing unresolved locations. Resolving it changes
+  screen outcomes and touches a SPEC §9 clause.
 
 - **The modal and the table coerce `recommended_resume` differently** — `[WEB · XS]`.
   For a non-string value the modal yields `''` (`typeof === 'string'` guard) and the
@@ -712,8 +345,8 @@ branch — shipped 2026-08-03 and left for CHANGELOG.
 
 ## Enhancements — not built, optional
 
-- **Onboarding ANY user, not just the first one** — `[DOCS · L · discussion recorded
-  2026-08-02, nothing decided]`. Tuning the tool for its first user took an afternoon:
+- **Onboarding ANY user, not just the first one** — `[DOCS · L · discussion recorded,
+  nothing decided]`. Tuning the tool for its first user took an afternoon:
   126 golden rows reviewed, four profile rewrites, three paid probes, and a 71-key
   `title_exclude` list that only existed because a session ran ad-hoc SQL over 11,675
   stored titles. The constraints, the measurements, and four open questions are in
@@ -721,15 +354,12 @@ branch — shipped 2026-08-03 and left for CHANGELOG.
   The three that shape any solution: **the free filter matters more than the profile
   prose** (a tuned exclude list cut kept intake 8,851 → 6,099, and seniority tokens
   alone were 21%); **`onboard-me` runs before `onboard-board`, so the DB is empty** and
-  every corpus-driven suggestion has nothing to mine; and **the scorer already names the
-  profile line it used** (99% of 502 stored domain notes state `ANTI: yes/no`, 54% state
-  the tier) — the diagnosis done by hand this session was sitting in `score_detail` all
-  along. Also settled there: the adapters are industry-general, so the audience limit is
+  every corpus-driven suggestion has nothing to mine. Also settled there: the adapters are industry-general, so the audience limit is
   *discovery*, not fetch; feeds are a source concept deserving an `onboard-feed` skill;
   and filters should become DB-owned so in-flight tuning does not need a worker restart.
-- **Bulk watchlist onboarding as a skill** — `[DOCS · M · proposed, not built]`. The
-  2026-07-22 expansion (49 → 172 boards) ran an ad-hoc pipeline worth encoding:
-  read `personal_profile.txt` → parallel company research per target tier → **verify
+- **Bulk watchlist onboarding as a skill** — `[DOCS · M · proposed, not built]`. A
+  one-off watchlist expansion (49 → 172 boards) ran an ad-hoc pipeline worth encoding:
+  read the candidate's target profile → parallel company research per target tier → **verify
   every slug independently of the agent that proposed it** → estimate per-board fetch
   cost → gated bulk insert. It is NOT a phase of `onboard-me`: that skill configures
   the *candidate*, and this one consumes its output to find *companies*, so the natural
@@ -743,9 +373,9 @@ branch — shipped 2026-08-03 and left for CHANGELOG.
   3,567 renders to run); (d) the empty-JD check above. `onboard-board` handles one
   board well; nothing handles a hundred.
 - **429 backoff exists only in `phenom`** — `[FETCH · XS · the one board that actually
-  rate-limited is covered]`. Shipped 2026-07-23 (CHANGELOG): bounded retry + salvage of
-  the pages already walked, in the adapter that lost `careers.qualcomm.com` on the
-  2026-07-22 pass. The other paginating adapters are still bare. Deliberately so —
+  rate-limited is covered]`. `phenom` has bounded retry + salvage of the pages already
+  walked (it lost `careers.qualcomm.com` to a 429 once). The other paginating adapters
+  are bare. Deliberately so —
   12 of the 13 sources have never rate-limited, and a per-source
   `requests_per_second` / `max_concurrency` policy across all of them buys nothing
   measured. Port the same ~15 lines to a second adapter **when a second board 429s**,
@@ -771,9 +401,8 @@ branch — shipped 2026-08-03 and left for CHANGELOG.
   the web's watchlist-add action moves that to write time, and belongs in the same
   boundary as the existing SSRF check on recipe-fetched URLs. Skip a `version` field
   until a second recipe shape actually exists.
-- **Balyasny + Jacobs Levy — primitive shipped, boards not yet added** — `[FETCH · XS ·
-  operator step]`. The `{field}` URL template landed 2026-07-23 (CHANGELOG), which was
-  the *sole* blocker for both: Balyasny (`external_id: {attr: "data-id"}` →
+- **Balyasny + Jacobs Levy — primitive exists, boards not yet added** — `[FETCH · XS ·
+  operator step]`. The `{field}` URL template was the *sole* blocker for both: Balyasny (`external_id: {attr: "data-id"}` →
   `/s/details?jobReq={external_id}`) and Jacobs Levy (5 roles, one static page,
   apply-by-email). Writing the two watchlist rows is a separate operator step — use the
   `onboard-board` skill, which now has the template available to it.
@@ -816,8 +445,7 @@ branch — shipped 2026-08-03 and left for CHANGELOG.
   endpoint needs an `aura.context` `fwuid` hash that rotates every release. Recorded
   so the next attempt starts from the known blocker rather than re-deriving it.
 - **Un-hydrated stub discards have no way back** `[ORCH · S]`. A stub-gate
-  discard is stored with `description=''` on purpose, and `--rescreen-discarded` skips it
-  (requeueing one parks it `scored`/0 permanently). Skipping is not a rescue: nothing
+  discard is stored with `description=''` on purpose. Nothing
   re-hydrates an existing row, because `upsert_postings` is `ON CONFLICT DO NOTHING` and
   the stub gate only decides whether to hydrate *before* insert. Both states are terminal,
   and on a phenom-heavy watchlist that is a large share of the discard table — exactly the
@@ -827,13 +455,12 @@ branch — shipped 2026-08-03 and left for CHANGELOG.
   re-fetch marker) would make them genuinely recoverable. `run_once` now prints the
   skipped count so the gap is visible rather than silent.
 - **Discovered Jobs README screenshot** — `[DOCS · XS]`. The prose is now expanded to Track
-  parity (bucket triage, the per-row "why" subline, the fit-assessment modal, bulk
-  actions). Still missing: an inline screenshot of the tab to match the "Track"
+  parity (bucket triage, the per-row "why" subline, bulk actions). Still missing: an inline screenshot of the tab to match the "Track"
   images. Needs a seeded throwaway DB (never the real `db/applications.db` — see the
-  privacy note in §11/CHANGELOG on the existing screenshots) and a richer fixture than
-  the e2e seed, which only populates the Matched + Discarded buckets.
+  privacy note in SPEC §11 on the existing screenshots) and a richer fixture than the
+  e2e seed. Wait for the read-only dashboard (#158) to settle the tab's shape.
 - **Dead-link sweep — board sources uncovered** — `[FETCH · M · needs a per-board signal]`.
-  `run_expire` (shipped) only re-checks **detail sources**, the ones with a per-job
+  `run_expire` only re-checks **detail sources**, the ones with a per-job
   endpoint. A posting from a board source (greenhouse/lever/ashby/…) goes dead
   silently. Closing it means diffing each board's current listing against the
   ingested rows — a different mechanism, and a *fetch failure* must never be read as
@@ -849,26 +476,19 @@ branch — shipped 2026-08-03 and left for CHANGELOG.
   endpoint (unauthenticated, zero-dep; personal-use / ToS caveat, keep volume low);
   JobSpy as a possible fallback aggregator.
 - **Remaining feed coverage (the `feed_unresolved` long tail)** — `[FETCH · M · needs
-  iCIMS/ByteDance feed routers]`. Resolution sits at ~78% after tier 1 — a figure from the
-  last run the feed was on; the table now holds **0 rows** and re-measures on the first pass
-  after the 2026-07-28 re-enable. What's left
+  iCIMS/ByteDance feed routers]`. Resolution was ~78% after tier 1 (a sample; re-measure
+  from `feed_unresolved`). What's left
   is iCIMS + ByteDance — both plain HTTP (iCIMS ships as a list adapter, TikTok as a
   `custom` recipe), but closing the *feed* tail still needs a `resolve_url` host
   router + a per-listing `fetch_one`, which the list adapters don't provide.
   **Dropped:** greenhouse embed-token (job id only, no board slug); SuccessFactors
   (absent from feed).
 - **Deployment / monitoring** — `[INFRA · L · open-ended]`. `ats-web` has a DB-reachability
-  healthcheck + `autoheal`, and the worker is **supervised and running** as of
-  2026-07-28 (a systemd user unit, journald for logs — SPEC §6). What is still missing is
+  healthcheck + `autoheal`, and the worker is **supervised** (a systemd user unit,
+  journald for logs — SPEC §6). What is still missing is
   *detection*, and it matters more now that nobody is watching each pass:
   `Restart=always` brings a crashed worker back, but a worker that is up and quietly
   producing nothing — a dead board adapter, a screen backend answering blind — still
   shows only in the DB.
-  There is no metrics/alerting beyond the per-job Telegram notification. Includes the deferred scraper **canary self-tests** and
-  proactive Telegram/banner alerting for silently-broken scrapers (SPEC §9 points
-  here).
-- **AI fetch+score fallback for unparseable JDs** — `[FETCH · L · optional]`. Where text
-  extraction fails (JS-rendered / bot-walled / odd markup), let the scorer's model
-  fetch the job page and score fit directly from the raw page, bypassing
-  parse-then-score. Candidate landing spot for the iCIMS/ByteDance tail if a plain
-  fetch isn't enough.
+  There is no metrics/alerting at all. Includes the deferred scraper **canary self-tests**
+  and proactive alerting for silently-broken scrapers (SPEC §9 points here).

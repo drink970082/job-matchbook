@@ -122,8 +122,7 @@ def fetch(slug: str, company_name: str, session: requests.Session | None = None,
     stub, but a workday stub has no GUID — `parse_job` takes external_id from the
     detail payload — so the row would key on jobReqId and a later hydration would
     insert a SECOND row under the GUID. Every non-'drop' verdict therefore falls
-    through and hydrates, which is also the fail-open path for a broken predicate.
-    See docs/superpowers/specs/2026-07-21-stub-gate-design.md §Scope."""
+    through and hydrates, which is also the fail-open path for a broken predicate."""
     tenant, dc, site = _parts(slug)
     cxs = _CXS.format(tenant=tenant, dc=dc, site=site)
 

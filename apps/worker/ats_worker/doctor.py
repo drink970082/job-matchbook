@@ -22,10 +22,10 @@ from collections import namedtuple
 
 Check = namedtuple("Check", "label ok detail core")
 
-# Imports needed to run one pass on the DEFAULT (codex) path; a miss means
-# `make setup` was skipped. `anthropic` (claude backend only) and `apscheduler`
-# (cron daemon only) are deliberately excluded — both import lazily, so requiring
-# them here would false-fail the default codex + `--once` user.
+# Imports needed to run one fetch -> screen pass; a miss means `make setup` was
+# skipped. `anthropic` (claude-api screen only) and `apscheduler` (cron daemon only)
+# are deliberately excluded — both import lazily, so requiring them here would
+# false-fail a `--once` user on the default ollama screen.
 _WORKER_DEPS = ("requests", "bs4", "yaml", "pycountry", "geonamescache")
 _DEFAULT_DB = "../web/prisma/applications.db"   # matches run.py --db default
 _DEFAULT_OLLAMA = "http://localhost:11434"
@@ -125,6 +125,7 @@ def run_checks(*, env, find_spec, which, http_get, connect, db_path, run_cmd) ->
     main() wires importlib / shutil / requests / sqlite3 / subprocess."""
     anthropic_ok = bool(env.get("ANTHROPIC_API_KEY"))
     openai_ok = bool(env.get("OPENAI_API_KEY"))
+    openrouter_ok = bool(env.get("OPENROUTER_API_KEY"))
     return [
         _dep_row(find_spec),
         _db_row(db_path, connect),
@@ -138,6 +139,9 @@ def run_checks(*, env, find_spec, which, http_get, connect, db_path, run_cmd) ->
         Check("openai api key", openai_ok,
               "set" if openai_ok
               else "unset (needed only for SCREEN_BACKEND=openai-api)", core=False),
+        Check("openrouter api key", openrouter_ok,
+              "set" if openrouter_ok
+              else "unset (needed only for the --jev keep/skip filter)", core=False),
         _which_row("node", "node", which),
         _which_row("docker", "docker", which),
         _daemon_dep_row(find_spec),
@@ -180,7 +184,7 @@ def main(argv=None) -> int:
               f"({', '.join(c.label for c in core_fail)}). Provider rows are informational.")
         return 1
     print("core prerequisites present. Provider rows above are informational — "
-          "onboard-me Step 0 reads them to pick your screen/score path.")
+          "onboard-me Step 0 reads them to pick your screen path.")
     return 0
 
 

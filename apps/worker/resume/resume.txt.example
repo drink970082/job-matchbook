@@ -1,7 +1,7 @@
 TEMPLATE plain-text resume — REPLACE with your own content.
 
-This plain-text résumé is fed to the Claude fit scorer (the local Ollama screen
-never sees the résumé — only the job's hard requirements).
+This plain-text résumé is for the AI client that reviews jobs with you over MCP.
+The worker never reads it — the screen sees only the job's hard requirements.
 
 To keep personal edits out of git:
   git update-index --skip-worktree resume/resume.txt

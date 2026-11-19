@@ -1,7 +1,7 @@
 # The `candidate:` block in `config.yaml`
 
 Hard constraints are the ONLY things that **discard** a posting; a missing *skill* is
-not one (that just lowers the fit score — skills live in the résumé).
+not one (fit is the AI client's judgment — skills live in the résumé).
 
 Edit these under `candidate:` (leave any one **blank** to *not* screen on it; blank
 everything to disable disqualification):
@@ -14,8 +14,8 @@ everything to disable disqualification):
 - `exclude_internships` — `true`/`false` (deterministic, by title).
 
 Optionally set `title_filter` — a coarse, **title-only** substring keep-list applied
-before the scorer. Leave it empty unless a high-volume company floods them with
-off-target titles; the scorer does the real relevance work.
+at fetch time, before any model call. Leave it empty unless a high-volume company
+floods them with off-target titles; relevance is judged downstream.
 
 ## Two rules that bite
 

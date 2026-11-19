@@ -7,6 +7,30 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 
 ## [Unreleased]
 
+### Removed
+
+- **Pre-launch cleanup.** 35 `docs/superpowers` specs/plans/notes for shipped or
+  removed work (recoverable at `7f0b297`); fit-scorer and Telegram wording across docs,
+  skills, templates, the deploy unit and compose; the unused `DEFAULT_SCREEN_WORKERS`.
+  `SCORING.md` is now the screen reference (1760 -> 863 lines); `REJECTED.md` and
+  `ENGINEERING_CATALOGUE.md` lose their removed-code entries.
+- **The unwired seniority classifier** (`seniority.py`, `prompts/seniority.txt`,
+  `tools/seniority_eval.py`, `make eval-seniority`). JEV's `required_yoe_for_candidate`
+  question does this job. `candidate.years_experience` is now accepted and ignored.
+- **The Astra/Sol + Luna/max role split** from CLAUDE.md, AGENTS.md, DEVELOPMENT and
+  session-boot; DEVELOPMENT keeps a model-neutral "Handoff and review".
+
+### Changed
+
+- **Node 20 (EOL) -> Node 24 LTS** in CI and the web image (`node:24-alpine`, pinned).
+
+### Fixed
+
+- **`config.yaml.bak-*` was untracked and unignored.** `.gitignore` and
+  `make check-privacy` now cover every `config.yaml*` except the `.example`.
+- `make doctor` reports `OPENROUTER_API_KEY` (needed by `--jev`); `.env.example`
+  documents it. CI runs with a read-only token and cancels superseded PR runs.
+
 ### Added
 
 - **Web shows MCP writes**: the application history dialog marks an MCP-created
@@ -451,7 +475,7 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
   is owed separately.
 - **Bounded fit extraction, in shadow: a concept vocabulary, four provenance hashes, a
   schema that emits no numbers, and a stratified frame.** Steps 0-2 of
-  [`docs/superpowers/plans/2026-08-03-fit-scoring-rebuild.md`](./docs/superpowers/plans/2026-08-03-fit-scoring-rebuild.md).
+  [`docs/superpowers/plans/2026-08-03-fit-scoring-rebuild.md`](https://github.com/drink970082/job-matchbook/blob/7f0b297558/docs/superpowers/plans/2026-08-03-fit-scoring-rebuild.md).
   Today's fit call asks a model to read the operator's preference document and return a
   three-way `domain` judgment plus a calibrated 0-100 number. Both halves are measured
   problems: the number has a **13-point median cross-model difference** (p90 33, max 53)

@@ -76,10 +76,7 @@ def test_unknown_top_level_key_raises():
 
 
 def test_unknown_candidate_key_raises():
-    # Likewise for a stale or typo'd key under `candidate`. This used to use
-    # `years_experience` as its example -- that key came BACK on 2026-07-31 as a real
-    # field (the free seniority pre-ordering reads it), so the example moved to a key
-    # that is genuinely not one.
+    # Likewise for a stale or typo'd key under `candidate`.
     with pytest.raises(config.ConfigError, match="favourite_colour"):
         config.load_config("companies: []\ncandidate:\n  favourite_colour: blue\n")
 
@@ -332,17 +329,7 @@ def test_config_rejects_non_int_max_age():
         config.load_config("companies: []\nmax_age_days: soon\n")
 
 
-def test_years_experience_defaults_to_new_grad_and_parses(tmp_path):
-    # It feeds the FREE seniority pre-ordering only -- never a screen check, so it can
-    # never discard a posting. 0 is the stage the 2026-07-30 measurement calibrated on.
-    base = tmp_path / "c.yml"
-    base.write_text("companies: []\ncandidate: {locations: [remote]}\n")
-    assert config.load_config(str(base)).candidate.years_experience == 0
-
-    base.write_text("companies: []\ncandidate: {locations: [remote], years_experience: 6}\n")
-    assert config.load_config(str(base)).candidate.years_experience == 6
-
-    # and it stays a fail-loud key like every other one
-    base.write_text("companies: []\ncandidate: {years_experience: many}\n")
-    with pytest.raises(config.ConfigError):
-        config.load_config(str(base))
+def test_a_retired_years_experience_key_is_accepted_and_ignored():
+    # The seniority classifier that read it is deleted; an old config must still load.
+    cfg = config.load_config("companies: []\ncandidate: {years_experience: 6}\n")
+    assert cfg.candidate.years_experience is None

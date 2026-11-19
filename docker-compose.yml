@@ -125,8 +125,6 @@ services:
       start_period: 10s
 
 # NO worker service — the worker runs NATIVELY on the host (see docs/SPEC.md §6).
-# It was containerized until 2026-07-16; removed because the fit scorer now shells out
-# to the Codex CLI, which authenticates from the operator's ~/.codex/auth.json `codex
-# login` state. Containerizing that means baking a 285 MB binary into the image AND
-# mounting a live subscription token into it — for a service that was already pinned to
-# the host by Ollama's GPU. Run it with `python -m ats_worker.run` (see SPEC §7.1).
+# It is pinned to the host by Ollama's GPU, and the CLI screen backends authenticate from
+# the operator's own `codex`/`claude` login — containerizing those means baking the CLI
+# into the image AND mounting a live subscription token into it. Run it with `python -m ats_worker.run` (see SPEC §7.1).

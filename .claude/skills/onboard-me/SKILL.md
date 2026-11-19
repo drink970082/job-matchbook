@@ -2,23 +2,24 @@
 name: onboard-me
 description: >-
   Use when someone wants this job-search tool (ATS / tracker / worker / pipeline)
-  set up, configured, or personalized for THEIR own hunt — so it screens and scores
-  real postings against their background and résumé. Trigger on "set me up", "get me
+  set up, configured, or personalized for THEIR own hunt — so it screens real
+  postings against their hard requirements and holds the profile and résumé their AI
+  client judges fit from. Trigger on "set me up", "get me
   started", "onboard me", or "walk me through setup" — and, just as important,
   whenever they simply describe themselves (target roles, level, a career switch, a
   résumé file or path) or their must-haves (remote-only, no relocation, visa
   sponsorship, a degree, clearance) and want the tool tuned to match jobs for them.
   Covers the full fresh-checkout walkthrough AND configuring any single input on its
-  own: fit profile, résumé ingestion, tracking categories, or hard requirements. Do
+  own: about-me profile, résumé ingestion, tracking categories, or hard requirements. Do
   NOT trigger for operating an already-set-up tool: adding one company (that's
-  onboard-board), rewording a loaded résumé, scheduling runs, fixing broken alerts,
-  or explaining scorer verdicts.
+  onboard-board), rewording a loaded résumé, scheduling runs, or explaining screen
+  verdicts.
 ---
 
 # Onboard a new user
 
 The engine is **persona-agnostic** — it fits *any* field. Everything that makes a
-run personal lives in **data the user provides**, never in the scorer's prompt. Your
+run personal lives in **data the user provides**, never in a prompt. Your
 job is to hold one friendly interview and turn the answers into that data, so a
 first-time checkout becomes a pipeline tuned to *this* person's search.
 
@@ -29,8 +30,11 @@ files.
 
 **Never touch `apps/worker/ats_worker/prompts/screen.txt`.** Generality is supposed to live
 in the user's data (hard requirements, profile, résumé), not the prompt. The running
-pipeline only *screens* postings against hard requirements; it does not score fit. The
-profile and résumé are kept for the ranking work, not read by the worker today.
+pipeline only *screens* postings against hard requirements; it does not score fit.
+**The worker never reads the profile or résumé.** They are private inputs for the AI
+client (ChatGPT / Claude / Codex) that reviews jobs over MCP — the user attaches them
+to that client's project or task. The optional paid JEV keep/skip filter reads its own
+prepared `jev_dir` packs (`config.yaml.example`), which this skill does not build.
 
 ## What you'll produce (all gitignored personal data)
 
@@ -77,6 +81,8 @@ pick this user's path; never demand all of them go green.
 | codex CLI | Only needed for `SCREEN_BACKEND=codex` (ChatGPT subscription, `codex login`) |
 | claude CLI | Only needed for `SCREEN_BACKEND=claude-code` (subscription, no key) |
 | anthropic api key | Only needed for `SCREEN_BACKEND=claude-api` (metered) |
+| openai api key | Only needed for `SCREEN_BACKEND=openai-api` (metered) |
+| openrouter api key | Only needed for the optional paid `--jev` filter |
 | node · docker | Only for the web app, not the pipeline |
 
 Report what's actually missing *for the path they want*, in a line. Never fabricate a
@@ -107,8 +113,7 @@ once, reuse it across steps 2–6. What you need to end up with:
   authorization / sponsorship, where they can legally work (locations / remote),
   minimum degree, security clearance, interns-only-or-not. These are HARD filters —
   distinct from "nice to have."
-- **Anti-targets** — roles they'd pass the résumé screen for but don't want (so the
-  scorer marks them down).
+- **Anti-targets** — roles they'd pass the résumé screen for but don't want.
 - **Genuine interests** — the one honest lever that legitimately *raises* fit
   (fintech, dev tools, climate…).
 - **Résumé** — where's the file? (path to a PDF / .txt / .docx.)
@@ -119,12 +124,12 @@ blank section beats a made-up one.
 
 ## Step 2 — write `personal_profile.txt` (the high-value piece)
 
-This is the biggest lever. `personal_profile.txt` is short about-you context the fit
-scorer reads on **every** call; its **domain verdict** (does this role *suit* this
-person?) is judged against the TARGET / ANTI-TARGET tiers you write here.
+This is the biggest lever for the AI client's review. `personal_profile.txt` is short
+about-you context it judges each posting against: does this role *suit* this person,
+by the TARGET / ANTI-TARGET tiers you write here?
 
-Write `apps/worker/resume/personal_profile.txt` with exactly these six section
-headers, which the scorer keys on: **STAGE**, **TARGET** (priority order),
+Write `apps/worker/resume/personal_profile.txt` with these six section headers:
+**STAGE**, **TARGET** (priority order),
 **ANTI-TARGETS**, **POSITIONING**, **INTERESTS**, **CAVEATS**. Structure matches
 `apps/worker/resume/personal_profile.txt.example`.
 
@@ -157,7 +162,7 @@ found" error means Step 0's `make setup` hasn't run; run it first.)
 ## Step 4 — candidate hard-constraints (`config.yaml`)
 
 Hard constraints are the ONLY things that **discard** a posting; a missing *skill*
-is not one (that just lowers the fit score — skills live in the résumé). Copy the
+is not one (fit is the AI client's judgment — skills live in the résumé). Copy the
 template if `config.yaml` doesn't exist yet, then edit the `candidate:` block from
 the dealbreakers you gathered:
 
@@ -172,9 +177,8 @@ a YAML writer strips the template's comments.
 
 ## Step 5 — ingest their résumé
 
-The scorer judges fit on résumé *content*, not formatting, so all it needs is clean
-readable text at `apps/worker/resume/resume.txt`, in UTF-8 (a non-UTF-8 file aborts
-worker startup).
+The AI client judges fit on résumé *content*, not formatting, so all it needs is clean
+readable UTF-8 text at `apps/worker/resume/resume.txt`.
 
 - **`.txt`** — copy it in.
 - **PDF** — read it directly (your Read tool renders PDFs), then write the text out.
@@ -182,7 +186,7 @@ worker startup).
   `<w:t>` runs), not the raw markup**. Don't add a parsing dependency for this.
 
 [`references/resume.md`](references/resume.md) has the fallbacks for a file that won't
-render and the multi-version naming rule — read it if the résumé isn't a clean single
+render and the multi-version naming convention — read it if the résumé isn't a clean single
 `.txt`/PDF, or if they want role-targeted versions. That file is gitignored personal
 data; never commit it.
 
@@ -206,6 +210,8 @@ is left is filling in values **only the user can give you**. Fill them into
 - **Screen backend** — default `ollama` is free and local. No GPU? `SCREEN_BACKEND=codex`
   (ChatGPT subscription, `codex login`) or `claude-code` (Claude subscription) need no
   key; `claude-api` / `openai-api` need a key and are metered.
+- `OPENROUTER_API_KEY` — only for the optional paid `--jev` filter. Leave it unset
+  unless they already have prepared JEV packs; nothing else needs it.
 
 **Verify, don't fabricate.** Never invent a token or key. If a prereq is genuinely
 missing, say so plainly and point at `docs/SETUP.md` — a clear "you still need X" is

@@ -81,11 +81,11 @@ feeds:
     categories: ["Software", "AI/ML/Data", "Quant"]
     # url: ""                   # optional override of the listings.json URL
 
-# OPTIONAL coarse pre-filter, applied at fetch time BEFORE the LLM scorer. Keep a
+# OPTIONAL coarse pre-filter, applied at fetch time BEFORE any model call. Keep a
 # posting only if its TITLE contains ANY of these (case-insensitive substring).
 # Title-only on purpose — matching the description would let almost every JD
-# through. It exists only to avoid scoring obviously-irrelevant roles at high-volume
-# companies; the scorer does the real relevance judging, so leave it empty unless a
+# through. It exists only to avoid screening obviously-irrelevant roles at high-volume
+# companies; relevance judging happens downstream, so leave it empty unless a
 # company floods you with off-target postings. Geography is NOT handled here — use
 # candidate.locations below (the LLM understands a New York role satisfies "USA").
 title_filter: []              # e.g. ["engineer", "developer"]
@@ -103,7 +103,7 @@ title_filter: []              # e.g. ["engineer", "developer"]
 title_exclude: [intern, internship, "co-op", sales, principal, staff, director]
 
 # Optional fetch-time freshness gate: drop a posting whose posted_at is older than
-# this many days before it is ever screened/scored. 0 or omitted = off. Boards that
+# this many days before it is ever screened. 0 or omitted = off. Boards that
 # don't publish a date (posted_at null) are always kept.
 max_age_days: 30
 
@@ -111,19 +111,13 @@ candidate:
   # Your HARD requirements — the ONLY things that DISQUALIFY (discard) a posting.
   # The LLM screens each field below pass/fail per posting (judged semantically, so
   # "no sponsorship" or "USA covers New York" work by meaning, not keyword match).
-  # A missing skill/technology is NOT here — that only lowers the fit score; your
-  # skills live in the résumé. EVERY field is optional — leave one blank to not
+  # A missing skill/technology is NOT here — the screen never judges fit. EVERY field is optional — leave one blank to not
   # screen on it; leave everything blank to disable disqualification entirely.
   highest_degree: "Master's"          # none | High School | Associate | Bachelor's | Master's | PhD
   work_authorization: "needs visa sponsorship"   # citizen | permanent resident | authorized-no-sponsorship | needs visa sponsorship
   security_clearance: "none"          # none | confidential | secret | top secret
   locations: ["remote"]               # where you can actually work (on-site roles elsewhere are discarded)
   exclude_internships: true           # deterministic: discard intern/co-op roles by job title (no LLM)
-  years_experience: 0                 # years of professional experience. NOT a screen
-                                      # check and it can never discard a posting: it
-                                      # feeds the FREE seniority pre-ordering, which
-                                      # sends a posting stating a bar you don't clear to
-                                      # the BACK of the score queue. 0 = new grad.
 
 schedule_hours: 24         # hours between WALL-CLOCK passes (00:00, then every N).
                            # Must divide 24: 1, 2, 3, 4, 6, 8, 12, 24. Anything else

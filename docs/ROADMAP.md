@@ -1,110 +1,53 @@
-# Roadmap — ChatGPT-first job research
+# Roadmap — AI-orchestrated job research
 
-**Direction:** Job Matchbook supplies reliable job evidence, tracking and tools;
-ChatGPT supplies primary judgment, supplemental search and recommendation delivery.
-**Screening remains supported optional assistance.** The old fit scorer and Telegram
-notifications are removed; review ranking is the JEV track (#135).
+**Direction:** Job Matchbook supplies reliable job evidence, tracking and tools; the AI
+assistant supplies judgment, supplemental search and recommendation delivery, and
+(epic #152) orchestrates the system through MCP. The hard-requirements screen and the
+JEV keep/skip filter are optional assistance.
 
-This file orders future work. It does not claim the features below are shipped or
-change CLI defaults. [ARCHITECTURE](ARCHITECTURE.md) defines boundaries;
-[SPEC](SPEC.md) defines current behavior; [PROGRESS](PROGRESS.md) owns branch claims.
+This file orders unfinished work. [ARCHITECTURE](ARCHITECTURE.md) defines boundaries;
+[SPEC](SPEC.md) defines current behavior; [PROGRESS](PROGRESS.md) owns branch claims;
+issues own scope and status.
 
-## Feature ownership and readiness
+## Feature readiness
 
 | Feature | Current state | Direction |
 |---|---|---|
 | Board/feed discovery and JD hydration | Shipped | Core; improve coverage and evidence quality |
 | Applications, history, CSV and watchlist UI | Shipped | Core; preserve data and manual workflows |
-| Read-only MCP and full-text chunks | Shipped | Core; improve research-oriented queries |
+| MCP read tools, full-text chunks, application write tools and workflow prompts | Shipped (writes need `ATS_API_KEY`, #154/#159) | Core; becomes the main channel under #152 |
+| All-jobs inventory with advisory screening | Shipped | Preserve the safe inventory and application-action boundaries |
 | Standalone Luna/medium screening | Shipped, operator-selected | Retain as low-cost assistance |
-| Browsing unscored jobs in the UI | All-jobs inventory and advisory screening are available | Preserve the safe inventory and application-action boundaries |
-| Source lifecycle for unscored rows | Bounded one-shot refresh supports SmartRecruiters; other sources remain unsupported | Extend only with verified source-specific identity and closure signals |
-| Daily Brief using ATS plus web | User workflow, unattended acceptance outstanding | Preferred judgment/delivery experience |
-| Saved recommendation history and web-job imports through MCP | No write tools | Deferred, separately designed |
-| JEV/System One assistance | Provider-free profile/replay, shadow assessment and synthetic evaluation tooling are merged; real replay remains `INCONCLUSIVE` without complete source pools and labels | Prepare the real cohort under #131 after version-scoped input approval; run #132 only with separately approved provider, resource and spend limits |
+| JEV keep/skip filter | Deployed (`--jev`, #139); `skip` hidden by default in MCP | Drain the pre-filter backlog; ranking stays gated under #135 |
+| Loopback write API `/api/v1` | Shipped (#153) | Foundation for MCP writes |
+| Source lifecycle for unscored rows | Bounded refresh supports SmartRecruiters only | Extend only with verified source-specific identity and closure signals |
+| Daily Brief using ATS plus web | Interactive workflow works; unattended acceptance outstanding | Preferred judgment/delivery experience |
 
-## Delivery sequence and issues
+## Delivery order
 
-Issues own scope, dependencies and status; this document owns product order. Labels
-classify work, not execution readiness. Astra/Sol owns architecture/docs/acceptance;
-Luna at max effort owns all implementation and fixes. See [DEVELOPMENT](DEVELOPMENT.md#agent-ownership-and-handoff).
-
-| Order | Deliverable | Dependencies / selection | Execution |
+| Order | Deliverable | Dependencies | State |
 |---|---|---|---|
-| Workflow gate | [#94 Scheduled Daily Brief](https://github.com/drink970082/job-matchbook/issues/94) | Deployed read-only tunnel and account/workspace task access | Orchestrator verifies actual unattended access |
-| Conditional extension | [#95 Delivery ledger](https://github.com/drink970082/job-matchbook/issues/95) | #94; observed repeats and write design approval | Deferred |
-| Selected preparation | [#135 JEV ranking → MCP](https://github.com/drink970082/job-matchbook/issues/135) | Operator reports approximately 200/day exceeds current review capacity | Packages P1–P6 (#137–#142); preselection offline tooling (#117–#119, #129) is its foundation |
+| 1 | [#152 AI-orchestrated ATS](https://github.com/drink970082/job-matchbook/issues/152): #155 triage override, #156 watchlist tools, #157 preferences/profile in the DB, #158 read-only web dashboard, #159 workflow text in MCP | #153 (merged) | In flight |
+| 2 | [#94 Scheduled Daily Brief](https://github.com/drink970082/job-matchbook/issues/94) | Deployed tunnel and account/workspace task access | Unattended acceptance outstanding |
+| 3 | [#135 JEV ranking -> MCP](https://github.com/drink970082/job-matchbook/issues/135) | Keep/skip filter (#139) deployed | Ranking activation gated |
+| Conditional | [#95 Delivery ledger](https://github.com/drink970082/job-matchbook/issues/95) | #94; observed repeats | Deferred |
 
-The source-lifecycle contract is in [SPEC](SPEC.md). The deployed read-only MCP exposes
-source state and check timestamps. Legacy rows without source evidence still require
-unknown freshness and official-page availability checks in the #94 Brief. #95 remains a
-conditional delivery-history extension.
+## Daily Brief acceptance (#94)
 
-## R1 — Research queries and visible job inventory
+Use the [Daily Brief task instructions](reports/2026-10-23-daily-brief-instructions.md);
+the [interactive baseline](reports/2026-10-22-ats-chatgpt-research-baseline.md) covers
+MCP pagination, complete JD chunks and application URL comparison, not unattended
+access. Acceptance needs one observed unattended run with durable private preferences,
+full JD reading, application-history deduplication without posting links, unknown
+sponsorship/pay reporting and source-failure reporting. Company/title similarity is a
+review signal, not verified requisition identity. At 20:00 America/New_York the brief
+must disclose its evidence cutoff; the worker pass starting then is not guaranteed
+complete. If scheduling is unavailable, record the blocker and the manual fallback; do
+not silently introduce paid API orchestration.
 
-The first two implementation batches share an [approved scope and contract](superpowers/specs/2026-10-22-research-inventory-design.md):
+## Pick rule
 
-- [Batch 1 plan](superpowers/plans/2026-10-22-batch-1-mcp-research.md): bounded screen
-  summaries/outcome filters, opt-in literal full-JD search, screen update windows, eligible
-  backlog counts and per-result timestamp correction. Existing read-only tools/defaults
-  remain compatible. Current-state pagination uses overlap/reconciliation, not a claim
-  of exact event delivery or cross-request snapshots.
-- [Batch 2 plan](superpowers/plans/2026-10-22-batch-2-job-inventory.md): default inventory
-  without fit prerequisites, standalone screen labels, retained fit views and safe existing
-  application actions. No new bulk destructive actions for new inventory views.
-
-Acceptance includes an older posting assessed today, frozen-dataset pagination, concurrent
-update limitations, visible provider errors, new unscored jobs and identical list/action
-scope. Use synthetic data; never hard-code live application counts. Local checks do not
-claim deployment or unattended ChatGPT verification.
-
-## R2 — Source quality and collection policy
-
-The bounded source-lifecycle behavior is specified in [SPEC](SPEC.md): eligible unscored
-SmartRecruiters rows can be refreshed with 1–25 exact-ID requests, content changes
-invalidate prior assessment freshness, and ambiguous responses do not confirm closure.
-Other adapters remain outside the supported refresh contract because their identity and
-terminal signals differ. The source-only refresh does not change collection gates,
-retention, or application history. The deployed MCP exposes lifecycle fields; a Brief can report stored source freshness
-only when those fields contain valid evidence.
-
-## R3 — ChatGPT workflow acceptance
-
-#94 validates an actual unattended task after the retrieval/UI batches. Durable private
-preferences, full JD reading, application-history deduplication without posting links,
-unknown sponsorship/pay and source failure reporting are required. Company/title similarity
-is a review signal, not verified requisition identity. No fixed ATS/web recommendation quota.
-
-The [interactive baseline](reports/2026-10-22-ats-chatgpt-research-baseline.md) exercised
-MCP pagination, complete JD chunks and application URL comparison. It does not establish
-the source freshness cutoff or unattended ChatGPT access; #94 must verify those against
-the deployed tunnel and an actual scheduled run.
-
-Use the [Daily Brief task instructions](reports/2026-10-23-daily-brief-instructions.md)
-to prepare and accept the scheduled workflow. They are an example, not evidence that the
-operator's ChatGPT account has the required scheduling and connected-tool access.
-
-At 20:00 America/New_York disclose the evidence cutoff; the worker pass starting then is
-not guaranteed complete. Confirm product/account capabilities in the actual environment.
-An interactive chat does not prove unattended tunnel access. If scheduling is unavailable,
-record the blocker and manual fallback; do not silently introduce paid API orchestration.
-Cross-day recommendation dedup remains best-effort without #95's separately approved ledger.
-
-## R4 — Review ranking (JEV)
-
-The old fit scorer is removed; screening stays. The operator reports that approximately
-200 daily postings exceed the current workflow's capacity and selects review ranking:
-the JEV track, epic [#135](https://github.com/drink970082/job-matchbook/issues/135),
-packages P1–P6 (#137–#142), built on the preselection offline tooling on `main`
-(#117–#119, #129). This reported need is not a benchmark, model selection or accepted
-evaluation result; ranking activation stays gated by those packages. See
-[EVALUATION](EVALUATION.md).
-
-## Deferred extensions and pick rule
-
-#95 may precede any model work if repeated recommendations become the actual bottleneck.
-Web-job import, agent-invoked refresh and standard search/fetch compatibility remain
-unselected ideas. JEV/System One has selected preparatory work, with no automatic live
-inference or runtime scheduling. Writes need explicit provenance,
-authorization and lifecycle contracts. Prefer source quality, retrieval and verified user
-workflows; choose further inference only when those observations justify it.
+#95 may precede model work if repeated recommendations become the actual bottleneck.
+Web-job import and agent-invoked refresh are unselected ideas. Writes need explicit
+provenance, authorization and lifecycle contracts. Prefer source quality, retrieval and
+verified user workflows; choose further inference only when observations justify it.

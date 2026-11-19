@@ -47,14 +47,15 @@ kept, not dropped. Scope: *opportunity* uncertainty only — see
 
 **4. Cheap optional assistance; primary judgment belongs in the user workflow.**
 Use the cheapest adequate backend for repeated assistance. Keep discovery and evidence
-access independent of completing fit scores; let ChatGPT apply personal context and
+access independent of any model verdict; let ChatGPT apply personal context and
 make primary recommendations. Subscription inclusion is not unlimited allowance.
 - *Why:* source quality, retrieval and durable tracking are useful before any model
   verdict. Low-cost Luna/medium assistance remains valuable without duplicating the
   whole ChatGPT decision process in the worker.
-- *In this repo:* a worker pass is fetch -> screen (fetch-only stops before the screen);
-  Codex Luna/medium is selected for screening. There is no fit scorer. MCP exposes facts
-  and separate assessment state.
+- *In this repo:* a worker pass is fetch -> screen, plus the optional JEV keep/skip filter
+  (`--jev`, capped per pass by `--jev-max-usd`); fetch-only stops before the screen. Codex
+  Luna/medium is selected for screening. There is no fit scorer. MCP exposes facts and
+  separate assessment state.
 - *Smell:* deleting useful assistance just to claim zero cost; making every job buy a
   model call before it is visible; treating a screen measurement as validation of a
   ranking model;
@@ -75,9 +76,10 @@ nothing is silently swallowed.
 keep going.
 - *Why:* the pipeline runs unattended on a schedule; one flaky posting must not cost
   the other four hundred.
-- *In this repo:* every stage wraps each item in try/except — recorded via
-  `mark_failed` (with `pipeline_error`) or skipped when no row exists yet
-  (`run_fetch`); `run_feed` isolates per-group and per-id.
+- *In this repo:* every stage wraps each item in try/except — the screen and JEV store a
+  `provider_error` row with a fixed `error_category` (retried next pass), and a failure
+  with no row yet is logged and skipped (`run_fetch`); `run_feed` isolates per-group and
+  per-id.
 - *Smell:* a loop where one raise kills the pass; batch-level abort on item-level
   errors.
 
@@ -141,7 +143,7 @@ data, not instructions.
 - *Why:* the repo is public-shaped; one leaked commit is unrecoverable. And a JD is
   attacker-controlled text that flows into prompts.
 - *In this repo:* all four paths are gitignored; `skip-worktree` keeps the real
-  resume out; the score prompt marks RESUME/JOB text as data, not directives.
+  resume out; the screen prompt marks the JOB text as data, not directives.
 - *Smell:* a fixture containing a real JD/resume; secrets read anywhere but `run.py`;
   interpolating posting text into a prompt as instructions.
 
@@ -176,24 +178,24 @@ the policy:
 | Kind of uncertainty | Policy |
 |---|---|
 | candidate opportunity (date, location, eligibility, is-it-still-open) | **KEEP** |
-| data integrity (`job_ref`, schema, posting identity) | **FAIL LOUD** |
+| data integrity (schema, posting identity, an uncountable charge) | **FAIL LOUD** |
 | systemic configuration (logged out, invalid token) | **CIRCUIT BREAK** |
 | delivery (timeout, 429, 5xx) | **RETRY** |
 
-- *In this repo:* KEEP is principle 3. FAIL LOUD is `_normalize_score` raising on a
-  missing `score` (buried as 0 it would silently drop the posting out of notification),
-  `_normalize_assessment` raising on an out-of-enum seniority/domain verdict (they drive
-  the seniority floor and the ranking), and the codex fit backend raising the *whole
-  batch* on a missing/duplicate/unknown `job_ref` (a score attached to the wrong job is
-  worse than no score). Each carries its own local comment; this table is the general
-  rule behind them.
-- *Why it earns a section:* every one of the seven defects found probing the pipeline on
-  2026-07-23 is one cell treated as another — systemic configuration handled per-item (a
-  dead fit backend fails the queue row by row; a bad Telegram token permanently destroys
-  every matched posting), unresolved data treated as a discard (`London, ON` was dropping
-  its unresolved `ON` and discarding as United Kingdom), an absent extraction treated as a
-  pass (a screen check the model returned no data for, recorded as genuine — fixed
-  2026-07-23).
+- *In this repo:* KEEP is principle 3. FAIL LOUD is `config._reject_unknown_keys`
+  refusing a stale or typo'd config key at load (a silently ignored key is a filter the
+  operator thinks is on), `db.save_screening` refusing to cache a provider error as a
+  completed result, and the JEV client raising `unknown_charge` on any response whose
+  cost it cannot read — which stops the whole pass, because spend that cannot be counted
+  must not keep spending. CIRCUIT BREAK is `pipeline._BackendBreaker` (5 failures, zero
+  successes) on both the screen and JEV stages. Each carries its own local comment; this
+  table is the general rule behind them.
+- *Why it earns a section:* every defect found probing the pipeline end to end was one
+  cell treated as another — systemic configuration handled per-item (a dead backend
+  failing the queue row by row), unresolved data treated as a discard (`London, ON` was
+  dropping its unresolved `ON` and discarding as United Kingdom), an absent extraction
+  treated as a pass (a screen check the model returned no data for, recorded as
+  genuine).
 - *Smell:* softening a `raise` into a default because "we err toward keep"; charging a
   per-item retry budget for a failure every item shares.
 

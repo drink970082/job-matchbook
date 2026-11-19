@@ -1,6 +1,8 @@
 # ChatGPT-first Job Matchbook direction
 
 **Status:** approved product direction; implementation slices require their own scoped designs.
+Amended since: the fit scorer and Telegram are removed (#149, #150), JEV is the review
+filter (#139), MCP gains writes (epic #152), and the Astra/Luna role split below is dropped.
 
 ## Decision
 
@@ -23,8 +25,8 @@ and fixes. First implement research MCP queries, then unscored inventory UI. Run
 workflow baseline early and validate scheduled ChatGPT before selecting optional fit
 pre-ranking. Fit is last priority and may remain unused if scheduled judgment suffices.
 
-The [batch contract](2026-10-22-research-inventory-design.md) and its two plans define
-bounded implementation work; future lifecycle/write/model decisions need their own design.
+Future lifecycle/write/model decisions need their own design (the MCP write path is
+epic #152).
 
 ## Scope
 

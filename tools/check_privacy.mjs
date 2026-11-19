@@ -18,7 +18,7 @@ const RULES = [
     // .env.bak, .env.production) without matching `.environment` or `setEnv.ts`.
     // ALLOW exempts *.example, which is the only one the repo ships.
     [/(^|\/)\.env($|\.)/, 'secrets file (commit .env.example instead)'],
-    [/(^|\/)config\.ya?ml$/, 'per-user worker config (commit config.yaml.example)'],
+    [/(^|\/)config\.ya?ml($|\.)/, 'per-user worker config (commit config.yaml.example)'],
     [/\.db($|-wal$|-shm$)|^db\//, 'the SQLite database'],
     [/^apps\/worker\/resume\//, 'the real resume / personal profile'],
     [/^apps\/worker\/eval\//, 'eval data (real postings + resume context)'],
@@ -45,6 +45,8 @@ if (process.argv.includes('--self-test')) {
         'apps/worker/.env.production',
         'apps/web/src/environment.ts',
         'apps/worker/config.yaml',
+        'apps/worker/config.yaml.bak-20261118-pre-jev',
+        'apps/worker/config.yaml.example',
         'job_search_profile_1.0.2_draft_with_evidence/evidence/manifest.sha256',
         'db/applications.db-wal',
         'apps/worker/quant_job_boards.txt',
@@ -52,8 +54,8 @@ if (process.argv.includes('--self-test')) {
     ]).map(([p]) => p))
     // The .env.<suffix> rows are the 2026-07-29 gap: the rule used to be a literal
     // `.env`, so a backup was invisible here AND unignored by .gitignore.
-    const want = ['apps/worker/resume/resume.txt', 'apps/worker/.env', '.env.bak-tsserve', 'apps/worker/.env.production', 'apps/worker/config.yaml', 'job_search_profile_1.0.2_draft_with_evidence/evidence/manifest.sha256', 'db/applications.db-wal', 'apps/worker/quant_job_boards.txt']
-    const wantNot = ['apps/worker/resume/resume.txt.example', 'apps/worker/resume/README.md', 'apps/worker/.env.example', 'apps/web/src/environment.ts', 'apps/web/src/lib/actions.ts']
+    const want = ['apps/worker/resume/resume.txt', 'apps/worker/.env', '.env.bak-tsserve', 'apps/worker/.env.production', 'apps/worker/config.yaml', 'apps/worker/config.yaml.bak-20261118-pre-jev', 'job_search_profile_1.0.2_draft_with_evidence/evidence/manifest.sha256', 'db/applications.db-wal', 'apps/worker/quant_job_boards.txt']
+    const wantNot = ['apps/worker/config.yaml.example', 'apps/worker/resume/resume.txt.example', 'apps/worker/resume/README.md', 'apps/worker/.env.example', 'apps/web/src/environment.ts', 'apps/web/src/lib/actions.ts']
     const bad = [...want.filter((p) => !flagged.has(p)), ...wantNot.filter((p) => flagged.has(p))]
     if (bad.length) { console.error('SELF-TEST FAILED: ' + bad.join(', ')); process.exit(1) }
     console.log('self-test ok')

@@ -10,7 +10,7 @@ COUNT  := 40                                 # rows for seed-dev
 
 .PHONY: help install setup doctor dev build lint test test-web test-worker \
         test-integration test-e2e test-coverage check-schema check-privacy up down health db-push seed-dev \
-        eval-screen eval-seniority
+        eval-screen
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) \
@@ -22,17 +22,14 @@ install: ## Install web dependencies
 setup: install ## Full local setup: web + worker deps, DB, and non-clobbering template copies
 	$(PY) -m pip install -r $(WORKER)/requirements.txt -r $(WORKER)/requirements-dev.txt
 	$(MAKE) db-push
-	@# Only the two inert config templates. resume.txt / personal_profile.txt are
-	@# deliberately NOT copied: every resume/*.txt is loaded as a resume version, so a
-	@# forgotten placeholder would silently score against "TEMPLATE - REPLACE ME",
-	@# while an absent file fails loudly and points at resume/README.md.
+	@# Only the two inert config templates. Private inputs (resume/, the JEV
+	@# directory) are never templated into place — see resume/README.md.
 	@for f in .env config.yaml; do \
 		src=$(WORKER)/$$f.example; dst=$(WORKER)/$$f; \
 		if [ -e "$$dst" ]; then echo "kept existing $$dst"; \
 		elif [ -f "$$src" ]; then cp "$$src" "$$dst"; echo "created $$dst (fill it in)"; fi; \
 	done
 	@echo "setup done — run 'make doctor', then edit $(WORKER)/.env and config.yaml"
-	@echo "then add your resume: $(WORKER)/resume/resume.txt (see resume/README.md)"
 
 doctor: ## Preflight: report worker prerequisites (exits non-zero only if a core one is missing)
 	cd $(WORKER) && $(PY) -m ats_worker.doctor
@@ -67,9 +64,6 @@ test-coverage: ## Run both suites with coverage (gated by thresholds)
 
 eval-screen: ## Optional live screen eval; backend-dependent allowance/cost. Gate: zero false disqualification; see docs/EVALUATION.md
 	cd $(WORKER) && PYTHONPATH=. $(PY) tools/screen_eval.py
-
-eval-seniority: ## Optional live seniority diagnostic against model labels; see docs/EVALUATION.md for limits and cost
-	cd $(WORKER) && PYTHONPATH=. $(PY) tools/seniority_eval.py
 
 check-schema: ## Fail if worker schema.sql drifts from prisma/schema.prisma
 	node tools/check_schema_drift.mjs
