@@ -51,17 +51,16 @@ data before selecting it.
   unmeasured.
 - **Recipe validation happens a pass late:** a bad `mode`, an unmatched `item_path` or
   missing field path fails silently at fetch time and shows up as `feed_unresolved` rows.
-  A `validate_recipe()` at config load and watchlist write would move it to write time,
+  A `validate_recipe()` on every watchlist write would move it to write time,
   beside the existing SSRF check.
 - **`custom` has no chained detail call.** It is what Uber/Netflix/Morgan Stanley need
   (list JSON without a body), and what makes an `html` mode useful: an `html` recipe can
   only produce a description if the listing card carries the full JD, so without it
-  every row is dropped as bodyless. A built-once `html` executor was not merged; a
-  rebuild must avoid its defects: a list-form `description` raised `AttributeError`,
-  `page: {type: url}` was silently ignored (page 1 looks like success), `type: page`
-  started at 0 (most pagers are 1-indexed), `resp.text` mojibaked bodies without a
-  `charset` (use `resp.content`), and its tests asserted the field set, not a non-empty
-  description.
+  every row is dropped as bodyless. An `html` executor must accept a list-form
+  `description`, raise on `page: {type: url}` (silently returning page 1 looks like
+  success), let `type: page` start at 1 (most server-rendered pagers are 1-indexed),
+  decode `resp.content` rather than `resp.text` (bodies without a `charset` mojibake),
+  and test for a non-empty description, not just the field set.
 - **Boards blocked on an executor primitive:** Meta (page-then-POST with a per-session
   `lsd` token, plus a virtualized scroller); Balyasny's Salesforce Aura endpoint (a
   `fwuid` that rotates each release). Jacobs Levy and Balyasny's static listing are

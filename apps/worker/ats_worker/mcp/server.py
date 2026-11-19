@@ -295,7 +295,7 @@ def create_server(repository: ReadOnlyATSRepository | None = None,
 
     @server.tool(annotations=_READ_ONLY)
     def list_ats_records(
-        entity: Annotated[EntityName, Field(description="One of the eight allowlisted ATS record types.")],
+        entity: Annotated[EntityName, Field(description="One of the seven allowlisted ATS record types.")],
         limit: Annotated[int, Field(
             ge=1, le=MAX_PAGE_SIZE, description="Page size, at most 100.")] = DEFAULT_PAGE_SIZE,
         cursor: Annotated[str | None, Field(max_length=MAX_CURSOR_CHARS,
@@ -306,7 +306,7 @@ def create_server(repository: ReadOnlyATSRepository | None = None,
 
     @server.tool(annotations=_READ_ONLY)
     def get_ats_record(
-        entity: Annotated[EntityName, Field(description="One of the eight allowlisted ATS record types.")],
+        entity: Annotated[EntityName, Field(description="One of the seven allowlisted ATS record types.")],
         key: Annotated[str, Field(min_length=1, max_length=300,
                                   description="Integer primary key as text, or exact app_settings key.")],
     ) -> dict[str, Any]:
@@ -326,7 +326,7 @@ def create_server(repository: ReadOnlyATSRepository | None = None,
         (`missing` lists the next tools to call), the requirements version, and how many
         `new` postings were screened before the last requirement change (they keep their
         old verdict until the operator re-screens; postings already discarded are not
-        counted). The JEV profile is file-based, not here."""
+        counted). The JEV profile is read with get_jev_profile."""
         return read(repo.get_setup_status)
 
     @server.tool(annotations=_READ_ONLY)

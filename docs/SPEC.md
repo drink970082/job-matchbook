@@ -1270,7 +1270,7 @@ worker modules are pure and dependency-injected; real services are wired only in
   boundary. With `ATS_API_KEY` set, nine write tools are added, each a call to the web's
   loopback `/api/v1` (never a DB write): `record_application`, `mark_job_applied`,
   `update_application_status`, `update_application_notes`, `override_triage`,
-  `set_preferences`, `set_jev_profile`, `add_source` (known-platform boards only) and
+  `set_preferences`, `set_jev_profile`, `add_source` (known-ATS boards only) and
   `remove_source`. The seven entity names are a closed enum, identifiers are selected
   from an internal allowlist, values are bound, and no tool accepts SQL, filesystem
   paths or HTTP targets.

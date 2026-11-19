@@ -39,8 +39,8 @@ Most sources take a single-token `slug`. `workday` packs three parts as
 posting for the description).
 
 **Adding a company is a watchlist row, not code.** Use the `onboard-board` skill: it
-tries a known platform, then a plain-HTTP `custom` recipe, then a `browser` recipe. MCP
-`add_source` adds known-platform boards only. Write a new adapter only for a platform none of those can read:
+tries a known platform, then a plain-HTTP `custom` recipe, then a `browser` recipe.
+MCP `add_source` adds known-ATS boards only. Write a new adapter only for a platform none of those can read:
 
 1. `fetch/<source>.py` with `SOURCE` and `fetch` (lists a board), `fetch_one` (one job
    by id, for a feed-only source), or both.
