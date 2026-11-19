@@ -8,8 +8,8 @@ behavior. Completed work belongs in CHANGELOG, not this queue.
 
 ## In flight
 
-- **Hard requirements into the DB — PR open** `[WORKER+WEB · L]` (#157, branch
-  `feat/157-preferences-db`). `candidate:` moves to `candidate_preferences` with MCP
+- **Hard requirements into the DB — merged (#183), deploy pending** `[WORKER+WEB · L]`
+  (#157). `candidate:` moves to `candidate_preferences` with MCP
   get/set and `get_setup_status`. Not deployed. Order: schema push, then restart the
   worker (it seeds from `config.yaml` at startup), then web and MCP; a
   `set_preferences` before the seed pre-empts it. The JEV profile move
