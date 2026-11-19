@@ -22,6 +22,11 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 
 ### Changed
 
+- **Web Server Actions split by domain** (#173). `lib/actions.ts` is now
+  `application-`, `analytics-`, `csv-`, `watchlist-`, `job-`, `preference-` (hard
+  requirements, JEV profile, Settings read) and `category-actions.ts`, with shared sync
+  helpers in the non-`'use server'` `action-helpers.ts`. Function bodies are unchanged;
+  no behavior change.
 - **Offline preselection tooling moved into `ats_worker/preselection/`** (#172).
   `review_batch`, `preselection_view` and `preselection_rehearsal` (plus their CLIs)
   are now `preselection.{review_batch,view,rehearsal}`; run them with

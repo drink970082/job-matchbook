@@ -1,4 +1,4 @@
-import { addApplication } from '@/lib/actions'
+import { addApplication } from '@/lib/application-actions'
 import { STATUSES } from '@/lib/constants'
 import { str, write } from '@/lib/api-v1'
 

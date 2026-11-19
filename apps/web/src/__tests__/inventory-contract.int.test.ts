@@ -1,13 +1,6 @@
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
-import {
-    bulkRemove,
-    discardJobPosting,
-    getJobPostings,
-    markJobApplied,
-    reopenJobPosting,
-    removeAllInView,
-} from '@/lib/actions'
+import { bulkRemove, discardJobPosting, getJobPostings, markJobApplied, reopenJobPosting, removeAllInView } from '@/lib/job-actions'
 import { prisma, resetDb } from '@/test-utils/db'
 import { makeJobPosting } from '@/test-utils/factories'
 

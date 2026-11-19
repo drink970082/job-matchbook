@@ -1,9 +1,9 @@
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { SettingsDialog } from '@/components/SettingsDialog'
-import { getSettings, setCandidatePreferences, setJevProfile } from '@/lib/actions'
+import { getSettings, setCandidatePreferences, setJevProfile } from '@/lib/preference-actions'
 
 jest.mock('sonner', () => ({ toast: { error: jest.fn(), success: jest.fn() } }))
-jest.mock('@/lib/actions', () => ({
+jest.mock('@/lib/preference-actions', () => ({
     getSettings: jest.fn(),
     setCandidatePreferences: jest.fn(),
     setJevProfile: jest.fn(),

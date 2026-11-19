@@ -1,4 +1,4 @@
-import { markJobApplied } from '@/lib/actions'
+import { markJobApplied } from '@/lib/job-actions'
 import { idParam, str, write } from '@/lib/api-v1'
 
 export const dynamic = 'force-dynamic'

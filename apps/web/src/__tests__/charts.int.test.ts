@@ -4,7 +4,7 @@
  * heatmap / donut and had no unit, integration, or e2e coverage — only their
  * components render — so a regression in the aggregation would have passed CI.
  */
-import { getStatusFlow, getTimelineData, getCategoryData } from '@/lib/actions'
+import { getStatusFlow, getTimelineData, getCategoryData } from '@/lib/analytics-actions'
 import { prisma, resetDb } from '@/test-utils/db'
 import { makeApplication, makeStatusHistory } from '@/test-utils/factories'
 

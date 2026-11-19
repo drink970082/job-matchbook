@@ -4,24 +4,12 @@
  * unit tests can't — transaction atomicity/rollback, aggregation correctness,
  * pagination/ordering, the unique constraint, and FK cascade/SetNull.
  */
-import {
-    getSettings,
-    addApplication,
-    bulkRemove,
-    bulkReopen,
-    deleteApplication,
-    deleteHistoryItem,
-    exportApplicationsCSV,
-    getApplications,
-    getJobPostings,
-    getCategories,
-    getKPIs,
-    importApplicationsCSV,
-    markJobApplied,
-    removeAllInView,
-    setCategories,
-    updateApplicationStatus,
-} from '@/lib/actions'
+import { addApplication, deleteApplication, deleteHistoryItem, getApplications, updateApplicationStatus } from '@/lib/application-actions'
+import { getKPIs } from '@/lib/analytics-actions'
+import { exportApplicationsCSV, importApplicationsCSV } from '@/lib/csv-actions'
+import { bulkRemove, bulkReopen, getJobPostings, markJobApplied, removeAllInView } from '@/lib/job-actions'
+import { getSettings } from '@/lib/preference-actions'
+import { getCategories, setCategories } from '@/lib/category-actions'
 import { prisma, resetDb } from '@/test-utils/db'
 import { makeApplication, makeJobPosting, makeStatusHistory } from '@/test-utils/factories'
 
@@ -29,7 +17,7 @@ beforeEach(resetDb)
 afterAll(() => prisma.$disconnect())
 
 // The `matched` bucket keys on the fit verdicts (seniority=match AND domain=match),
-// the matched verdict predicate (see actions.ts matchedIds) — NOT on score. Seed this into
+// the matched verdict predicate (see job-actions.ts matchedIds) — NOT on score. Seed this into
 // score_detail for any row a test expects to land in `matched`.
 const MATCH_VERDICT = JSON.stringify({
     assessment: { seniority: { verdict: 'match' }, domain: { verdict: 'match' } },

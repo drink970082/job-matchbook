@@ -3,11 +3,7 @@
  * Covers what the mocked unit tests can't — the (source, slug) unique constraint
  * and round-tripping list/add/remove through Prisma.
  */
-import {
-    addWatchedCompany,
-    getWatchedCompanies,
-    removeWatchedCompany,
-} from '@/lib/actions'
+import { addWatchedCompany, getWatchedCompanies, removeWatchedCompany } from '@/lib/watchlist-actions'
 import { prisma, resetDb } from '@/test-utils/db'
 import { makeWatchedCompany } from '@/test-utils/factories'
 

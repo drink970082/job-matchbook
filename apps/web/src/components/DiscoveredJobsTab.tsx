@@ -4,7 +4,7 @@
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { DiscoveredJobsTable, type JobPosting } from './DiscoveredJobsTable'
 import { ScorerUsageBar } from './ScorerUsageBar'
-import type { JobViewScope } from '@/lib/actions'
+import type { JobViewScope } from '@/lib/job-actions'
 import type { JobTableFilters } from './DiscoveredJobsTable'
 
 interface DiscoveredJobsTabProps {

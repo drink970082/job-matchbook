@@ -1,4 +1,4 @@
-import { clearTriageOverride, setTriageOverride } from '@/lib/actions'
+import { clearTriageOverride, setTriageOverride } from '@/lib/job-actions'
 import { idParam, str, write } from '@/lib/api-v1'
 
 export const dynamic = 'force-dynamic'

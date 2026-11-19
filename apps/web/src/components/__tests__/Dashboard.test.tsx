@@ -1,14 +1,22 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { Dashboard } from '@/components/Dashboard'
-import * as actions from '@/lib/actions'
+import * as applicationActions from '@/lib/application-actions'
+import * as jobActions from '@/lib/job-actions'
+import * as watchlistActions from '@/lib/watchlist-actions'
 import * as promotionActions from '@/lib/promotion-actions'
 import * as unresolvedActions from '@/lib/unresolved-actions'
 
 // Smoke test of Dashboard's own wiring (tabs, KPI grid, the table views).
 // Stub the server actions (no real Prisma) and the recharts-based charts (jsdom
 // has no layout, so ResponsiveContainer renders nothing).
-jest.mock('@/lib/actions')
+jest.mock('@/lib/application-actions')
+jest.mock('@/lib/analytics-actions')
+jest.mock('@/lib/csv-actions')
+jest.mock('@/lib/watchlist-actions')
+jest.mock('@/lib/job-actions')
+jest.mock('@/lib/preference-actions')
+jest.mock('@/lib/category-actions')
 jest.mock('@/lib/promotion-actions')
 jest.mock('@/lib/unresolved-actions')
 jest.mock('@/components/SankeyChart', () => ({ SankeyChart: () => <div data-testid="sankey" /> }))
@@ -20,10 +28,10 @@ jest.mock('@/components/CategoryDonut', () => ({ CategoryDonut: () => <div data-
 // resolved shape so Dashboard's `await getJobPostings()`/`getApplications()`
 // destructure doesn't throw an unhandled rejection after the test.
 beforeEach(() => {
-    ;(actions.getJobPostings as jest.Mock).mockResolvedValue({ data: [], total: 0 })
-    ;(actions.getApplications as jest.Mock).mockResolvedValue({ data: [], total: 0 })
-    ;(actions.getWatchlistActivity as jest.Mock).mockResolvedValue({ data: [] })
-    ;(actions.getWatchedCompanies as jest.Mock).mockResolvedValue({ data: [], total: 0 })
+    ;(jobActions.getJobPostings as jest.Mock).mockResolvedValue({ data: [], total: 0 })
+    ;(applicationActions.getApplications as jest.Mock).mockResolvedValue({ data: [], total: 0 })
+    ;(watchlistActions.getWatchlistActivity as jest.Mock).mockResolvedValue({ data: [] })
+    ;(watchlistActions.getWatchedCompanies as jest.Mock).mockResolvedValue({ data: [], total: 0 })
     ;(promotionActions.getPromotionSuggestions as jest.Mock).mockResolvedValue({ data: [] })
     ;(unresolvedActions.getUnresolvedFeeds as jest.Mock).mockResolvedValue({ data: [], total: 0 })
 })
@@ -84,7 +92,7 @@ test('selected legacy bucket and filters survive switching away from Discovered 
 test('overlapping inventory requests never show stale rows under newer filters', async () => {
     const first = deferred<{ data: any[]; total: number }>()
     const second = deferred<{ data: any[]; total: number }>()
-    ;(actions.getJobPostings as jest.Mock).mockImplementation((query: any) =>
+    ;(jobActions.getJobPostings as jest.Mock).mockImplementation((query: any) =>
         query.search === 'A' ? first.promise : second.promise,
     )
     const initialRow = {

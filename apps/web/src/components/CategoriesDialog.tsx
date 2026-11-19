@@ -10,7 +10,7 @@ import {
 } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { setCategories } from '@/lib/actions'
+import { setCategories } from '@/lib/category-actions'
 import { toast } from 'sonner'
 import { X, Plus } from 'lucide-react'
 

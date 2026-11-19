@@ -1,9 +1,5 @@
 import { prisma } from '@/lib/db'
-import {
-  getWatchedCompanies,
-  addWatchedCompany,
-  removeWatchedCompany,
-} from '@/lib/actions'
+import { getWatchedCompanies, addWatchedCompany, removeWatchedCompany } from '@/lib/watchlist-actions'
 import { mockDeep, mockReset } from 'jest-mock-extended'
 import { PrismaClient } from '@prisma/client'
 

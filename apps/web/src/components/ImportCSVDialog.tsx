@@ -23,7 +23,7 @@ interface ImportCSVDialogProps {
 }
 
 // The import file picker: drag-and-drop or click-to-browse, plus the column contract
-// spelled out inline. The contract mirrors importApplicationsCSV in lib/actions.ts —
+// spelled out inline. The contract mirrors importApplicationsCSV in lib/csv-actions.ts —
 // keep the two in sync. Native drag events only; no drop-zone dependency.
 export function ImportCSVDialog({ open, onOpenChange, onImport }: ImportCSVDialogProps) {
     const [file, setFile] = useState<File | null>(null)

@@ -2,7 +2,7 @@ import { createHash, timingSafeEqual } from 'node:crypto'
 import { NextResponse } from 'next/server'
 
 // The key-scoped loopback write API (/api/v1/*, SPEC §8). The MCP server writes
-// through it so lib/actions.ts validation exists once. Keys come from the env:
+// through it so the lib/*-actions.ts validation exists once. Keys come from the env:
 // ATS_API_KEY_READ (scope read) and ATS_API_KEY_READ_WRITE (scope read_write).
 // No key configured -> 503: the API is disabled, never open.
 export type Scope = 'read' | 'read_write'

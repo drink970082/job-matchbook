@@ -102,8 +102,8 @@ A human applies by hand. The old fit scorer and Telegram alerts are removed.
   Status/category enums live in `apps/web/src/lib/constants.ts`.
 - **Worker modules are pure and dependency-injected.** Real services are wired only in
   `ats_worker/run.py`; tests mock everything, with no network and no keys.
-- **Web:** mutations go through Server Actions (`lib/actions.ts`); the `/api/v1` route
-  handlers are thin wrappers over them. Run `make lint` before pushing.
+- **Web:** mutations go through Server Actions (`lib/*-actions.ts`, one file per
+  domain); the `/api/v1` route handlers are thin wrappers over them. Run `make lint` before pushing.
 - **Never force-push `main`.**
 - **Privacy:** never commit `.env`, `resume/`, `config.yaml`, or `db/` — enforced by
   `.gitignore` and `make check-privacy` in CI.

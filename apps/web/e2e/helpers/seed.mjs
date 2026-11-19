@@ -6,7 +6,7 @@ import { PrismaClient } from '@prisma/client'
 import { DATABASE_URL } from './db-path.mjs'
 
 // Acme/Globex must satisfy the matched-bucket predicate exactly as read by
-// matchedIds() (actions.ts:192-199 — the SAME verdict gate as the worker's
+// matchedIds() (job-actions.ts — the SAME verdict gate as the worker's
 // notify gate, ats_worker/db.py get_notifiable): pipeline_status IN
 // ('scored','notified') AND assessment.seniority.verdict === 'match' AND
 // assessment.domain.verdict === 'match' AND NOT insufficient_context. They
