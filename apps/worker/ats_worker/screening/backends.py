@@ -1,9 +1,9 @@
 """Screen backends — the `extract(prompt, schema) -> dict` adapters that
 `screening.engine.screen_posting` consumes.
 
-Six SCREEN_BACKEND values, three shapes:
-  · HTTP + JSON schema — ollama (see screening.engine.make_ollama_extract), claude-api,
-    openai-api
+Adapters behind the SCREEN_BACKEND values (registry: ats_worker.screen_providers):
+  · HTTP — ollama (see screening.engine.make_ollama_extract) and api (any
+    OpenAI-compatible endpoint)
   · CLI subprocess — codex (schema written to a file, `--output-schema`), claude-code
     (schema passed inline, `--json-schema` takes JSON text and errors on a bare path —
     verified behaviorally 2026-07-23, contrary to what the flag name suggests)
@@ -21,15 +21,12 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import subprocess
 import tempfile
 
 from .errors import ModelResponseError as ScoreError
-
-# Two-to-three fields of fact extraction. Haiku is the right tier — Sonnet is wasted
-# money on this shape. Override per-deploy with SCREEN_MODEL.
-DEFAULT_CLAUDE_SCREEN_MODEL = "claude-haiku-4-5"
-
+from ats_worker.screen_providers import PROVIDERS
 
 def _parse(raw: str, provider: str) -> dict:
     """Parse a provider's text response into the extraction dict, or raise."""
@@ -42,82 +39,70 @@ def _parse(raw: str, provider: str) -> dict:
     return data
 
 
-def make_claude_api_extract(api_key: str, model: str = DEFAULT_CLAUDE_SCREEN_MODEL, *,
-                            max_tokens: int = 1024):
-    """Screen via the metered Anthropic API, schema-constrained by structured outputs
-    (the same mechanism backends_claude.py already uses for the fit call).
+_THINK = re.compile(r"<think>.*?</think>", re.S)
+_FENCE = re.compile(r"```(?:json)?\s*(.*?)\s*```", re.S)
 
-    No prompt caching: unlike the fit call there is no large shared prefix — the
-    checklist is a few hundred tokens and the JD is fresh every call.
+
+def _strip_wrappers(text: str) -> str:
+    """Drop a reasoning model's `<think>` block and a ```json fence around the reply —
+    what a non-strict endpoint commonly returns instead of bare JSON."""
+    text = _THINK.sub("", text or "").strip()
+    m = _FENCE.search(text)
+    return m.group(1) if m else text
+
+
+def make_api_extract(*, base_url: str, api_key: str | None, model: str, http,
+                     timeout: int = 60):
+    """Screen via any OpenAI-compatible chat/completions endpoint (OpenAI, OpenRouter,
+    Gemini's compatible endpoint, LM Studio, vLLM, ...) over plain `requests`. `http`
+    is injected (the real `requests` module is bound only in run.py) so tests use a
+    fake transport and no network. `api_key=None` sends no Authorization header (a
+    keyless local server).
+
+    Sends `response_format: json_schema` strict first. A 400 is retried once without
+    `response_format`; only when that retry succeeds does non-strict mode stick (with
+    one log line) for the rest of this extract's life, so a non-strict endpoint does
+    not pay two requests per posting while a 400 with another cause (an over-long
+    prompt, a bad model) raises and leaves strict mode on. The prompt already asks for JSON; the reply is parsed after stripping
+    `<think>` blocks and code fences. Any other HTTP error raises.
     """
-    cell: list = []
+    headers = {"Content-Type": "application/json"}
+    if api_key:
+        headers["Authorization"] = f"Bearer {api_key}"
+    strict = [True]
+
+    def post(prompt, schema):
+        body = {"model": model, "messages": [{"role": "user", "content": prompt}]}
+        if strict[0]:
+            body["response_format"] = {"type": "json_schema", "json_schema": {
+                "name": "screen", "strict": True, "schema": schema}}
+        return http.post(f"{base_url}/chat/completions", json=body, headers=headers,
+                         timeout=timeout)
 
     def extract(prompt: str, schema: dict) -> dict:
-        if not cell:
-            import anthropic  # lazy: only at runtime
-            cell.append(anthropic.Anthropic(api_key=api_key))
-        msg = cell[0].messages.create(
-            model=model,
-            max_tokens=max_tokens,
-            output_config={"format": {"type": "json_schema", "schema": schema}},
-            messages=[{"role": "user", "content": prompt}],
-        )
-        text = "".join(b.text for b in msg.content
-                       if getattr(b, "type", None) == "text")
-        return _parse(text, "claude-api")
-
-    return extract
-
-
-# Cheapest of the three frontier models ($1/$6 per MTok, 1.05M ctx) and it supports
-# structured outputs. Aggregator sites claim a cheaper "nano" tier; OpenAI's own models
-# page does not list one, so it is deliberately not hard-coded here.
-DEFAULT_OPENAI_SCREEN_MODEL = "gpt-5.6-luna"
-
-
-def make_openai_api_extract(api_key: str, model: str = DEFAULT_OPENAI_SCREEN_MODEL, *,
-                            http=None, base_url: str = "https://api.openai.com/v1",
-                            timeout: int = 60):
-    """Screen via the metered OpenAI API over plain `requests` — no new dependency.
-    `http` is injected (the real `requests` module is bound only in run.py) so tests
-    exercise the parsing with a fake transport and zero network.
-
-    Wire shape verified against current docs (2026-07-23): POST chat/completions
-    with response_format={"type": "json_schema", "json_schema": {...}}, reading
-    choices[0].message.content. (The newer /v1/responses endpoint nests the schema
-    under text.format instead, but chat/completions remains supported and current —
-    not the deprecated legacy /v1/completions.)
-    """
-    def extract(prompt: str, schema: dict) -> dict:
-        resp = http.post(
-            f"{base_url}/chat/completions",
-            json={
-                "model": model,
-                "messages": [{"role": "user", "content": prompt}],
-                "response_format": {
-                    "type": "json_schema",
-                    "json_schema": {"name": "screen", "strict": True,
-                                    "schema": schema},
-                },
-            },
-            headers={"Authorization": f"Bearer {api_key}",
-                     "Content-Type": "application/json"},
-            timeout=timeout,
-        )
+        resp = post(prompt, schema)
+        if strict[0] and resp.status_code == 400:
+            strict[0] = False
+            resp = post(prompt, schema)
+            if 200 <= resp.status_code < 300:
+                print(f"[screen] {base_url} rejected strict json_schema (HTTP 400); "
+                      "continuing without response_format")
+            else:
+                strict[0] = True
         resp.raise_for_status()
         payload = resp.json()
         choices = payload.get("choices") if isinstance(payload, dict) else None
         if not choices:
-            raise ScoreError(f"openai-api returned no choices: {payload!r}")
-        return _parse(choices[0].get("message", {}).get("content", ""), "openai-api")
+            raise ScoreError(f"api returned no choices: {payload!r}")
+        content = (choices[0].get("message") or {}).get("content") or ""
+        return _parse(_strip_wrappers(content), "api")
 
     return extract
 
 
-# Preserve the legacy screen backend default. Screen-only mode selects Luna explicitly
-# from run.py, using the measured expanded screen-corpus comparison; the evaluation's
-# effort provenance is unknown, so its result does not establish medium-effort quality.
-DEFAULT_CODEX_SCREEN_MODEL = "gpt-5.6-sol"
+# The measured expanded screen-corpus comparison picked Luna; the evaluation's effort
+# provenance is unknown, so its result does not establish medium-effort quality.
+DEFAULT_CODEX_SCREEN_MODEL = PROVIDERS["codex"].default_model
 
 
 def _run_cli(runner, cmd, prompt, timeout, provider):

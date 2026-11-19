@@ -2,8 +2,8 @@
 
 import { useEffect, useState } from 'react'
 
-// Fit-backend quota usage bar, fed by /api/scorer-usage (the snapshot the worker
-// captures once per scoring pass from the provider's own usage endpoint). Reflects the
+// Subscription quota bar, fed by /api/quota (the snapshot the worker captures once
+// per screen pass from the provider's own usage endpoint). Reflects the
 // LAST pass — a budget indicator, not a live meter. Polls the local route while
 // mounted (free — reads a local file, never calls a provider). The snapshot names the
 // backend it describes, so switching backends relabels the bar on the next capture
@@ -17,20 +17,18 @@ export interface UsageLimit {
 }
 export interface Usage {
     auth_required?: boolean
-    codex_home?: string // set only when the worker uses a non-default CODEX_HOME
+    login_command?: string // ready-to-paste re-login command, set with auth_required
     backend: string | null
     plan_type: string | null
     limits: UsageLimit[]
     as_of: string | null // ISO
 }
 
-// Which budget the numbers describe. `claude` reads the Claude Code SUBSCRIPTION quota,
-// which is a different budget from the metered API key the claude scorer bills — the
-// label has to say so rather than just "Claude". A null/unknown backend predates the
-// backend field (or is a hand-written file); call it what it is.
+// Which subscription the numbers describe. A null/unknown backend predates the backend
+// field (or is a hand-written file).
 const BACKEND_LABELS: Record<string, string> = { codex: 'Codex', claude: 'Claude Code' }
 export function backendLabel(backend: string | null): string {
-    return (backend && BACKEND_LABELS[backend]) || 'Scorer'
+    return (backend && BACKEND_LABELS[backend]) || 'Subscription'
 }
 
 // codex reports window_minutes, not a name — map the common ones to a friendly label.
@@ -58,7 +56,7 @@ export function formatResetsIn(resetsAt: number | null, nowSec = Date.now() / 10
     return d > 0 ? `resets in ${d}d ${h}h` : `resets in ${h}h`
 }
 
-export function ScorerUsageBar({ pollMs = 60000 }: { pollMs?: number }) {
+export function QuotaBar({ pollMs = 60000 }: { pollMs?: number }) {
     const [usage, setUsage] = useState<Usage | null>(null)
 
     useEffect(() => {
@@ -67,7 +65,7 @@ export function ScorerUsageBar({ pollMs = 60000 }: { pollMs?: number }) {
             // try/catch guards a missing `fetch` (SSR / test env) — that throws
             // synchronously, before the promise chain's .catch can see it.
             try {
-                fetch('/api/scorer-usage')
+                fetch('/api/quota')
                     .then((r) => r.json())
                     .then((d: Usage) => { if (alive) setUsage(d) })
                     .catch(() => { /* transient: keep the last-good snapshot */ })
@@ -78,19 +76,19 @@ export function ScorerUsageBar({ pollMs = 60000 }: { pollMs?: number }) {
         return () => { alive = false; clearInterval(t) }
     }, [pollMs])
 
-    if (usage?.backend === 'codex' && usage.auth_required) {
+    if (usage?.auth_required) {
         return (
             <div role="status" className="mb-4 rounded-md border border-amber-500/40 bg-amber-500/10 p-3 text-sm">
-                <p>Codex login needs attention. Re-login to resume ATS screening:</p>
-                <code className="mt-2 block overflow-x-auto text-xs">{usage.codex_home
-                    ? `CODEX_HOME="${usage.codex_home}" codex login --device-auth`
-                    : 'codex login --device-auth'}</code>
+                <p>{backendLabel(usage.backend)} login needs attention. Re-login to resume ATS screening:</p>
+                {usage.login_command && (
+                    <code className="mt-2 block overflow-x-auto text-xs">{usage.login_command}</code>
+                )}
             </div>
         )
     }
 
     if (!usage || usage.limits.length === 0) {
-        return <div className="text-xs text-muted-foreground">No scorer usage recorded yet.</div>
+        return <div className="text-xs text-muted-foreground">No subscription usage recorded yet.</div>
     }
 
     const asOf = usage.as_of ? new Date(usage.as_of).toLocaleString() : ''
@@ -111,17 +109,6 @@ export function ScorerUsageBar({ pollMs = 60000 }: { pollMs?: number }) {
                     </div>
                 )
             })}
-            {usage.backend === 'claude' && (
-                // Say it plainly rather than let the bar imply it. `make_claude_scorer`
-                // bills ANTHROPIC_API_KEY (metered, no percent-of-quota endpoint exists);
-                // what this meter reads is the Claude Code SUBSCRIPTION. Both are real
-                // numbers — they are just not the same budget, and a bare percentage
-                // sitting where the codex weekly budget used to be would read as one.
-                <div className="text-[10px] text-muted-foreground">
-                    Claude Code subscription quota — scoring bills ANTHROPIC_API_KEY
-                    separately (metered, not metered here).
-                </div>
-            )}
             {asOf && <div className="text-[10px] text-muted-foreground">as of {asOf}</div>}
         </div>
     )

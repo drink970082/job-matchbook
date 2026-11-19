@@ -220,10 +220,10 @@ def test_epoch_tolerates_a_z_suffix_and_junk():
 def test_capture_usage_writes_atomically_and_leaves_no_tmp(codex_login, tmp_path,
                                                            monkeypatch):
     monkeypatch.setattr(usage, "_get_json", lambda url, headers: CODEX_USAGE_BODY)
-    path = str(tmp_path / "scorer_usage.json")
+    path = str(tmp_path / "quota.json")
     assert usage.capture_usage(path, "codex") is True
-    assert json.loads((tmp_path / "scorer_usage.json").read_text())["backend"] == "codex"
-    assert not list(tmp_path.glob("scorer_usage.json*.tmp"))
+    assert json.loads((tmp_path / "quota.json").read_text())["backend"] == "codex"
+    assert not list(tmp_path.glob("quota.json*.tmp"))
 
 
 def test_capture_usage_stamps_as_of_so_a_stale_reading_is_legible(codex_login, tmp_path,
@@ -232,7 +232,7 @@ def test_capture_usage_stamps_as_of_so_a_stale_reading_is_legible(codex_login, t
     # fresh one look identical to anything but `ls -la` — which is how one --score-limit
     # decision came out ~17 points optimistic.
     monkeypatch.setattr(usage, "_get_json", lambda url, headers: CODEX_USAGE_BODY)
-    path = tmp_path / "scorer_usage.json"
+    path = tmp_path / "quota.json"
     assert usage.capture_usage(str(path), "codex") is True
     stamped = json.loads(path.read_text())["as_of"]
     assert datetime.fromisoformat(stamped).tzinfo is not None   # local time, offset-aware
@@ -241,7 +241,7 @@ def test_capture_usage_stamps_as_of_so_a_stale_reading_is_legible(codex_login, t
 def test_capture_usage_keeps_the_last_good_snapshot_when_the_fetch_fails(
         codex_login, tmp_path, monkeypatch):
     # A transient 429 / expired token must dim the bar's freshness, not blank it.
-    path = tmp_path / "scorer_usage.json"
+    path = tmp_path / "quota.json"
     monkeypatch.setattr(usage, "_get_json", lambda url, headers: CODEX_USAGE_BODY)
     usage.capture_usage(str(path), "codex")
     monkeypatch.setattr(usage, "_get_json", lambda url, headers: None)

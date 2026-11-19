@@ -669,7 +669,7 @@ raising workers there interleaves rather than speeds up.
 ### 4.4 Backend defaults
 
 `SCREEN_BACKEND` = `ollama` (default, `qwen3.5:4b`) | `codex` | `claude-code` |
-`claude-api` | `openai-api` | `none`. `codex` with no model/effort override uses
+`api` (any OpenAI-compatible endpoint; `SCREEN_MODEL` required) | `none`. `codex` with no model/effort override uses
 `gpt-5.6-luna` at `medium`. The 103-row screen comparison that selected Luna does not
 record reasoning effort, so it supports the model choice but is not a measurement of
 `medium`. `none` runs only the deterministic gates and is low recall on sponsorship.

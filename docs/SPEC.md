@@ -396,7 +396,7 @@ a single-user localhost app, not a strict script CSP.
 | UI | React 18, Tailwind CSS 4, Radix UI primitives | — |
 | Charts | Recharts (donut) + hand-rolled SVG (heatmap, funnel, Sankey) | — |
 | Forms | react-hook-form + Zod | — |
-| External | — | Ollama HTTP (default screen), Codex/Claude CLI subprocesses, Anthropic/OpenAI APIs (metered screen backends) |
+| External | — | Ollama HTTP (default screen), Codex/Claude CLI subprocesses, any OpenAI-compatible API (the metered `api` screen backend) |
 | Tests | Jest + Testing Library + jest-mock-extended; Playwright e2e | pytest (fully mocked) |
 | Container | Alpine multi-stage, non-root | — (native on the host, not containerized) |
 
@@ -746,17 +746,27 @@ worker modules are pure and dependency-injected; real services are wired only in
   new callable, never a new branch inside `screen_posting`. `run.make_screener(backend,
   *, env, http=None, model=None, screen_model=None, screen_effort=None,
   num_ctx=8192)` builds that
-  callable from **`SCREEN_BACKEND`/`--screen-backend`**, one of **six** values in
-  **three** adapter shapes (`screening/backends.py`):
-  - **HTTP + JSON schema** — `ollama` (**default**; free, local,
+  callable from **`SCREEN_BACKEND`/`--screen-backend`**, one of **five** values. Each
+  is one row of the registry **`ats_worker/screen_providers.py`** (stdlib-only, so
+  `doctor` lists it): name, lazy adapter factory, default model, whether it is
+  metered, what it needs, whether it has a subscription quota fetcher, whether it
+  takes `--screen-effort`. Adding a provider is one row there plus its adapter in
+  `screening/backends.py`. `openai-api` and `claude-api` are retired: either value
+  fails startup naming `api`.
+  - **HTTP** — `ollama` (**default**; free, local, native `/api/chat` via
     `screening.make_ollama_extract`, `think: false`, `num_ctx` from
-    `OLLAMA_NUM_CTX`/`--model`, default model `qwen3.5:4b`), `claude-api` (metered,
-    the Anthropic SDK's structured outputs, default `claude-haiku-4-5`, needs
-    `ANTHROPIC_API_KEY`), `openai-api` (metered, plain `requests` against
-    `chat/completions` with `response_format: json_schema`, default `gpt-5.6-luna`,
-    needs `OPENAI_API_KEY`).
+    `OLLAMA_NUM_CTX`, model from `--model`/`OLLAMA_MODEL` only — a leftover
+    `SCREEN_MODEL` never reaches it — else `qwen3.5:4b`), `api` (metered for hosted vendors; any OpenAI-compatible
+    `chat/completions` endpoint over plain `requests` — OpenAI, OpenRouter, Gemini's
+    compatible endpoint, LM Studio, vLLM. `SCREEN_API_BASE_URL` (default
+    `https://api.openai.com/v1`), `SCREEN_API_KEY` (optional; no `Authorization` header
+    without it), `SCREEN_MODEL` **required** — `run.main` fails before any fetch
+    without it. Sends `response_format: json_schema` strict; a **400** is retried once
+    without `response_format`, and only a successful retry makes that mode stick for
+    the pass (logged once); a retry that also fails raises and keeps strict mode. The reply is parsed
+    after stripping `<think>` blocks and code fences; any other HTTP error raises).
   - **CLI subprocess + schema** — `codex` (the operator's ChatGPT-subscription CLI,
-    default `gpt-5.6-sol`; runs **tool-less** — `--disable shell_tool`,
+    default `gpt-5.6-luna`; runs **tool-less** — `--disable shell_tool`,
     `web_search="disabled"`, since a JD is untrusted scraped text; the schema goes in as a **file**,
     `--output-schema`; an explicit `screen_effort` is forwarded as
     `model_reasoning_effort`), `claude-code` (the operator's Claude Code CLI subscription;
@@ -791,8 +801,8 @@ worker modules are pure and dependency-injected; real services are wired only in
   and `make_screener` never guesses from what happens to be installed; spending
   money is explicit opt-in via `SCREEN_BACKEND` (`make doctor` reports what is
   actually available, and the operator — or `onboard-me` Step 0 — chooses from
-  that). `ANTHROPIC_API_KEY`/`OPENAI_API_KEY` are read from the in-process `env`
-  dict only, never promoted to an argparse default (§12).
+  that). `SCREEN_API_KEY` is read from the in-process `env` dict only, never promoted
+  to an argparse default (§12).
 
   **Screen lifecycle.** `pipeline.run_screen` applies `screen_posting` and the
   deterministic hard-requirement rules. It stores one latest result per posting in `job_screenings`,
@@ -1103,7 +1113,7 @@ worker modules are pure and dependency-injected; real services are wired only in
 
   **Quota telemetry (`ats_worker/usage.py`, free).** `capture_usage(path, backend)`
   makes **one** HTTP GET against a subscription backend's own usage endpoint and writes
-  a snapshot to `scorer_usage.json` in the shared db dir
+  a snapshot to `quota.json` in the shared db dir
   (`{backend, plan_type, as_of, limits:[{key, used_percent, window_minutes, resets_at}]}`).
   Best-effort by contract: `capture_usage` never raises, and a failed fetch leaves the
   PREVIOUS snapshot in place rather than truncating it — a transient 429 should dim the
@@ -1123,8 +1133,10 @@ worker modules are pure and dependency-injected; real services are wired only in
   bare `False`, a 403, an expired token, a DNS blip and a malformed body are
   indistinguishable. The write also stamps an offset-aware `as_of` into the snapshot itself — a stale
   reading and a fresh one are otherwise indistinguishable to anything but `ls -la`. A
-  pass on the `codex` screen backend calls it at the end of the pass; the web quota bar
-  (§7.2) shows the last snapshot written.
+  pass on a registry row with `quota=True` (`codex`, `claude-code`) calls it at the end
+  of the pass; the web quota bar (§7.2) shows the last snapshot written. A logged-out
+  backend publishes `auth_required` plus a ready-to-paste `login_command` (codex:
+  `codex login --device-auth`, prefixed with a non-default `CODEX_HOME`).
   Endpoints:
   - **codex** — `GET https://chatgpt.com/backend-api/codex/usage`, bearer token +
     `chatgpt-account-id` from `$CODEX_HOME/auth.json`. Yields `plan_type` and
@@ -1139,10 +1151,8 @@ worker modules are pure and dependency-injected; real services are wired only in
     `scope.model.display_name` for the model-scoped weekly row) and falls back to the
     flat named buckets (`five_hour`, `seven_day`, …). ISO reset strings are parsed to
     epoch seconds so both backends share one field.
-    **This is the Claude Code SUBSCRIPTION budget, which is NOT what the `claude-api`
-    screen spends** — that bills `ANTHROPIC_API_KEY` (metered; no percent-of-quota
-    endpoint exists for it). The snapshot records `backend` and the
-    bar states the distinction outright (§7.2) so the two are never conflated.
+    This is the Claude Code subscription budget the `claude-code` screen spends. The
+    metered `api` backend has no percent-of-quota endpoint and writes no snapshot.
 - **`pipeline.py` — orchestration.** Stateless stage functions over a db
   connection with injected worker callables and an explicit `now`:
   `run_fetch` → (`run_feed`) → `run_expire` → `run_screen`. Every stage wraps each item
@@ -1398,12 +1408,12 @@ worker modules are pure and dependency-injected; real services are wired only in
   re-logged. Detection happens at the end of each `codex` screen pass, not continuously.
   Access-token expiry alone does not establish that automatic refresh has failed.
 
-- **`app/api/scorer-usage/route.ts`** — serves the subscription quota snapshot
-  `ats_worker.usage.capture_usage` writes (§7.1): reads `scorer_usage.json` (path derived
-  from `DATABASE_URL`, overridable via `SCORER_USAGE_FILE`), returns the snapshot —
+- **`app/api/quota/route.ts`** — serves the subscription quota snapshot
+  `ats_worker.usage.capture_usage` writes (§7.1): reads `quota.json` (path derived
+  from `DATABASE_URL`, overridable via `QUOTA_FILE`), returns the snapshot —
   including the `backend` it describes — plus `as_of` (the file mtime).
   Missing/unparseable → empty state (`{backend:null, limits:[], as_of:null}`, still
-  `200`), since the worker may not have scored yet.
+  `200`), since the worker may not have run a subscription screen pass yet.
 - **`app/api/v1/*`** — the key-scoped loopback write API the MCP server calls, so write
   validation exists once in the `lib/*-actions.ts` Server Actions. Each route is a
   thin wrapper over one action; creating an application, changing a status and a watchlist add/remove stamp
@@ -1534,14 +1544,14 @@ worker modules are pure and dependency-injected; real services are wired only in
   Windows reports a CSV as `application/vnd.ms-excel`), `WatchlistTable`
   (list + add/remove watched companies), `PromotionSuggestions` (approve/dismiss feed→
   watchlist suggestions, shown in the Watchlist tab), `UnresolvedFeedsTable` (read-only
-  backlog), `ScorerUsageBar` (subscription quota bar on the Discovered Jobs view — polls
-  `/api/scorer-usage`, one bar per window with % + "resets in Nd Hh" + "as of"; reflects
+  backlog), `QuotaBar` (subscription quota bar on the Discovered Jobs view — polls
+  `/api/quota`, one bar per window with % + "resets in Nd Hh" + "as of"; reflects
   the last captured snapshot, not a live reading. **Labels itself by backend** from the
   snapshot, so switching backends relabels the bar instead of showing the other
   provider's numbers under the old name; two windows of the same length are
-  disambiguated by the model scope in the key (`weekly · Fable`); on `claude` it states
-  outright that it reads the Claude Code SUBSCRIPTION, not the `ANTHROPIC_API_KEY`
-  spend the scorer actually bills), `JobDetailModal` (JD + score detail), and
+  disambiguated by the model scope in the key (`weekly · Fable`); on `auth_required`
+  it shows "<backend> login needs attention" with the snapshot's `login_command`),
+  `JobDetailModal` (JD + score detail), and
   the four charts `TimelineHeatmap` /
   `CategoryDonut` / `StatusFunnel` / `SankeyChart`, plus Radix-based `ui/` primitives.
 
@@ -2290,8 +2300,9 @@ automated coverage — those rely on code review or the human in the loop, not a
 | Cross-service sync guard (source enums + low-context threshold + SPEC's source-coverage matrix) | `test_source_enums_sync.py` |
 | Quota telemetry is one HTTP GET per pass against the ACTIVE backend's usage endpoint (codex `/backend-api/codex/usage`, Claude Code `/api/oauth/usage`), **retried up to `_ATTEMPTS` (4) on a retryable failure — 403/429/5xx and transport errors — while a 401/404 is a verdict and is not retried**; `capture_usage` never raises and keeps the last-good snapshot on a failed fetch | `test_usage.py` (`test_which_statuses_are_worth_retrying`, `test_a_retryable_failure_is_retried_and_the_recovery_is_kept`, `test_a_verdict_status_is_not_retried`, `test_the_attempt_bound_and_the_sleep_schedule_are_the_module_defaults`, `test_fetch_codex_usage_normalizes_the_window`, `test_codex_usage_sends_a_non_default_user_agent`, `test_fetch_claude_usage_prefers_the_limits_array_and_keeps_the_model_scope`, `test_claude_usage_falls_back_to_the_flat_buckets`, `test_capture_usage_keeps_the_last_good_snapshot_when_the_fetch_fails`, `test_capture_usage_never_raises`), `test_run.py`  |
 | A failed quota capture is announced **with its cause**, not swallowed — every route to a `False` return names what happened (status+reason, exception type, or which precondition failed — including a 200 whose body is not an object, and on the claude path as well as codex), including `http.client.HTTPException`, which subclasses neither `OSError` nor `ValueError`; plus the `[quota] WARNING` on the `False` return, and an offset-aware `as_of` in every written snapshot so a stale reading is legible without an mtime check | `test_usage.py` (`test_get_json_names_the_http_status_when_the_provider_raises`, `test_get_json_names_the_exception_when_the_connection_fails`, `test_a_truncated_body_is_caught_and_named`, `test_a_200_with_no_usable_window_says_so_instead_of_going_quiet`, `test_a_200_that_is_not_the_expected_shape_says_so`, `test_a_200_whose_body_is_not_an_object_says_so`, `test_an_unanticipated_failure_cannot_colour_the_pass_and_still_says_why`, `test_capture_usage_stamps_as_of_so_a_stale_reading_is_legible`), `test_run.py`  |
-| Missing Codex credentials or usage HTTP 401 set a re-login notice (prefixed with a non-default `CODEX_HOME`); transient failures retain prior telemetry and successful capture clears the notice; `codex` screen passes capture usage | `test_codex_login_notice.py`, `test_run.py::test_run_once_defaults_codex_to_luna_medium`, `CodexLoginNotice.test.tsx`, `e2e/codex-login.spec.ts` |
-| `/api/health` 200/503 probe; `/api/scorer-usage` snapshot route (incl. backend passthrough); usage-bar labelling | `web/src/__tests__/health.test.ts`, `scorer-usage.test.ts`, `web/src/components/__tests__/ScorerUsageBar.test.tsx` |
+| Missing Codex credentials or usage HTTP 401 set a re-login notice with a ready-to-paste `login_command` (prefixed with a non-default `CODEX_HOME`); transient failures retain prior telemetry and successful capture clears the notice; `codex` and `claude-code` screen passes capture usage, `api`/`ollama` do not | `test_codex_login_notice.py`, `test_run.py::test_run_once_defaults_codex_to_luna_medium`, `test_run.py::test_run_once_captures_quota_only_for_subscription_backends`, `LoginNotice.test.tsx`, `e2e/login-notice.spec.ts` |
+| Screen backends come from one stdlib-only registry (`screen_providers.py`); only `api` is metered and the default is free; retired `openai-api`/`claude-api` fail startup naming `api`; `api` sends strict `json_schema`, falls back once on a 400 and keeps that mode, needs `SCREEN_MODEL`, sends no `Authorization` without a key, and tolerates `<think>`/fenced replies | `test_screen_providers.py`, `test_backends_screen.py` (`test_api_extract_*`), `test_run.py` (`test_make_screener_api_*`, `test_main_rejects_retired_backends_before_any_work`), `test_doctor.py::test_backend_row_lists_the_registry_and_flags_an_unknown_value` |
+| `/api/health` 200/503 probe; `/api/quota` snapshot route (incl. backend passthrough); usage-bar labelling | `web/src/__tests__/health.test.ts`, `quota.test.ts`, `web/src/components/__tests__/QuotaBar.test.tsx` |
 | Core UI rendering (tabs, KPI grid, application table, add form, pagination, history modal) | `web/src/components/__tests__/` (`Dashboard`, `KPIGrid`, `ApplicationTable`, `AddApplicationForm`, `Pagination`, `StatusHistoryModal`) |
 | All jobs inventory directly queries/counts every non-removed lifecycle without fit-bucket scans, defaults to stable discovery recency, matches the shared standalone outcome fixture, escapes literal full-text search, scopes per-row actions and rejects All bulk mutations | `web/src/__tests__/inventory-query-shape.test.ts`, `web/src/__tests__/inventory-contract.int.test.ts` |
 | Web/MCP triage classification, SQL filtering before paging, overview partition, raw screen-outcome compatibility, legacy rule-only detection, duplicate-member rejection, mathematically integral JS-safe legacy revisions, unknown-lifecycle priority and bounded summaries agree on the shared synthetic contract fixture | `web/src/lib/__tests__/triage-summary.test.ts`, `web/src/__tests__/inventory-contract.int.test.ts`, `web/src/__tests__/inventory-query-shape.test.ts`, `worker/tests/test_mcp_repository.py::test_job_triage_contract_fixture`, `test_job_triage_filter_summary_and_overview_share_one_partition`, `worker/tests/test_mcp_protocol.py` |
@@ -2452,9 +2463,9 @@ form, the tracker-only vs. full-pipeline decision, and which settings live in
 **Prerequisites:** Docker + Compose (≥ 24) for the web app; Node 24+ and Python
 3.11+ for local non-Docker dev/tests **and to run the worker**, which is native,
 not containerized (§6); for the hard-requirements screen, Ollama reachable — a
-local GPU, or a remote/cloud instance via `OLLAMA_HOST` — **or** one of five other
-`SCREEN_BACKEND` values (`codex`, `claude-code`, `claude-api`, `openai-api`,
-`none`; §7.1) if there is no GPU and no Ollama at all.
+local GPU, or a remote/cloud instance via `OLLAMA_HOST` — **or** one of the other
+`SCREEN_BACKEND` values (`codex`, `claude-code`, `api`, `none`; §7.1) if there is no
+GPU and no Ollama at all.
 
 `make setup` bootstraps a checkout in one command (web + worker deps, `db-push`,
 and non-clobbering `*.example` template copies); `make doctor` is the preflight —
@@ -2482,9 +2493,8 @@ copies (only when the target is absent); then fill in the copied files. Longhand
    block, `schedule_hours` (24). Workday's `slug` packs `tenant/datacenter/site`
    (quote it).
 2. `cp apps/worker/.env.example apps/worker/.env` — fill `OLLAMA_HOST`
-   (`http://localhost:11434`), plus `ANTHROPIC_API_KEY` for `--screen-backend
-   claude-api` or `OPENAI_API_KEY` for `--screen-backend openai-api`. Optional
-   overrides: `OLLAMA_MODEL`, `SCREEN_BACKEND`, `SCREEN_MODEL`, `SCREEN_EFFORT`,
+   (`http://localhost:11434`), or for `--screen-backend api` `SCREEN_MODEL` plus
+   `SCREEN_API_BASE_URL`/`SCREEN_API_KEY`. Optional overrides: `OLLAMA_MODEL`, `SCREEN_BACKEND`, `SCREEN_MODEL`, `SCREEN_EFFORT`,
    `SCREEN_LIMIT`, `SCREEN_WORKERS`, `OLLAMA_NUM_CTX`. The `codex`/`claude-code` screen
    backends authenticate from the CLI's own login, not from `.env`.
 3. On the host: `ollama pull qwen3.5:4b && ollama serve` — only needed for the

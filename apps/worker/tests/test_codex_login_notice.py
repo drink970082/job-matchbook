@@ -68,3 +68,12 @@ def test_a_trailing_slash_home_still_yields_a_home_relative_hint(tmp_path, monke
     monkeypatch.setenv('HOME', str(tmp_path) + '/')
     monkeypatch.setenv('CODEX_HOME', str(tmp_path / '.codex-work'))
     assert usage._codex_login_required()['codex_home'] == '$HOME/.codex-work'
+
+
+def test_login_command_is_ready_to_paste(monkeypatch, tmp_path):
+    monkeypatch.setenv('HOME', str(tmp_path))
+    monkeypatch.delenv('CODEX_HOME', raising=False)
+    assert usage._codex_login_required()['login_command'] == 'codex login --device-auth'
+    monkeypatch.setenv('CODEX_HOME', str(tmp_path / '.codex-work'))
+    assert usage._codex_login_required()['login_command'] == (
+        'CODEX_HOME="$HOME/.codex-work" codex login --device-auth')

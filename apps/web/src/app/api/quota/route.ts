@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server'
 import { promises as fs } from 'node:fs'
 import path from 'node:path'
 
-// Serves the fit-backend quota snapshot the worker writes after each scoring pass
+// Serves the subscription quota snapshot the worker writes after each screen pass
 // (used_percent / resets_at per window, read from the provider's own usage endpoint —
 // codex's /backend-api/codex/usage or Claude Code's /api/oauth/usage). The snapshot
 // records WHICH backend it describes so the bar can label itself. The Discovered
@@ -12,11 +12,11 @@ export const dynamic = 'force-dynamic' // never cache; read the file every reque
 
 // The snapshot lives next to the shared SQLite file (both in the db/ bind mount,
 // /data in the container). Derived from DATABASE_URL so it tracks the DB location;
-// SCORER_USAGE_FILE overrides for local dev where the worker writes elsewhere.
+// QUOTA_FILE overrides for local dev where the worker writes elsewhere.
 function usageFilePath(): string {
-    if (process.env.SCORER_USAGE_FILE) return process.env.SCORER_USAGE_FILE
+    if (process.env.QUOTA_FILE) return process.env.QUOTA_FILE
     const dbFile = (process.env.DATABASE_URL ?? '').replace(/^file:/, '')
-    return path.join(dbFile ? path.dirname(dbFile) : '/data', 'scorer_usage.json')
+    return path.join(dbFile ? path.dirname(dbFile) : '/data', 'quota.json')
 }
 
 export async function GET() {
@@ -30,7 +30,7 @@ export async function GET() {
         return NextResponse.json({ ...snap, as_of: stat.mtime.toISOString() })
     } catch {
         // Missing or unparseable → empty state, not an error: the worker may not
-        // have run a scoring pass yet. The bar shows "no usage recorded yet".
+        // have run a screen pass yet. The bar shows "no usage recorded yet".
         return NextResponse.json({ backend: null, plan_type: null, limits: [], as_of: null })
     }
 }

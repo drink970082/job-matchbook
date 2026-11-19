@@ -2,7 +2,7 @@
 
 Prints one ASCII status line per check and exits non-zero ONLY when a universal
 prerequisite is missing (worker python deps + a set-up database). Every other row
-— ollama, codex CLI, claude CLI, anthropic api key, openai api key, node, docker,
+— screen backend, ollama, codex CLI, claude CLI, screen api, node, docker,
 daemon dep, worker daemon — prints ok/no but never fails the exit code:
 which provider is "right" depends on the path the user picks, and `onboard-me`
 Step 0 reads these lines to pick it.
@@ -20,11 +20,13 @@ import sqlite3
 import sys
 from collections import namedtuple
 
+from .screen_providers import DEFAULT_API_BASE_URL, PROVIDERS  # stdlib-only
+
 Check = namedtuple("Check", "label ok detail core")
 
 # Imports needed to run one fetch -> screen pass; a miss means `make setup` was
-# skipped. `anthropic` (claude-api screen only) and `apscheduler` (cron daemon only)
-# are deliberately excluded — both import lazily, so requiring them here would
+# skipped. `apscheduler` (cron daemon only) is deliberately excluded — it imports
+# lazily, so requiring it here would
 # false-fail a `--once` user on the default ollama screen.
 _WORKER_DEPS = ("requests", "bs4", "yaml", "pycountry", "geonamescache")
 _DEFAULT_DB = "../web/prisma/applications.db"   # matches run.py --db default
@@ -120,25 +122,40 @@ def _daemon_row(run_cmd) -> Check:
                  core=False)
 
 
+def _backend_row(env) -> Check:
+    """Which SCREEN_BACKEND is selected and what it needs; lists the registry so the
+    operator (or onboard-me Step 0) sees every choice and which one is metered."""
+    name = env.get("SCREEN_BACKEND") or "ollama"
+    choices = ", ".join(f"{n} (metered)" if p.paid else n for n, p in PROVIDERS.items())
+    provider = PROVIDERS.get(name)
+    if provider is None:
+        return Check("screen backend", False, f"{name!r} is not a backend; one of: {choices}",
+                     core=False)
+    return Check("screen backend", True,
+                 f"{name} -> needs {provider.doctor_hint}. Choices: {choices}", core=False)
+
+
+def _api_row(env) -> Check:
+    model = env.get("SCREEN_MODEL")
+    base = env.get("SCREEN_API_BASE_URL") or DEFAULT_API_BASE_URL
+    key = "key set" if env.get("SCREEN_API_KEY") else "no key"
+    return Check("screen api", bool(model),
+                 f"{base}, model {model}, {key}" if model
+                 else "SCREEN_MODEL unset (needed only for SCREEN_BACKEND=api)", core=False)
+
+
 def run_checks(*, env, find_spec, which, http_get, connect, db_path, run_cmd) -> list[Check]:
     """Pure check core — all I/O is injected, so tests pass fakes and the real
     main() wires importlib / shutil / requests / sqlite3 / subprocess."""
-    anthropic_ok = bool(env.get("ANTHROPIC_API_KEY"))
-    openai_ok = bool(env.get("OPENAI_API_KEY"))
     openrouter_ok = bool(env.get("OPENROUTER_API_KEY"))
     return [
         _dep_row(find_spec),
         _db_row(db_path, connect),
+        _backend_row(env),
         _ollama_row(env.get("OLLAMA_HOST", _DEFAULT_OLLAMA), http_get),
         _which_row("codex CLI", "codex", which),
         _which_row("claude CLI", "claude", which),
-        Check("anthropic api key", anthropic_ok,
-              "set" if anthropic_ok
-              else "unset (needed for SCREEN_BACKEND=claude-api)",
-              core=False),
-        Check("openai api key", openai_ok,
-              "set" if openai_ok
-              else "unset (needed only for SCREEN_BACKEND=openai-api)", core=False),
+        _api_row(env),
         Check("openrouter api key", openrouter_ok,
               "set" if openrouter_ok
               else "unset (needed only for the --jev keep/skip filter)", core=False),

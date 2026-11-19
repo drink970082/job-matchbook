@@ -9,6 +9,7 @@ import pytest
 from ats_worker import config as cfgmod
 from ats_worker import db as dbmod
 from ats_worker import run
+from ats_worker import screening as screening_mod
 from tests._helpers import bootstrap_db, make_posting
 
 
@@ -121,7 +122,23 @@ def test_run_once_defaults_codex_to_luna_medium(monkeypatch, tmp_path):
     assert captured["run_screen"]["limit"] == 40
     assert captured["run_screen"]["screen_workers"] == 1
     assert captured["run_screen"]["clock"] is run._now
-    assert captured["usage"] == (str(tmp_path / "scorer_usage.json"), "codex")
+    assert captured["usage"] == (str(tmp_path / "quota.json"), "codex")
+
+
+@pytest.mark.parametrize("backend,captures", [("claude-code", True), ("api", False),
+                                                ("ollama", False)])
+def test_run_once_captures_quota_only_for_subscription_backends(
+        backend, captures, monkeypatch, tmp_path):
+    dbfile = bootstrap_db(tmp_path / "q.db")
+    seen = []
+    monkeypatch.setattr(run.pipeline, "run_fetch", lambda *_a, **_k: 0)
+    monkeypatch.setattr(run.pipeline, "run_expire", lambda *_a, **_k: 0)
+    monkeypatch.setattr(run, "make_screener", lambda *_a, **_k: None)
+    monkeypatch.setattr(run.pipeline, "run_screen", lambda *_a, **_k: None)
+    monkeypatch.setattr(run, "capture_usage", lambda path, b: seen.append((path, b)))
+    run.run_once(cfgmod.load_config("companies: []\n"), db_path=str(dbfile), env={},
+                 screen_backend=backend, screen_model="m")
+    assert seen == ([(str(tmp_path / "quota.json"), backend)] if captures else [])
 
 
 # --- watchlist bootstrap + feed wiring ------------------------------------
@@ -221,11 +238,11 @@ def test_run_once_uses_screen_model_override(monkeypatch, tmp_path):
     _stub_stages(monkeypatch)
     seen = {}
     monkeypatch.setattr(
-        run, "make_claude_api_extract",
-        lambda key, model, **kw: seen.update(model=model) or (lambda p, s: {}))
+        screening_mod, "make_api_extract",
+        lambda **kw: seen.update(model=kw["model"]) or (lambda p, s: {}))
     dbfile = tmp_path / "applications.db"
     bootstrap_db(str(dbfile))
-    run.run_once(cfgmod.load_config("companies: []\n"), db_path=str(dbfile), env=_ENV, screen_backend="claude-api",
+    run.run_once(cfgmod.load_config("companies: []\n"), db_path=str(dbfile), env=_ENV, screen_backend="api",
                  screen_model="claude-sonnet-5")
     assert seen["model"] == "claude-sonnet-5"
 
@@ -249,7 +266,7 @@ def _run_once_capturing_screen(monkeypatch, tmp_path, cfg, env):
         return lambda prompt, schema: {}
 
     monkeypatch.setattr(run, "screen_posting", fake_screen_posting)
-    monkeypatch.setattr(run, "make_ollama_extract", fake_make_ollama_extract)
+    monkeypatch.setattr(screening_mod, "make_ollama_extract", fake_make_ollama_extract)
     monkeypatch.setattr(run.pipeline, "run_fetch", lambda *a, **k: 0)
     monkeypatch.setattr(run.pipeline, "run_screen",
                         lambda conn, *, screen_fn, **k: screen_fn(make_posting("1")))
@@ -321,16 +338,15 @@ def test_make_screener_ollama_builds_a_working_extract(monkeypatch):
 def test_make_screener_codex_wires_model(monkeypatch):
     # Same dispatch pattern as the HTTP backends: the seam only needs to pass the
     # right model through, so the real (subprocess-shelling) adapter is faked out.
-    monkeypatch.setattr(run, "make_codex_extract", lambda model: ("codex", model))
+    monkeypatch.setattr(screening_mod, "make_codex_extract", lambda model: ("codex", model))
     assert run.make_screener("codex", env={}, http=None) == (
-        "codex", run.DEFAULT_CODEX_SCREEN_MODEL)
+        "codex", "gpt-5.6-luna")
     assert run.make_screener("codex", env={}, http=None,
                              screen_model="gpt-5.6-luna") == ("codex", "gpt-5.6-luna")
 
 
 def test_make_screener_codex_wires_reasoning_effort(monkeypatch):
-    monkeypatch.setattr(
-        run, "make_codex_extract",
+    monkeypatch.setattr(screening_mod, "make_codex_extract",
         lambda model, reasoning_effort=None: ("codex", model, reasoning_effort))
     assert run.make_screener("codex", env={}, http=None,
                              screen_model="gpt-5.6-luna",
@@ -411,34 +427,58 @@ def test_make_screener_claude_code_wires_model(monkeypatch):
     # Same dispatch pattern. screen_model=None (the default) must pass through as
     # None rather than a hard-coded default — make_claude_code_extract's own
     # `model=None` picks the CLI's default model in that case.
-    monkeypatch.setattr(run, "make_claude_code_extract", lambda model: ("claude-code", model))
+    monkeypatch.setattr(screening_mod, "make_claude_code_extract", lambda model: ("claude-code", model))
     assert run.make_screener("claude-code", env={}, http=None) == ("claude-code", None)
     assert run.make_screener("claude-code", env={}, http=None,
                              screen_model="claude-opus-4-8") == (
         "claude-code", "claude-opus-4-8")
 
 
-def test_make_screener_claude_api_wires_key_and_model(monkeypatch):
-    # Same dispatch pattern as test_make_scorer_picks_the_backend: the seam only
-    # needs to pass the right key/model through, so the real adapter is faked out.
-    monkeypatch.setattr(run, "make_claude_api_extract",
-                        lambda key, model: ("claude-api", key, model))
-    assert run.make_screener("claude-api", env={"ANTHROPIC_API_KEY": "k"}) == (
-        "claude-api", "k", run.DEFAULT_CLAUDE_SCREEN_MODEL)
-    assert run.make_screener("claude-api", env={"ANTHROPIC_API_KEY": "k"},
-                             screen_model="claude-opus-4-8") == (
-        "claude-api", "k", "claude-opus-4-8")
+def test_make_screener_api_wires_base_url_key_and_model(monkeypatch):
+    seen = {}
+    monkeypatch.setattr(screening_mod, "make_api_extract",
+                        lambda **kw: seen.update(kw) or "X")
+    env = {"SCREEN_API_BASE_URL": "https://openrouter.ai/api/v1/", "SCREEN_API_KEY": "k"}
+    assert run.make_screener("api", env=env, http="H", screen_model="vendor/m") == "X"
+    assert seen == {"base_url": "https://openrouter.ai/api/v1", "api_key": "k",
+                    "model": "vendor/m", "http": "H"}
+    run.make_screener("api", env={}, screen_model="m")
+    assert seen["base_url"] == "https://api.openai.com/v1" and seen["api_key"] is None
 
 
-def test_make_screener_openai_api_wires_key_and_model(monkeypatch):
-    # Same dispatch pattern as test_make_screener_claude_api_wires_key_and_model.
-    monkeypatch.setattr(run, "make_openai_api_extract",
-                        lambda key, model, *, http=None: ("openai-api", key, model, http))
-    assert run.make_screener("openai-api", env={"OPENAI_API_KEY": "k"}, http="H") == (
-        "openai-api", "k", run.DEFAULT_OPENAI_SCREEN_MODEL, "H")
-    assert run.make_screener("openai-api", env={"OPENAI_API_KEY": "k"},
-                             screen_model="gpt-6") == (
-        "openai-api", "k", "gpt-6", None)
+def test_make_screener_api_requires_a_model():
+    with pytest.raises(ValueError, match="needs SCREEN_MODEL"):
+        run.make_screener("api", env={"SCREEN_API_KEY": "k"})
+
+
+def test_ollama_ignores_a_leftover_screen_model():
+    assert run.screen_model_for("ollama", screen_model="gpt-5.6-luna",
+                                ollama_model="custom:1b") == "custom:1b"
+    assert run.screen_model_for("ollama", screen_model="gpt-5.6-luna") == "qwen3.5:4b"
+
+
+def test_main_rejects_api_without_a_model_before_any_work(tmp_path, monkeypatch, capsys):
+    env_file = tmp_path / ".env"
+    env_file.write_text("SCREEN_BACKEND=api\n")
+    monkeypatch.setattr(run.os, "environ", dict(run.os.environ))
+    for k in ("SCREEN_BACKEND", "SCREEN_MODEL"):
+        run.os.environ.pop(k, None)
+    monkeypatch.setattr(run, "run_once", lambda *a, **k: pytest.fail("must not run"))
+    with pytest.raises(SystemExit):
+        run.main(["--once", "--env", str(env_file), "--db", str(tmp_path / "d.db")])
+    assert "needs SCREEN_MODEL" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize("retired", ["openai-api", "claude-api"])
+def test_main_rejects_retired_backends_before_any_work(retired, tmp_path, monkeypatch, capsys):
+    env_file = tmp_path / ".env"
+    env_file.write_text(f"SCREEN_BACKEND={retired}\n")
+    monkeypatch.setattr(run.os, "environ", dict(run.os.environ))
+    run.os.environ.pop("SCREEN_BACKEND", None)
+    monkeypatch.setattr(run, "run_once", lambda *a, **k: pytest.fail("must not run"))
+    with pytest.raises(SystemExit):
+        run.main(["--once", "--env", str(env_file), "--db", str(tmp_path / "d.db")])
+    assert "SCREEN_BACKEND=api" in capsys.readouterr().err
 
 
 def test_make_screener_rejects_unknown_backend():
@@ -512,7 +552,7 @@ def test_main_merges_env_file_into_argparse_defaults(monkeypatch, tmp_path):
 
     envfile = tmp_path / ".env"
     envfile.write_text(
-        "SCREEN_BACKEND=claude-api\n"
+        "SCREEN_BACKEND=api\n"
         "OLLAMA_MODEL=custom:1b\n"
         "DB_PATH=/tmp/from-env.db\n"
         "SCREEN_MODEL=claude-from-env\n"
@@ -530,7 +570,7 @@ def test_main_merges_env_file_into_argparse_defaults(monkeypatch, tmp_path):
 
     run.main(["--once", "--env", str(envfile)])
 
-    assert captured["screen_backend"] == "claude-api"
+    assert captured["screen_backend"] == "api"
     assert captured["ollama_model"] == "custom:1b"
     assert captured["db_path"] == "/tmp/from-env.db"
     assert captured["screen_model"] == "claude-from-env"
@@ -546,7 +586,7 @@ def test_main_env_merge_excludes_secrets(monkeypatch, tmp_path):
     for k in ("DB_PATH", "OLLAMA_MODEL", "SCREEN_BACKEND", "SCREEN_MODEL",
               "SCORE_BACKEND", "CODEX_SCORE_MODEL",
               "ANTHROPIC_SCORE_MODEL", "CODEX_BATCH_SIZE",
-              "TELEGRAM_BOT_TOKEN", "TELEGRAM_CHAT_ID", "ANTHROPIC_API_KEY",
+              "TELEGRAM_BOT_TOKEN", "TELEGRAM_CHAT_ID", "SCREEN_API_KEY",
               "OPENAI_API_KEY"):
         _os.environ.pop(k, None)
 
@@ -554,7 +594,7 @@ def test_main_env_merge_excludes_secrets(monkeypatch, tmp_path):
     envfile.write_text(
         "DB_PATH=/tmp/from-env.db\n"
         "OLLAMA_MODEL=custom:1b\n"
-        "SCREEN_BACKEND=claude-api\n"
+        "SCREEN_BACKEND=api\n"
         "SCREEN_MODEL=claude-opus-4-8\n"
         "SCORE_BACKEND=claude-api\n"
         "CODEX_SCORE_MODEL=gpt-from-env\n"
@@ -562,7 +602,7 @@ def test_main_env_merge_excludes_secrets(monkeypatch, tmp_path):
         "CODEX_BATCH_SIZE=3\n"
         "TELEGRAM_BOT_TOKEN=secret-tok\n"
         "TELEGRAM_CHAT_ID=c\n"
-        "ANTHROPIC_API_KEY=secret-key\n"
+        "SCREEN_API_KEY=secret-key\n"
         "OPENAI_API_KEY=secret-openai-key\n"
     )
 
@@ -577,7 +617,7 @@ def test_main_env_merge_excludes_secrets(monkeypatch, tmp_path):
     # The argparse-read config keys must be promoted into os.environ.
     assert _os.environ["DB_PATH"] == "/tmp/from-env.db"
     assert _os.environ["OLLAMA_MODEL"] == "custom:1b"
-    assert _os.environ["SCREEN_BACKEND"] == "claude-api"
+    assert _os.environ["SCREEN_BACKEND"] == "api"
     assert _os.environ["SCREEN_MODEL"] == "claude-opus-4-8"
     # Retired fit-scorer keys are no longer argparse defaults, so they stay out too.
     for retired in ("SCORE_BACKEND", "CODEX_SCORE_MODEL", "ANTHROPIC_SCORE_MODEL",
@@ -587,13 +627,13 @@ def test_main_env_merge_excludes_secrets(monkeypatch, tmp_path):
     # Secrets must never be promoted into os.environ (would leak to codex subprocess).
     assert "TELEGRAM_BOT_TOKEN" not in _os.environ
     assert "TELEGRAM_CHAT_ID" not in _os.environ
-    assert "ANTHROPIC_API_KEY" not in _os.environ
+    assert "SCREEN_API_KEY" not in _os.environ
     assert "OPENAI_API_KEY" not in _os.environ
 
     # ... but secrets must still reach run_once via the in-process env dict.
     assert captured["env"]["TELEGRAM_BOT_TOKEN"] == "secret-tok"
     assert captured["env"]["TELEGRAM_CHAT_ID"] == "c"
-    assert captured["env"]["ANTHROPIC_API_KEY"] == "secret-key"
+    assert captured["env"]["SCREEN_API_KEY"] == "secret-key"
     assert captured["env"]["OPENAI_API_KEY"] == "secret-openai-key"
 
 
