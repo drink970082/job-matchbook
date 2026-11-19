@@ -8,11 +8,6 @@ behavior. Completed work belongs in CHANGELOG, not this queue.
 
 ## In flight
 
-- **Web read-only dashboard — PR open** `[WEB · L]` (#158, branch
-  `feat/158-sources-activity`). Discovered Jobs funnel merged (#195, not deployed);
-  this PR: Sources tab (watchlist + unresolved, read-only, `postings_30d`), Activity tab,
-  promotion suggestions removed. After it: deploy (web only), then close #158.
-
 - **JEV profile in the DB — deployed; acceptance: tonight's JEV pass re-queues nothing
   for a policy change (hash verified equal at deploy); then delete this entry**
   `[WORKER+WEB · M]` (#157).
