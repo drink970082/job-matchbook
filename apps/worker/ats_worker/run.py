@@ -45,7 +45,7 @@ DEFAULT_OLLAMA_MODEL = PROVIDERS["ollama"].default_model
 # the full environment (the codex CLI).
 _ENV_ARGPARSE_KEYS = frozenset({
     "DB_PATH", "OLLAMA_MODEL", "SCREEN_BACKEND", "SCREEN_MODEL",
-    "SCREEN_WORKERS", "SCREEN_EFFORT", "SCREEN_LIMIT",
+    "SCREEN_WORKERS", "SCREEN_EFFORT", "SCREEN_LIMIT", "JEV_BACKEND",
 })
 
 
@@ -61,6 +61,8 @@ DEFAULT_SCREEN_BACKEND = "ollama"
 QUOTA_FILE = "quota.json"
 SCREEN_EFFORT_VALUES = ("none", "low", "medium", "high", "xhigh", "max")
 SCREEN_BACKENDS = tuple(PROVIDERS)
+# `extract` runs the JEV packs through the screen's own provider (UNVALIDATED).
+JEV_BACKENDS = ("openrouter-native", "extract")
 
 
 def screen_model_for(backend: str, *, screen_model=None, ollama_model=None):
@@ -137,9 +139,15 @@ def run_once(cfg, *, db_path, env,
              refresh_unscored: bool = False,
              refresh_source: str | None = None, refresh_limit: int = 25,
              jev_enabled: bool = False, jev_limit: int = 300,
-             jev_max_usd: Decimal = Decimal("0.10")) -> None:
+             jev_max_usd: Decimal = Decimal("0.10"),
+             jev_backend: str = "openrouter-native") -> None:
     """Run fetch -> feed -> expire -> screen exactly once (`fetch_only` stops before
-    the screen). The screen never sees the résumé or profile."""
+    the screen). The screen never sees the résumé or profile; `jev_backend="extract"`
+    sends the JEV profile and experience context to the screen provider."""
+    if jev_enabled and jev_backend not in JEV_BACKENDS:
+        raise ValueError(f"unknown jev backend: {jev_backend!r}")
+    if jev_enabled and jev_backend == "extract" and screen_backend == "none":
+        raise ValueError("jev backend extract needs a screen backend other than none")
     if fetch_only and refresh_unscored:
         raise ValueError("fetch-only and refresh-unscored are mutually exclusive")
     if not fetch_only and screen_limit is not None and screen_limit <= 0:
@@ -265,7 +273,13 @@ def run_once(cfg, *, db_path, env,
             capture_usage(os.path.join(
                 os.path.dirname(os.path.realpath(db_path)), QUOTA_FILE), screen_backend)
         if jev_enabled:
-            _run_jev(conn, cfg, env=env, limit=jev_limit, max_usd=jev_max_usd, now=now)
+            if jev_backend == "extract":
+                _run_jev_extract(conn, cfg, extract=screen_extract, limit=jev_limit, now=now,
+                                 max_description_chars=num_ctx * 2,
+                                 model=f"extract:{jev.EXTRACT_PROMPT_VERSION}:{screen_backend}:"
+                                       f"{effective_model}:{effective_effort}:jd{num_ctx * 2}")
+            else:
+                _run_jev(conn, cfg, env=env, limit=jev_limit, max_usd=jev_max_usd, now=now)
     finally:
         conn.close()
 
@@ -292,6 +306,23 @@ def _run_jev(conn, cfg, *, env, limit: int, max_usd: Decimal, now: str) -> None:
         limit=limit, max_usd=max_usd, clock=_now,
         jev_fn=lambda posting: jev.assess(posting, inputs=inputs, post=client.post,
                                           resolved_model=resolved))
+
+
+def _run_jev_extract(conn, cfg, *, extract, limit: int, model: str, now: str,
+                     max_description_chars: int | None = None) -> None:
+    """JEV_BACKEND=extract: the packs through the screen provider. `model` names the
+    backend, model and effort, so it joins policy_sha and a switch re-queues every verdict.
+    The seam reports no cost: --jev-limit is the cap and --jev-max-usd never trips."""
+    inputs = _jev_inputs(conn, cfg, now=now)
+    if inputs is None:
+        print("[jev] no stored JEV profile and no jev_dir; skipping the JEV filter this pass")
+        return
+    print(f"[jev] backend {model} (UNVALIDATED; no cost reported, --jev-limit caps postings)")
+    pipeline.run_jev(
+        conn, now=now, policy_sha=inputs.policy_sha(model), model=model,
+        limit=limit, max_usd=Decimal("Infinity"), clock=_now,
+        jev_fn=lambda posting: jev.assess_extract(posting, inputs=inputs, extract=extract,
+                                                  max_description_chars=max_description_chars))
 
 
 def _has_stored_jev_profile(db_path) -> bool:
@@ -666,12 +697,18 @@ def main(argv=None) -> None:
                         help="clear successful screen cache for eligible 'new' rows; "
                              "requires --once")
     parser.add_argument("--jev", action="store_true",
-                        help="after the screen, run the JEV keep/skip filter (OpenRouter, "
-                             "paid; needs jev_dir in config and OPENROUTER_API_KEY)")
-    parser.add_argument("--jev-limit", type=int, default=300,
-                        help="max postings the JEV filter assesses per pass")
-    parser.add_argument("--jev-max-usd", default="0.10",
-                        help="stop the JEV filter once a pass has spent this much (USD)")
+                        help="after the screen, run the JEV keep/skip filter (needs jev_dir in "
+                             "config; the default openrouter-native backend is paid and "
+                             "needs OPENROUTER_API_KEY)")
+    parser.add_argument("--jev-backend", default=os.environ.get("JEV_BACKEND", "openrouter-native"),
+                        help="openrouter-native (default, measured) or extract (the screen "
+                             "backend answers the same packs; UNVALIDATED, no USD cap)")
+    parser.add_argument("--jev-limit", type=int,
+                        help="max postings the JEV filter assesses per pass (default 300; "
+                             "40 with --jev-backend extract)")
+    parser.add_argument("--jev-max-usd",
+                        help="stop the JEV filter once a pass has spent this much (USD, "
+                             "default 0.10; refused with --jev-backend extract)")
     parser.add_argument("--screen-workers", type=int,
                         default=int(os.environ.get("SCREEN_WORKERS", "0")),
                         help="concurrent screen calls (0 = 1)")
@@ -736,6 +773,19 @@ def main(argv=None) -> None:
         if not cfg.jev_dir and not _has_stored_jev_profile(args.db):
             parser.error("--jev needs `jev_dir` in config.yaml (see config.yaml.example) "
                          "or a stored JEV profile")
+        if args.jev_backend not in JEV_BACKENDS:
+            parser.error(f"--jev-backend/JEV_BACKEND must be one of {', '.join(JEV_BACKENDS)}")
+        if args.jev_backend == "extract" and args.screen_backend == "none":
+            parser.error("--jev-backend extract needs a screen backend other than none")
+        if args.jev_backend == "extract" and args.jev_max_usd is not None:
+            parser.error("--jev-max-usd does not apply to --jev-backend extract (no cost "
+                         "is reported); cap it with --jev-limit")
+    if args.jev_limit is None:
+        # ponytail: extract has no USD cap, so its default is the screen's 40, not 300
+        args.jev_limit = 40 if args.jev_backend == "extract" else 300
+    if args.jev_max_usd is None:
+        args.jev_max_usd = "0.10"
+    if args.jev:
         if args.jev_limit <= 0:
             parser.error("--jev-limit must be positive")
         try:
@@ -783,7 +833,8 @@ def main(argv=None) -> None:
                          refresh_source=args.refresh_source,
                          refresh_limit=args.refresh_limit,
                          jev_enabled=args.jev, jev_limit=args.jev_limit,
-                         jev_max_usd=Decimal(str(args.jev_max_usd)))
+                         jev_max_usd=Decimal(str(args.jev_max_usd)),
+                         jev_backend=args.jev_backend)
         except PassInProgress as exc:
             # A hand run exits non-zero so a wrapper script sees the refusal; a
             # scheduled firing skips this slot and waits for the next one. Neither

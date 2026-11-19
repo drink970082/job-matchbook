@@ -856,6 +856,19 @@ worker modules are pure and dependency-injected; real services are wired only in
   leave about a quarter of screened candidates. Ranking within `keep` was measured and
   rejected (it tied publication-time order).
 
+  **`--jev-backend` / `JEV_BACKEND`** (#178): `openrouter-native` (default; everything
+  above) or `extract`, which renders each pack as a prompt plus an enum JSON schema and
+  sends it through the screen backend's `extract` seam (`jev.assess_extract`), one call
+  per pack, so the screen provider receives the JEV profile and experience context.
+  The JD is truncated to `num_ctx * 2` characters with the screen's marker, and the
+  questions come after the data. Ollama ignores the schema (`format="json"`), so there
+  the enum is enforced only by post-validation. The policy hash names the prompt
+  version, screen backend, model, effort and truncation width, so changing any of them
+  re-queues every verdict. The seam reports no cost: `--jev-limit` is the only cap
+  (default 40 postings here, not 300), an explicit `--jev-max-usd` is refused, and no
+  OpenRouter key is needed. Refused with `--screen-backend none`. **UNVALIDATED**: the
+  measured basis above is native-only.
+
   **Import boundary.** No fit module exists to import, and no résumé is loaded.
   Provider-free review-batch, rehearsal, profile, and replay imports are guarded in fresh
   processes: legacy fit/profile/runtime module names and `.txt` resource reads fail
