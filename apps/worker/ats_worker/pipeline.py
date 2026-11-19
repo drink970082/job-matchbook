@@ -99,7 +99,7 @@ def run_fetch(conn, companies, title_filter, *, now, fetch_fn=None,
             # silently-broken scraper surfaces on the Unresolved board instead of
             # vanishing into a log line — the same visibility the feed path already
             # gives detail-fetch failures. 'discarded' rows are exempt: the stub gate
-            # returns them deliberately un-hydrated and they never reach the scorer.
+            # returns them deliberately un-hydrated and they never reach the screen.
             bodyless = [p for p in kept
                         if p.get("pipeline_status") != "discarded" and not _valid_posting(p)]
             if bodyless:
@@ -152,7 +152,7 @@ def _log_board_health(company, fetched, kept, bodyless, added) -> None:
 
     `_valid_posting` already catches a description that is EMPTY, which is how a moved
     selector announces itself. It cannot catch a board that serves a 250-character
-    summary — that reads as a healthy fetch and silently starves the fit scorer, which
+    summary — that reads as a healthy fetch and silently starves the screen and JEV, which
     is why finding it took a manual query over the stored rows rather than a log. The
     median is the cheapest thing that would have said so.
     """

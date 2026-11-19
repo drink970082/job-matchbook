@@ -26,15 +26,11 @@ behavior. Completed work belongs in CHANGELOG, not this queue.
   ~5,900 older screened postings stay `unassessed` and listed. Rollback = drop `--jev`
   from `ats-worker.service.d/20-screen-only.conf` and restart; the table is additive.
 
-- **Fit-scorer residue — unclaimed** `[SCORE · S]`. The scorer is gone (#149, #150);
-  what is left needs a decision, not a branch:
+- **Fit-scorer residue — unclaimed** `[SCORE · S]` (#174). Left:
   (1) `fit_profile` and `candidate.years_experience` stay accepted-and-ignored
-  `config.yaml` keys; delete them once no config carries them.
-  (2) Columns nothing writes any more — `job_postings.score`, `notify_attempts`,
-  `deprioritized_at` — and the web's score filter / Matched buckets that read them. The
-  web half waits for #158.
-  (3) `run_expire` rechecks only `scored`/`notified` rows, so new postings are never
-  checked for closure (SPEC limitation). Fix alongside the MCP/JEV work.
+  `config.yaml` keys until no config carries them (both live configs still do).
+  (2) Drop the columns nothing writes — `job_postings.score`, `attempts`,
+  `notify_attempts`, `deprioritized_at` — after #158 removes the web reads.
 
 - **Daily Brief instructions for issue #94 — unattended acceptance remains open**
   [ORCH · M · branch docs/issue-94-daily-brief]. Public task instructions, an interactive
@@ -73,8 +69,8 @@ owns active branch claims. Documentation plans do not launch agents or deploy se
 
 - Fetch applies candidate/title gates before the agent sees the data. Existing dedup
   ignores repeated source/external IDs rather than generally refreshing their JDs.
-- Liveness rechecks select scored/notified rows for supported detail adapters; a stored
-  screen-only/new posting is not guaranteed open.
+- Liveness rechecks cover detail adapters only; a stored board-source posting is not
+  guaranteed open.
 - Imported/manual applications may have no posting link. Deduplicate against the
   applications table, not only `application_id`.
 - No persistent Brief delivery ledger. Cross-day deduplication is

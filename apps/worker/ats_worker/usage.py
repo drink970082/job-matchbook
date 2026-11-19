@@ -1,7 +1,7 @@
-"""Fit-backend quota telemetry: read the operator's remaining budget from the
+"""Subscription quota telemetry: read the operator's remaining budget from the
 provider's own usage endpoint and persist a small snapshot for the web UI's bar.
 
-One HTTP GET per score pass against whichever backend actually scored, retried
+One HTTP GET per pass against the subscription backend in use, retried
 on a retryable failure (see `_ATTEMPTS`). Both
 providers answer with the same three facts — a plan name, a percent used, and when
 the window resets — so `_snapshot` folds them into one shape and the web bar renders
@@ -10,14 +10,14 @@ either without branching.
 WHY not the codex session rollout (the pre-2026-07-29 approach): `codex exec --json`
 streams only thread/turn/item events and never carries `rate_limits`, so the figures
 were scraped out of the session rollout — which meant dropping `--ephemeral` on every
-scoring call, leaving the full résumé+profile+JD prompt on disk until it was reaped,
+codex call, leaving the full résumé+profile+JD prompt on disk until it was reaped,
 and guessing which rollout was "ours" by mtime. `GET /backend-api/codex/usage` returns
-the same accounting directly, so scoring calls are `--ephemeral` again and nothing is
+the same accounting directly, so codex calls are `--ephemeral` again and nothing is
 written to disk to be cleaned up.
 
 **Which budget this describes.** For codex it is the ChatGPT subscription that
-`codex login` authenticated — the same budget the scorer spends. For claude it is the
-**Claude Code subscription**, which is NOT what `make_claude_scorer` spends: that
+`codex login` authenticated — the same budget the codex screen spends. For claude it is the
+**Claude Code subscription**, which is NOT what the `claude-api` screen spends: that
 backend bills `ANTHROPIC_API_KEY` (metered API), a separate budget with no
 percent-of-quota endpoint. The snapshot therefore records `backend` and the web labels
 the bar with it, so the two are never silently conflated.

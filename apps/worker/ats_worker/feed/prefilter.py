@@ -1,10 +1,10 @@
-"""Cheap metadata pre-filter for feed listings, run BEFORE any JD fetch/score.
+"""Cheap metadata pre-filter for feed listings, run BEFORE any JD fetch/screen.
 
 A discovery feed is a firehose (~18k Simplify listings). The feed hands us
 structured metadata for free, so we drop the obvious non-matches here — for
-pennies, before spending a board fetch or an LLM score on them.
+pennies, before spending a board fetch or an LLM screen on them.
 
-Hybrid posture (the semantic calls stay with the LLM scorer):
+Hybrid posture (the semantic calls stay with the LLM screen):
   - active:      keep only live postings (most of the firehose is filled/expired).
   - category:    keep only the role families you want (drops Product / Hardware).
   - sponsorship: drop ONLY when the feed EXPLICITLY says no sponsorship /

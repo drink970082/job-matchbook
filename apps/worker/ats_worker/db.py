@@ -268,9 +268,9 @@ def existing_external_ids(conn: sqlite3.Connection, source: str, ids) -> set[str
 # --- queries --------------------------------------------------------------
 
 def get_by_status(conn: sqlite3.Connection, status: str):
-    """Rows in `status`, best-scored first."""
+    """Rows in `status`, oldest first."""
     return conn.execute(
-        "SELECT * FROM job_postings WHERE pipeline_status=? ORDER BY score DESC, id ASC",
+        "SELECT * FROM job_postings WHERE pipeline_status=? ORDER BY id ASC",
         [status],
     ).fetchall()
 
@@ -283,8 +283,7 @@ def get_screen_candidates(conn: sqlite3.Connection) -> list[dict]:
         "SELECT p.* FROM job_postings p "
         "LEFT JOIN job_screenings s ON s.job_posting_id=p.id "
         "WHERE p.pipeline_status='new' AND s.id IS NULL "
-        "ORDER BY (p.deprioritized_at IS NOT NULL) ASC, "
-        "COALESCE(p.updated_at,'') DESC, p.id DESC"
+        "ORDER BY COALESCE(p.updated_at,'') DESC, p.id DESC"
     ).fetchall()
     errors = conn.execute(
         "SELECT p.* FROM job_postings p "
@@ -447,7 +446,7 @@ def save_jev(conn: sqlite3.Connection, posting_id: int, *, state: str, verdict: 
 
 
 def get_recheck_candidates(conn: sqlite3.Connection, sources, limit: int):
-    """Live postings (scored|notified) from per-listing sources, least-recently
+    """Live postings (new|scored|notified) from per-listing sources, least-recently
     touched first — the expiry re-check queue (pipeline.run_expire). Every check
     rewrites updated_at, so the queue rotates itself; no extra column needed."""
     sources = list(sources)
@@ -455,7 +454,7 @@ def get_recheck_candidates(conn: sqlite3.Connection, sources, limit: int):
         return []
     placeholders = ",".join("?" for _ in sources)
     return conn.execute(
-        "SELECT * FROM job_postings WHERE pipeline_status IN ('scored','notified') "
+        "SELECT * FROM job_postings WHERE pipeline_status IN ('new','scored','notified') "
         f"AND source IN ({placeholders}) "
         "ORDER BY COALESCE(updated_at,'') ASC, id ASC LIMIT ?",
         [*sources, limit],
@@ -625,7 +624,7 @@ def save_source_observation(conn: sqlite3.Connection, posting_id: int, *,
 # dict keys, so gate them against this allowlist: a stray/untrusted key must
 # never reach the SQL string (defense-in-depth; today all callers pass constants).
 _UPDATABLE_COLUMNS = frozenset({
-    "score", "score_detail", "pipeline_status", "pipeline_error", "updated_at",
+    "score_detail", "pipeline_status", "pipeline_error", "updated_at",
 })
 
 

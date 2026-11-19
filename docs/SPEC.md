@@ -431,9 +431,7 @@ worker modules are pure and dependency-injected; real services are wired only in
   (default 1), `--rescreen-screened` (clear successful screen cache for eligible `new`
   rows before a one-shot pass; requires `--once`), `--fetch-only` (run fetch/feed/expire
   then stop before any screen call — a quota-free board refresh), `--screen-only`
-  (accepted no-op alias for the default pass, kept for existing service files; the
-  retired fit flags `--score-*`, `--batch-size`, `--no-notify`, `--rescreen-discarded`
-  and `--resume-dir` are likewise accepted and ignored with a warning),
+  (accepted no-op alias for the default pass, kept for existing service files),
   `--refresh-unscored --refresh-source smartrecruiters --refresh-limit N` (standalone,
   source-only refresh of eligible existing unscored rows; requires `--once`, an explicit
   adapter, and a limit from 1 through 25; runs no intake or screening), and
@@ -1208,7 +1206,7 @@ worker modules are pure and dependency-injected; real services are wired only in
   `screen_fn` over eligible `new` rows with up to `--screen-workers` concurrent calls
   (default 1), while every DB read/write stays on the calling thread.
   `run_expire` is the dead-link sweep: it re-fetches up to `EXPIRE_BATCH` (50) live
-  (`scored`/`notified`) postings from **detail sources only** — the ones with a real
+  (`new`/`scored`/`notified`) postings from **detail sources only** — the ones with a real
   per-job endpoint (`fetch.DETAIL_SOURCES`), so the check costs one honest request
   with a real HTTP status and board sources are untouched — least-recently-updated
   first. A **404/410** marks the row `pipeline_status='expired'` (terminal; it drops
@@ -1217,9 +1215,8 @@ worker modules are pure and dependency-injected; real services are wired only in
   treated as alive, because wrongly expiring a live match costs the operator a job
   while a missed dead link costs one stale row. A successful check rewrites
   `updated_at`, which rotates the row to the back of the queue — that's the whole
-  scheduling mechanism, no extra column. **Limitation:** nothing writes
-  `scored`/`notified` any more, so this sweep only revisits legacy rows; a `new` posting is
-  never rechecked and a stored one is not proof the requisition is open.
+  scheduling mechanism, no extra column. A board-source posting is never rechecked,
+  so a stored one is not proof the requisition is open.
   The separate `run_unscored_refresh` mode accepts only the explicit
   `smartrecruiters` adapter and 1–25 requests. It selects `new`, `failed`, `discarded`,
   or `expired` rows without a fit assessment or application link, least recently
@@ -1298,6 +1295,8 @@ worker modules are pure and dependency-injected; real services are wired only in
   confirmed source state, seen/attempt/check times, safe error category, content revision,
   and independent fit/screen freshness (`not_assessed`, `current`, `stale`, `unknown`, or
   `provider_error`). A failed newer attempt does not replace the last conclusive check.
+  `list_jobs` rows carry no retired fit-scorer columns (`score`, `attempts`,
+  `notify_attempts`, `deprioritized_at`).
   They also expose a derived `triage_summary` with one of `rule_disqualified`,
   `screen_disqualified`, `candidate`, or `needs_review`, plus bounded reason and
   provenance. `list_jobs` accepts an optional `triage_status` filter, evaluated before
@@ -1836,7 +1835,7 @@ screen:  new                      → new            (result stored in job_scree
                                                     lifecycle untouched)
 jev:     new (screened, not dq)   → new            (keep/skip in job_jev_assessments;
                                                     lifecycle untouched; --jev only)
-expire:  scored|notified, detail source, board 404/410 → expired
+expire:  new|scored|notified, detail source, board 404/410 → expired
                                                    (terminal; capped at 50/pass,
                                                     least-recently-updated first;
                                                     any other error → left alone)
@@ -1871,7 +1870,7 @@ Triage evidence with duplicate object members at its root, screen map, or check 
   endpoint — never on a timeout, bot wall, or 5xx.
 
 - **Stage gating is strict:** `run_screen` processes eligible `new` rows without
-  changing their lifecycle or fit evidence; `run_expire` only live `scored`/`notified`
+  changing their lifecycle or fit evidence; `run_expire` only live `new`/`scored`/`notified`
   rows from detail sources. A failure in one posting never aborts the batch. An empty
   `candidate` block skips the model call; deterministic location/internship gates still
   run. Provider calls default to a positive cap of 40; explicit `--screen-unlimited`
@@ -2308,7 +2307,6 @@ automated coverage — those rely on code review or the human in the loop, not a
 | Tracker shows confirmed source state, inconclusive attempt and separate fit/screen freshness in list and detail views; invalid source timestamps and invalid captured revisions remain null/unknown | `web/src/lib/__tests__/source-lifecycle.test.ts`, `web/src/components/__tests__/DiscoveredJobsTable.test.tsx`, `web/src/components/__tests__/JobDetailModal.test.tsx` |
 | Read-only MCP job list/detail exposes bounded source state and freshness summaries without leaking raw errors or JD text; invalid captured screen revisions remain unknown | `tests/test_mcp_repository.py::test_source_lifecycle_separates_state_from_fit_and_screen_freshness`, `test_source_lifecycle_invalid_screen_revisions_are_unknown_in_list_and_detail`, `test_source_lifecycle_rejects_boolean_screen_revisions`, `test_source_lifecycle_rejects_unsafe_current_fit_and_screen_revisions`, `test_source_lifecycle_accepts_maximum_safe_revision` |
 | Explicit unlimited screen mode processes more than 40 provider calls, reuses completed cache, preserves the dead-provider breaker; CLI rejects out-of-mode/conflicting use, and explicit unlimited overrides the environment cap while zero stays invalid | `tests/test_screen_pipeline.py` (`test_unlimited_screen_exceeds_default_cap_and_still_caches_success`, `test_unlimited_screen_retains_dead_provider_breaker`), `tests/test_run.py` (`test_screen_unlimited_cli_overrides_environment_limit`, `test_screen_only_invalid_combinations_fail_before_config_or_db`) |
-| Standalone screen calls preserve the existing deprioritized queue order under the provider-call cap; demoted rows remain reachable after priority rows | `tests/test_screen_pipeline.py::test_screen_provider_cap_preserves_existing_deprioritized_queue` |
 | Direct `run_once` rejects conflicting modes and invalid screen caps before opening or seeding a database | `tests/test_run.py::test_run_once_invalid_modes_fail_before_opening_database` |
 | MCP recipe list/detail reads redact conventional secret query keys even in malformed URLs, including percent-encoded keys | `tests/test_mcp_repository.py::test_malformed_url_query_secrets_are_redacted_in_all_recipe_reads` |
 | MCP repository uses SQLite `mode=ro` + `query_only`, fails without creating/incompletely accepting a DB, returns current WAL commits, and exposes only bounded, allowlisted, parameter-bound model reads with scoped cursors, chunked text, secret redaction, approved settings, and unknown/orphan data preserved | `tests/test_mcp_repository.py` (`test_database_is_opened_read_only_and_query_only`, `test_each_query_opens_a_live_connection_that_sees_committed_wal_writes`, `test_missing_or_incomplete_database_fails_safely_without_creating_file`, `test_cursor_is_bounded_and_does_not_store_filter_text`, `test_all_ats_entities_are_allowlisted_and_json_is_reported`, `test_malformed_recipe_is_withheld_without_leaking_raw_value`, `test_valid_json_that_is_not_a_recipe_object_is_withheld`, `test_entity_input_cannot_select_arbitrary_sql`) |

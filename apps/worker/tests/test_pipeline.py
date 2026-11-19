@@ -327,10 +327,23 @@ def test_run_expire_zero_budget_checks_nothing(db_path):
         detail_fetch_fn=lambda *a: (_ for _ in ()).throw(AssertionError("no fetch"))) == 0
 
 
+def test_run_expire_rechecks_new_rows(db_path):
+    # Nothing writes scored/notified any more, so `new` is the live inventory; a
+    # new posting from a detail source must be checked for closure too.
+    conn = db.connect(db_path)
+    db.upsert_postings(conn, [_posting("fresh", source=DETAIL_SRC)], now=NOW)
+
+    def fetch_one(source, slug, ext, name):
+        raise _HTTPError(404)
+
+    assert pipeline.run_expire(conn, now=LATER, detail_fetch_fn=fetch_one) == 1
+    assert _statuses(conn)["fresh"] == "expired"
+
+
 def test_run_expire_ignores_board_sources_and_dead_statuses(db_path):
-    # Only live (scored|notified) rows from per-LISTING sources are re-checked:
-    # a board source has no per-job endpoint, and 'new'/'discarded' rows aren't
-    # in the operator's queue.
+    # Only live (new|scored|notified) rows from per-LISTING sources are re-checked:
+    # a board source has no per-job endpoint, and 'discarded' rows aren't in the
+    # operator's queue.
     conn = db.connect(db_path)
     _seed_live(conn, ["board"], source="greenhouse")
     _seed_live(conn, ["dropped"], status="discarded")
