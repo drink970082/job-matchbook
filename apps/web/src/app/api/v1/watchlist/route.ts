@@ -9,5 +9,5 @@ export function POST(req: Request) {
         slug: str(b, 'slug') ?? '',
         name: str(b, 'name') ?? '',
         recipe: str(b, 'recipe'),
-    }))
+    }, 'mcp'))
 }

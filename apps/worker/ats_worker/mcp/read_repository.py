@@ -1005,6 +1005,27 @@ class ReadOnlyATSRepository:
         return [{"value": row["value"], "count": int(row["count"]),
                  "known": row["value"] in known} for row in rows]
 
+    def list_sources(self) -> dict[str, Any]:
+        """The whole watchlist with each board's 30-day posting count, plus how many feed
+        listings went unresolved in the same window."""
+        # ponytail: unpaged (the watchlist is ~200 rows); page it if it grows past MAX_PAGE_SIZE-ish.
+        cutoff = (self._clock() - timedelta(days=30)).astimezone(timezone.utc).isoformat(
+            timespec="milliseconds").replace("+00:00", "Z")
+        with self._connection() as conn:
+            conn.execute("BEGIN")
+            rows = conn.execute(
+                "SELECT w.id,w.source,w.slug,w.name,w.recipe IS NOT NULL AS has_recipe,w.created_at,"
+                "(SELECT COUNT(*) FROM job_postings p WHERE p.source=w.source AND p.company_slug=w.slug "
+                " AND ats_instant_cmp(p.created_at, ?) >= 0) AS postings_30d "
+                "FROM watched_companies w ORDER BY w.id", (cutoff,)).fetchall()
+            unresolved = conn.execute(
+                "SELECT COUNT(*) FROM feed_unresolved WHERE ats_instant_cmp(created_at, ?) >= 0",
+                (cutoff,)).fetchone()[0]
+        return {
+            "sources": [{**dict(r), "has_recipe": bool(r["has_recipe"])} for r in rows],
+            "unresolved_30d": int(unresolved),
+        }
+
     def get_ats_overview(self) -> dict[str, Any]:
         with self._connection() as conn:
             # One read snapshot keeps grouped totals internally reconcilable while the

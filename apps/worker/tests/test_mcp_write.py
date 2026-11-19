@@ -251,3 +251,81 @@ async def test_prompts_follow_the_write_mode(tmp_path):
     assert "the last 7 days" in mail.messages[0].content.text
     assert "untrusted" in mail.messages[0].content.text
     assert "mark_job_applied(N)" in instructions
+    assert "remove_source" in instructions and "re-added" in instructions
+
+
+# --- sources (watchlist) -------------------------------------------------------
+
+def _seed_sources(path):
+    with sqlite3.connect(path) as conn:
+        conn.executemany(
+            "INSERT INTO watched_companies(source,slug,name,recipe,created_at) VALUES(?,?,?,?,?)",
+            [("greenhouse", "acme", "Acme", None, "2026-01-01T00:00:00.000Z"),
+             ("custom", "beta", "Beta", '{"url":"x"}', "2026-01-02T00:00:00.000Z")])
+        conn.executemany(
+            "INSERT INTO job_postings(source,external_id,company_slug,company_name,job_title,job_url,"
+            "description,created_at) VALUES(?,?,?,'Acme','Eng',?,'d',?)",
+            [("greenhouse", "1", "acme", "u1", "2026-11-10T00:00:00.000Z"),
+             ("greenhouse", "2", "acme", "u2", "2026-09-01T00:00:00.000Z"),
+             ("lever", "3", "acme", "u3", "2026-11-10T00:00:00.000Z")])
+        conn.executemany(
+            "INSERT INTO feed_unresolved(feed,url,company_name,job_title,host,reason,created_at) "
+            "VALUES('simplify',?,'C','T','h','unsupported_host',?)",
+            [("a", "2026-11-17T00:00:00.000Z"), ("b", "2026-08-01T00:00:00.000Z")])
+
+
+def test_list_sources_counts_recent_postings_per_board(tmp_path):
+    from datetime import datetime, timezone
+    path = bootstrap_db(tmp_path / "m.db")
+    _seed_sources(path)
+    repo = ReadOnlyATSRepository(path, clock=lambda: datetime(2026, 11, 18, tzinfo=timezone.utc))
+    out = repo.list_sources()
+    assert out["unresolved_30d"] == 1
+    assert out["sources"] == [
+        {"id": 1, "source": "greenhouse", "slug": "acme", "name": "Acme", "has_recipe": False,
+         "created_at": "2026-01-01T00:00:00.000Z", "postings_30d": 1},
+        {"id": 2, "source": "custom", "slug": "beta", "name": "Beta", "has_recipe": True,
+         "created_at": "2026-01-02T00:00:00.000Z", "postings_30d": 0},
+    ]
+
+
+@pytest.mark.anyio
+async def test_source_tools_call_the_watchlist_api(tmp_path):
+    path = bootstrap_db(tmp_path / "m.db")
+    _seed_sources(path)
+    row = {"id": 1, "source": "greenhouse", "slug": "acme", "name": "Acme", "recipe": None,
+           "created_at": "2026-01-01T00:00:00.000Z"}
+    writer, session = _client(FakeResponse(200, {"data": {**row, "id": 3}}), FakeResponse(200, {"data": row}))
+    async with Client(create_server(ReadOnlyATSRepository(path), writer), raise_exceptions=True) as client:
+        tools = {t.name: t.model_dump(by_alias=True)["annotations"] for t in (await client.list_tools()).tools}
+        assert tools["list_sources"]["readOnlyHint"] is True
+        assert tools["add_source"]["destructiveHint"] is False
+        assert tools["remove_source"]["destructiveHint"] is True
+        listed = await client.call_tool("list_sources", {})
+        assert [s["slug"] for s in listed.structured_content["sources"]] == ["acme", "beta"]
+        added = await client.call_tool("add_source", {"source": "lever", "slug": "gamma", "name": "Gamma"})
+        assert added.structured_content == {"source": {**row, "id": 3}}
+        removed = await client.call_tool("remove_source", {"source_id": 1})
+        assert removed.structured_content == {"removed": row}
+    assert [(c["method"], c["url"].removeprefix("http://web.test"), c["json"]) for c in session.calls] == [
+        ("POST", "/api/v1/watchlist", {"source": "lever", "slug": "gamma", "name": "Gamma"}),
+        ("DELETE", "/api/v1/watchlist/1", None),
+    ]
+
+
+@pytest.mark.anyio
+async def test_add_source_reports_the_web_validation_message(tmp_path):
+    writer, _ = _client(FakeResponse(400, {"error": "slug contains invalid characters"}))
+    server = create_server(ReadOnlyATSRepository(bootstrap_db(tmp_path / "m.db")), writer)
+    async with Client(server, raise_exceptions=True) as client:
+        res = await client.call_tool("add_source", {"source": "greenhouse", "slug": "a@b", "name": "X"})
+    assert res.is_error is True
+    assert res.content[0].text.endswith(": slug contains invalid characters")
+
+
+@pytest.mark.anyio
+async def test_read_only_server_lists_sources_but_cannot_change_them(tmp_path):
+    server = create_server(ReadOnlyATSRepository(bootstrap_db(tmp_path / "m.db")))
+    async with Client(server, raise_exceptions=True) as client:
+        names = {t.name for t in (await client.list_tools()).tools}
+    assert "list_sources" in names and not names & {"add_source", "remove_source"}

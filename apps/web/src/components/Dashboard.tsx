@@ -24,6 +24,7 @@ import {
     bulkReopen,
     removeAllInView,
     getWatchedCompanies,
+    getWatchlistActivity,
     addWatchedCompany,
     removeWatchedCompany,
 } from '@/lib/actions'
@@ -91,6 +92,7 @@ export function Dashboard({
 
     // Watchlist + promotion-suggestion + unresolved-feed state (loaded client-side)
     const [watchlist, setWatchlist] = useState<any[]>([])
+    const [watchActivity, setWatchActivity] = useState<any[]>([])
     const [promotions, setPromotions] = useState<any[]>([])
     const [unresolved, setUnresolved] = useState<any[]>([])
 
@@ -334,8 +336,13 @@ export function Dashboard({
     }
 
     const refreshWatchlist = async () => {
-        const { data } = await getWatchedCompanies()
+        // Activity is secondary: its failure (e.g. audit_log not pushed yet) must not hide the watchlist.
+        const [{ data }, activity] = await Promise.all([
+            getWatchedCompanies(),
+            getWatchlistActivity().catch(() => ({ data: [] })),
+        ])
         setWatchlist(data)
+        setWatchActivity(activity.data)
     }
 
     const refreshPromotions = async () => {
@@ -609,6 +616,7 @@ export function Dashboard({
                 <WatchlistTab
                     promotions={promotions}
                     watchlist={watchlist}
+                    activity={watchActivity}
                     onApprove={handleApproveSuggestion}
                     onDismiss={handleDismissSuggestion}
                     onAdd={handleAddWatched}

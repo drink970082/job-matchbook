@@ -16,9 +16,10 @@ export async function resetDb() {
     await prisma.$executeRawUnsafe('DELETE FROM feed_unresolved')
     await prisma.$executeRawUnsafe('DELETE FROM promotion_dismissed')
     await prisma.$executeRawUnsafe('DELETE FROM app_settings')
+    await prisma.$executeRawUnsafe('DELETE FROM audit_log')
     // Reset AUTOINCREMENT counters so ids are deterministic per test.
     await prisma.$executeRawUnsafe(
         "DELETE FROM sqlite_sequence WHERE name IN " +
-        "('applications','job_postings','status_history','watched_companies','feed_unresolved','promotion_dismissed')"
+        "('applications','job_postings','status_history','watched_companies','feed_unresolved','promotion_dismissed','audit_log')"
     )
 }

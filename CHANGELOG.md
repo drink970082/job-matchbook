@@ -33,6 +33,10 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 
 ### Added
 
+- **MCP source tools (#156)**: `list_sources` (watchlist + 30-day posting counts),
+  `add_source` and `remove_source` through `/api/v1/watchlist`. Watchlist adds and
+  removes from web or MCP land in a new `audit_log` table with the full row; the
+  Watchlist tab shows them with "via MCP" and a Re-add button.
 - **Web shows MCP writes**: the application history dialog marks an MCP-created
   application and MCP status changes (`actor='mcp'`).
 
