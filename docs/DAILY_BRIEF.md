@@ -1,10 +1,10 @@
 # Daily Job Brief instructions for a ChatGPT Scheduled Task
 
-**Purpose:** reusable public example for issue #94.
-
-This file is a prompt template and acceptance checklist. It does not claim that a task
-has been created or run. The scheduled run must be observed separately in ChatGPT's
-Scheduled view and run history.
+A prompt template and acceptance checklist for a daily job brief built from your ATS data
+plus web search (issue #94 tracks the first observed unattended run). Connect the ATS
+first ([SETUP Path D](SETUP.md#path-d--ai-assistant-access-mcp)). The times below are
+the #94 acceptance settings; pick your own. In Claude Code or Codex, run the same
+instructions interactively or use the server's `daily_brief` prompt.
 
 ## Prepare the task
 
@@ -25,11 +25,10 @@ Scheduled view and run history.
    must remain available. Verify file access in the actual scheduled context. Do not commit
    the private materials or paste them into a public report. See the [official Scheduled
    tasks guide](https://learn.chatgpt.com/docs/automations).
-4. Confirm the actual scheduled run can use the read-only ATS MCP connection and web
-   search. Connected-app support depends on account and workspace permissions; an
+4. Confirm the actual scheduled run can use the ATS MCP connection and web search. Connected-app support depends on account and workspace permissions; an
    interactive run does not establish scheduled access.
-5. Keep the task read-only. The ATS connector now also exposes application write tools
-   (when its key is configured); the brief must not call them. Do not submit an
+5. Keep the task read-only: the brief must not call any write tool (the connector has
+   them when its write key is configured). Do not submit an
    application, contact an employer, change the watchlist, or save a recommendation
    ledger. The connector's `daily_brief` prompt is a compact version of the
    instructions below for interactive use; the Scheduled task keeps the full text.
@@ -60,7 +59,7 @@ Scheduled view and run history.
       pages and apply the exact cutoff to returned timestamps. Include eligible
       unscored postings and advisory screening outcomes; screening is not fit or a
       recommendation. Follow every next_cursor for each filter set and report when
-      pagination is incomplete. The deployed MCP supports
+      pagination is incomplete. The ATS MCP supports
       screen_outcome, search_scope, screening_updated_from (inclusive) and
       screening_updated_to (exclusive), and returns source_lifecycle with source-check
       timestamps. Inspect the actual Scheduled connection: if its schema omits those
@@ -135,13 +134,12 @@ failed, or not exercised:
 - A valid query returned an empty result and the brief described that narrow scope
   accurately.
 - A controlled source failure was reported as a failure/partial result, never as no jobs
-  or confirmed closure. Do not create a production outage to force this case. The
-  [Two Sigma official careers page used in the interactive baseline](https://careers.twosigma.com/careers/JobDetail/New-York-New-York-United-States-Software-Engineer-Trading-Engineering/13462)
-  returned HTTP 406 in the current interactive web reader on 2026-10-23; probe it during
-  a dedicated acceptance run and record what the Scheduled task actually sees. This is
-  a safe access-failure probe, not evidence that the requisition is closed. If it is
-  accessible in the Scheduled run, exercise another naturally failing source before
-  accepting the failure-handling criterion.
+  or confirmed closure. Do not create a production outage to force this case. A
+  safe probe is an official careers page that refuses automated readers (one
+  [Two Sigma page](https://careers.twosigma.com/careers/JobDetail/New-York-New-York-United-States-Software-Engineer-Trading-Engineering/13462)
+  has returned HTTP 406); record what the Scheduled task actually sees. An access failure
+  is not evidence that the requisition is closed. If the probe page is accessible,
+  exercise another naturally failing source before accepting this criterion.
 - Every recommendation has an official URL, full-JD-grounded rationale, explicit
   unknown material facts, and an evidence cutoff.
 - Application dedup distinguishes exact identity from probable title/company matches,
@@ -153,36 +151,6 @@ failed, or not exercised:
   pass beginning at 20:00 has completed.
 - No application state, ATS data, worker, service, or paid model evaluation changed as
   a side effect.
-
-## Interactive preflight (2026-10-25; not Scheduled acceptance)
-
-- `get_ats_overview` succeeded and reported live counts of 7,615 postings and 39
-  applications. The literal **__daily_brief_empty_probe__** returned zero rows and no
-  next cursor; this is only an empty-result probe, not evidence that the ATS has no jobs.
-- An unfiltered `list_jobs` query returned 100 rows on each of its first two pages. The
-  second page was requested with the exact `next_cursor` from the first, and it still
-  reported more rows. The traversal was left explicitly incomplete; no completeness
-  claim is made for the inventory.
-- A long posting description was read in two chunks (16,000 and 10,615 characters) to
-  the server's reported end. No job ID or description text is recorded here.
-- The application list returned 39 rows in one page with no next cursor. This run did
-  not repeat application-to-posting identity comparisons; the task must still compare
-  exact linked identity or official URL and mark title/company similarity as probable.
-- The Two Sigma official-page probe returned HTTP 406 in the interactive web reader. It
-  was treated as a source failure, not an empty result or confirmed closure.
-
-## Deployed MCP verification (2026-10-26 UTC; not Scheduled acceptance)
-
-- The deployed MCP exposes standalone-screen update windows and bounded source-lifecycle
-  summaries. Local stdio and remote connected checks cover all ten tools, pagination,
-  advanced outcome/full-text/update-window queries and invalid-window rejection. Tool
-  discovery in a preexisting chat can retain older parameter metadata; verify the actual
-  Scheduled connection. Legacy source evidence remains unknown until observed.
-- This Codex CLI session has read-only ATS MCP tools but no Scheduled management
-  interface. The [official Scheduled tasks guide](https://learn.chatgpt.com/docs/automations)
-  says to create and manage tasks in ChatGPT web or desktop. No Scheduled task or
-  unattended run was created or observed here. This preflight is not acceptance for issue
-  #94; use the actual Scheduled run history to complete the checklist.
 
 ## Run record
 

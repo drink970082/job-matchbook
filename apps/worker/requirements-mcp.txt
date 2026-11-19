@@ -1,2 +1,2 @@
-# Optional local stdio read-only MCP server. Keep the SDK v2 line explicit.
+# Optional local stdio MCP server. Keep the SDK v2 line explicit.
 mcp==2.3.0

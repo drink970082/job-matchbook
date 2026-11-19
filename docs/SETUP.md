@@ -1,8 +1,9 @@
 # Setup
 
-Choose a path explicitly. The web app and native worker share SQLite; the read-only MCP
-is a separate host process. [SPEC §12](SPEC.md#12-setup-and-deployment) supplies detailed
-commands; [ARCHITECTURE](ARCHITECTURE.md) distinguishes implemented paths from targets.
+Choose a path explicitly. The web app and native worker share SQLite; the MCP server is a
+separate host process your AI client starts. Path D connects an assistant end to end;
+[SPEC §12](SPEC.md#12-setup-and-deployment) carries the longhand worker/deployment
+commands, and [ARCHITECTURE](ARCHITECTURE.md) distinguishes implemented paths from targets.
 
 ## Prerequisites by path
 
@@ -14,7 +15,7 @@ commands; [ARCHITECTURE](ARCHITECTURE.md) distinguishes implemented paths from t
 | Configured public job sources/network access | Discovery |
 | A selected screen backend | Optional screening; no model needed for fetch-only |
 | A `jev_dir` (start from `apps/worker/jev.example/`) + OpenRouter key or a screen backend | Optional JEV keep/skip filter |
-| MCP SDK extra, absolute `ATS_DB_PATH`, tunnel/plugin connection | An AI assistant reading local ATS data |
+| MCP SDK extra (`requirements-mcp.txt`) and an MCP client (Claude Code, Codex, or ChatGPT via a tunnel) | An AI assistant reading local ATS data |
 | `ATS_API_KEY_READ_WRITE` / `ATS_API_KEY_READ` in the root `.env` | The loopback write API `/api/v1` (off without a key) |
 
 A local GPU/Ollama and a résumé are not prerequisites for the tracker or fetch-only
@@ -57,8 +58,7 @@ python -m ats_worker.run --screen-only --screen-backend codex \
 Authenticate the Codex CLI on the host. Results live in `job_screenings` without changing posting lifecycle status. Completed
 is not synonymous with passed. Numeric limits count provider calls; deterministic checks
 need none. Explicit `--screen-unlimited` replaces the numeric limit while preserving
-cache/breaker behavior, but does not remove subscription limits. The operator uses that
-explicit unlimited mode with one worker; this bounded example is not a deployment change.
+cache/breaker behavior, but does not remove subscription limits.
 
 ## Path C2 — optional JEV keep/skip filter
 
@@ -106,17 +106,76 @@ skips a posting whose required minimum is above them.
 
 ## Path D — AI-assistant access (MCP)
 
-Follow [SPEC §12](SPEC.md#12-setup-and-deployment) for the MCP extra, stdio command,
-absolute database path and private tunnel configuration. Connect and test the ATS plugin
-in ChatGPT; verify overview, pagination, full JD chunks and application records.
-No API key, tunnel identity or private profile belongs in the repo.
+The MCP server is a stdio process started by your AI client. It reads the shared SQLite
+database read-only; with a write key it can also log applications, update statuses and
+notes, override keep/skip, manage the watchlist and set preferences and the JEV
+profile, all through the
+web's `/api/v1`. It has no user authentication of its own: connect it only to a client or
+workspace you trust, and it exposes whatever its tools return to that chat.
 
-Daily Brief instructions/background and a scheduled task are separate user-controlled
-configuration. Test an actual unattended run, not only an interactive call. MCP write
-tools go through the web's `/api/v1`. To enable them, set `ATS_API_KEY_READ_WRITE` (and
-optionally `ATS_API_KEY_READ`) to long random values in the root `.env`, restart the web
-container, and give the MCP server the same read-write value as `ATS_API_KEY`; with no
-key the API answers `503` and MCP stays read-only.
+**1. Install and check the server** (after Path A or B, so the schema exists):
+
+```bash
+make db-push                                   # from the repo root
+cd apps/worker
+python -m pip install -r requirements.txt -r requirements-mcp.txt
+python -m ats_worker.mcp                       # stdio; Ctrl-C to stop
+```
+
+`ATS_DB_PATH=/absolute/path/to/applications.db` overrides the database; omit it when the
+checkout's default (`apps/web/prisma/applications.db`) is right. The server must start
+from `apps/worker`, or with `PYTHONPATH` pointing there, so the module resolves.
+
+**2. Optional: enable writes.** Set `ATS_API_KEY_READ_WRITE` (and optionally
+`ATS_API_KEY_READ`) to long random values in the root `.env` and restart the web app;
+then give the MCP server the same read-write value as `ATS_API_KEY`. `ATS_API_URL`
+overrides the web address (default `http://127.0.0.1:3000`). With no key the API answers
+`503` and the server offers only its read tools.
+
+**3. Connect a client.** Replace `/abs/path/to/checkout` with your checkout.
+
+Claude Code or Codex CLI on the same machine:
+
+```bash
+claude mcp add ats -e PYTHONPATH=/abs/path/to/checkout/apps/worker \
+  -- python3 -m ats_worker.mcp
+codex mcp add ats --env PYTHONPATH=/abs/path/to/checkout/apps/worker \
+  -- python3 -m ats_worker.mcp
+```
+
+Add `ATS_DB_PATH=...` or `ATS_API_KEY=...` the same way (`-e` / `--env`) when you need
+them. Use the Python that has the requirements installed (a venv's absolute path works).
+
+ChatGPT, through [OpenAI Secure MCP Tunnel](https://developers.openai.com/api/docs/guides/secure-mcp-tunnels):
+install the tunnel client from the Platform tunnel settings (it needs a tunnel id, a
+runtime API key and Tunnels Read + Use access), then initialize a dedicated profile from
+`apps/worker` without putting the key in shell history:
+
+```bash
+cd apps/worker
+read -r -p 'OpenAI tunnel ID: ' ATS_TUNNEL_ID
+read -r -s -p 'Tunnel runtime API key: ' CONTROL_PLANE_API_KEY; printf '\n'
+export CONTROL_PLANE_API_KEY
+tunnel-client init --sample sample_mcp_stdio_local --profile ats-local \
+  --tunnel-id "$ATS_TUNNEL_ID" --mcp-command 'python -m ats_worker.mcp'
+tunnel-client doctor --profile ats-local --explain
+tunnel-client run --profile ats-local
+```
+
+Do not reuse a profile meant for another server. Once the client reports healthy and
+ready, in ChatGPT Plugins choose **Add custom MCP server -> Connection: Tunnel**, select
+the tunnel, configure authentication, accept the risk warning, then create and install
+the plugin. If your tunnel client release differs, start from its `help quickstart`. Keep
+the runtime key out of logs and the repo; for unattended use, run the tunnel client
+under a service manager.
+
+**4. Verify.** Ask the assistant to call `get_ats_overview`, page through `list_jobs`,
+and read a long job description to its last chunk. A connection counts as working only
+after you see a completed tool call.
+
+For a scheduled daily brief, follow [DAILY_BRIEF](DAILY_BRIEF.md); the server also offers a
+`daily_brief` prompt for interactive use. Test an actual unattended run, not only an
+interactive call.
 
 ## Where settings live
 

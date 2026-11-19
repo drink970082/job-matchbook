@@ -45,6 +45,10 @@ early as context insurance produces exactly such drafts).
   alternatives + reasons included) and commit it. Its `**Status:**` header becomes
   `approved` only after the user signs off. Multi-step work also gets a plan in
   `docs/superpowers/plans/`.
+- **A spec or plan is deleted in the PR that lands its work.** What shipped moves to
+  `SPEC.md` and `CHANGELOG.md`, negative results to `REJECTED.md` or `SCORING.md`; an
+  open question with no work behind it becomes an issue. Only an approved direction
+  that still governs future work (the pivot spec) stays.
 
 ## 4. Implement
 

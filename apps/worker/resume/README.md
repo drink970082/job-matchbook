@@ -1,20 +1,20 @@
 # Resume source (user-provided)
 
-This repo ships only a **`resume.txt.example` template**. Real resume files are
-**gitignored** (personal data) — never committed or pushed. Each user supplies
-their own.
+This repo ships only **`*.example` templates** here. Everything else in this directory
+is **gitignored** (personal data) — never committed or pushed. Each user supplies their
+own.
 
-Nothing in the worker reads these files: the screen never sees a résumé. They are
-private candidate inputs for onboarding and profile tooling. The version label is the
-filename minus a leading `resume_`:
+The worker reads only the JEV packs under your configured `jev_dir` (conventionally
+`resume/jev/`, copied from `../jev.example/`; see `docs/SETUP.md` Path C2). The screen
+never sees a résumé. The other files here are private material for your AI client and the
+`onboard-me` skill:
 
-| File | Label / purpose |
-|------|-----------------|
-| `resume.txt` | Label `resume` — the classic single-resume layout. |
-| `resume_quant_dev.txt` | Label `quant_dev` — a targeted version. |
-| `resume_swe.txt` | Label `swe` — another targeted version. |
-| `personal_profile.txt` | NOT a resume. Optional about-me context (goals, constraints, preferences). |
-
+| File | Purpose |
+|------|---------|
+| `resume.txt` | Your résumé as plain text. |
+| `resume_<label>.txt` | Optional role-targeted versions instead of one `resume.txt` (e.g. `resume_swe.txt`). |
+| `personal_profile.txt` | NOT a résumé. Optional about-me context (goals, constraints, preferences). |
+| `jev/` | Your JEV keep/skip packs, when you use `--jev`. |
 
 Files only need to be clean readable UTF-8 text (export from your `.tex`/`.docx`
 sources however you like).

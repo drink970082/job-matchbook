@@ -35,6 +35,14 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 
 ### Changed
 
+- **Docs split by audience (#176).** SETUP Path D is the one MCP connection guide
+  (Claude Code, Codex, ChatGPT tunnel); the Daily Brief template moves to
+  `docs/DAILY_BRIEF.md`; README groups its docs into Using / Contributing / Project
+  internals. `ENGINEERING_CATALOGUE.md` is triaged into BACKLOG, REJECTED and EVALUATION
+  and deleted; the finished preselection plans and the 2026-10-22 baseline report are
+  deleted; offline preselection detail moves from SPEC to the module README. Docs no
+  longer call the MCP read-only or say the screen discards postings. The universal
+  onboarding spec is deleted; its open discussion is #203.
 - **Discovered Jobs is the JEV funnel (#158)**: stage tabs Keep (default) / Unassessed /
   JEV skip / Screen rejected / Rule rejected / Applied-closed / All with counts, a JEV
   column (verdict, reasons, override) and newest-first order. Read-only except Mark

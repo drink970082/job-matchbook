@@ -72,8 +72,8 @@ change defines how exclusions remain visible and what is intentionally collected
 
 ## Boundaries and acceptance
 
-- Read-only MCP remains read-only; no imports, saved assessments or delivery receipts
-  are implied. Application-history deduplication must work without posting links.
+- MCP writes stay within epic #152's scope; no imports, saved assessments or delivery
+  receipts are implied. Application-history deduplication must work without posting links.
 - Existing combined CLI behavior and tests remain supported; no runtime deployment or
   model change occurs merely because the roadmap changes.
 - Old experiments lose roadmap priority, not their negative findings, private artifacts,

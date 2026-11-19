@@ -15,10 +15,10 @@ issues own scope and status.
 |---|---|---|
 | Board/feed discovery and JD hydration | Shipped | Core; improve coverage and evidence quality |
 | Applications, history, CSV and watchlist UI | Shipped | Core; preserve data and manual workflows |
-| MCP read tools, full-text chunks, application write tools and workflow prompts | Shipped (writes need `ATS_API_KEY`, #154/#159) | Core; becomes the main channel under #152 |
+| MCP read tools, full-text chunks, write tools (applications, triage override, watchlist, preferences, JEV profile) and workflow prompts | Shipped (writes need `ATS_API_KEY`) | Core; the main channel under #152 |
 | All-jobs inventory with advisory screening | Shipped | Preserve the safe inventory and application-action boundaries |
 | Standalone Luna/medium screening | Shipped, operator-selected | Retain as low-cost assistance |
-| JEV keep/skip filter | Deployed (`--jev`, #139); `skip` hidden by default in MCP | Drain the pre-filter backlog; ranking stays gated under #135 |
+| JEV keep/skip filter | Deployed (`--jev`, #139) over the last 7 days of postings; `skip` hidden by default in MCP | Acceptance open (#139); ranking stays gated under #135 |
 | Loopback write API `/api/v1` | Shipped (#153) | Foundation for MCP writes |
 | Source lifecycle for unscored rows | Bounded refresh supports SmartRecruiters only | Extend only with verified source-specific identity and closure signals |
 | Daily Brief using ATS plus web | Interactive workflow works; unattended acceptance outstanding | Preferred judgment/delivery experience |
@@ -27,17 +27,21 @@ issues own scope and status.
 
 | Order | Deliverable | Dependencies | State |
 |---|---|---|---|
-| 1 | [#152 AI-orchestrated ATS](https://github.com/drink970082/job-matchbook/issues/152): #155 triage override, #156 watchlist tools, #157 preferences/profile in the DB, #158 web dashboard read-only except Applications and Settings, #159 workflow text in MCP | #153 (merged) | In flight |
+| 1 | [#152 AI-orchestrated ATS](https://github.com/drink970082/job-matchbook/issues/152): #157 preferences/profile in the DB | #153 (merged) | In flight |
 | 2 | [#94 Scheduled Daily Brief](https://github.com/drink970082/job-matchbook/issues/94) | Deployed tunnel and account/workspace task access | Unattended acceptance outstanding |
 | 3 | [#135 JEV ranking -> MCP](https://github.com/drink970082/job-matchbook/issues/135) | Keep/skip filter (#139) deployed | Ranking activation gated |
+| Parallel | [#181 Repo and docs cleanup](https://github.com/drink970082/job-matchbook/issues/181) | None | #176 docs last; onboarding discussion in [#203](https://github.com/drink970082/job-matchbook/issues/203) |
+| Parallel | [#182 Provider-neutral judgment](https://github.com/drink970082/job-matchbook/issues/182) | None | Per-stage providers shipped (#177-#179); [#180](https://github.com/drink970082/job-matchbook/issues/180) research open; `extract` keep/skip unmeasured |
 | Conditional | [#95 Delivery ledger](https://github.com/drink970082/job-matchbook/issues/95) | #94; observed repeats | Deferred |
 
 ## Daily Brief acceptance (#94)
 
-Use the [Daily Brief task instructions](reports/2026-10-23-daily-brief-instructions.md);
-the [interactive baseline](reports/2026-10-22-ats-chatgpt-research-baseline.md) covers
-MCP pagination, complete JD chunks and application URL comparison, not unattended
-access. Acceptance needs one observed unattended run with durable private preferences,
+Use the [Daily Brief task instructions](DAILY_BRIEF.md); interactive runs already cover
+MCP pagination, complete JD chunks and application comparison, not unattended access.
+The ChatGPT Scheduled task must be created in ChatGPT web or desktop, its connection must
+discover the current `list_jobs` schema, and it must reach the private preference and
+résumé files (web tasks use uploaded files or connected sources; desktop tasks a local
+directory). Acceptance needs one observed unattended run with durable private preferences,
 full JD reading, application-history deduplication without posting links, unknown
 sponsorship/pay reporting and source-failure reporting. Company/title similarity is a
 review signal, not verified requisition identity. At 20:00 America/New_York the brief

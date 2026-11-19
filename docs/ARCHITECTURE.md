@@ -37,19 +37,19 @@ flowchart LR
 
 - Next.js/Prisma web app and native Python worker share SQLite with WAL. Prisma owns DDL.
 - A worker pass is fetch -> screen, plus the JEV keep/skip filter when `--jev` is set
-  (paid OpenRouter calls, capped by `--jev-limit` / `--jev-max-usd`; needs `jev_dir` and
-  `OPENROUTER_API_KEY`). There is no fit scorer and no Telegram stage.
+  (`jev_dir` packs; metered OpenRouter calls capped by `--jev-limit` / `--jev-max-usd`
+  by default, or `--jev-backend extract` through the screen backend). There is no fit scorer and no Telegram stage.
 - `job_screenings` and `job_jev_assessments` are separate from `pipeline_status`. A
   `new` posting can carry a completed disqualification or a JEV verdict. Missing facts and
   provider errors are not evidence of eligibility.
-- MCP exposes ten bounded, read-only tools and full text in chunks. `list_jobs` hides a
-  current JEV `skip` on a still-`new` posting by default.
+- MCP exposes bounded read tools over a read-only SQLite connection and full text in
+  chunks; with `ATS_API_KEY` it adds write tools that call the web API below. `list_jobs`
+  hides a current JEV `skip` on a still-`new` posting by default.
 - The web exposes a key-scoped loopback write API at `/api/v1` (bearer keys
   `ATS_API_KEY_READ_WRITE` / `ATS_API_KEY_READ`; no key configured = `503`) over the
   same server actions the UI uses; rows it writes carry `actor`, shown as "via MCP" in
-  the web. The MCP application write tools (#154) and workflow prompts (#159) call it; a
-  web dashboard that is read-only except Applications and Settings (#158) and the rest of
-epic #152 are planned.
+  the web. The MCP write tools call it. The web dashboard is read-only except Applications
+  and Settings (#158); the rest of epic #152 is #157.
 
 ## Boundaries
 

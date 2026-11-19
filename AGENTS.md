@@ -2,7 +2,7 @@
 
 Instructions for any coding agent working in this repo. Claude Code reads
 [`CLAUDE.md`](./CLAUDE.md), which carries the same rules plus Claude-Code-specific
-conduct (doc length, subagent policy) that will not apply to you.
+conduct (subagent policy) that will not apply to you.
 
 This is a real file, not a symlink to `CLAUDE.md`, on purpose: a symlinked `AGENTS.md`
 is served as its 9-byte target path over `raw.githubusercontent.com`, and degrades into
@@ -18,10 +18,10 @@ the task needs:
 
 - **`docs/SPEC.md`** — what the system *is*: capability map, data model, behaviors and
   invariants. Source of truth.
-- **`docs/PROGRESS.md`** — the *delta* only: in flight, branch claims, current
-  limitations and open defects. Completed work lives in SPEC, history in `CHANGELOG.md`. Two files hang off
-  it and are loaded on demand, not by default: **`docs/BACKLOG.md`** (the open catalogue
-  — unverified/deferred and enhancements) and **`docs/REJECTED.md`** (proposals
+- **`docs/PROGRESS.md`** — the *delta* only: in flight, the pick order, branch claims,
+  current limitations and open defects. Completed work lives in SPEC, history in `CHANGELOG.md`. Two files hang off
+  it and are loaded on demand, not by default: **`docs/BACKLOG.md`** (unselected work
+  — residual defects, unverified behavior and optional extensions) and **`docs/REJECTED.md`** (proposals
   evaluated and turned down — read your block's entry before proposing a redesign).
 - **`docs/PRINCIPLES.md`** — the design DNA, for design forks. The four-way uncertainty
   policy (keep / fail loud / circuit break / retry) is the part most often misread:
@@ -62,6 +62,19 @@ of *what happened*. So, everywhere else:
   only record is a **gitignored** artifact, like the eval corpora: state what the corpus
   contains and why, since git cannot.
 
+## Working rules
+
+- **Doc length matches substance.** `SPEC.md`/`PROGRESS.md`/`CHANGELOG.md` are
+  already large and every session reloads them. Write the clause the change needs —
+  no padded sections, restated summaries, or boilerplate. Same for specs and plans
+  under `docs/superpowers/`.
+- **The verify gate is the verification.** `docs/DEVELOPMENT.md` §5 means run the
+  commands and paste the output — that *is* the check. Don't stack a self-review on top;
+  §7's pre-merge review is a separate gate on *merging*, not a second verification.
+- **Sessions are teammates you can't talk to.** One branch per unit of work, claimed by
+  its `PROGRESS.md` In-flight entry. Never merge another session's work. The rest —
+  branch/PR rules and the authority split — is `docs/DEVELOPMENT.md` §7.
+
 ## Skills
 
 Reusable procedures live in `.claude/skills/` as `SKILL.md` files — the cross-agent
@@ -83,11 +96,12 @@ database:**
 
 - **`apps/worker`** — Python 3.11 pipeline: fetch (board adapters + generic
   custom/browser recipe executors) -> screen hard requirements (Ollama default, or a
-  CLI/API backend) -> optional `--jev` keep/skip filter (OpenRouter, paid). Also hosts
+  CLI/API backend) -> optional `--jev` keep/skip filter (metered OpenRouter by default, or the screen
+  backend). Also hosts
   the MCP server (`ats_worker/mcp/`).
 - **`apps/web`** — Next.js 14 + Prisma tracker UI, plus the key-scoped loopback
-  `/api/v1` write API the MCP server calls. Becoming a read-only dashboard except
-  Applications and Settings (#158).
+  `/api/v1` write API the MCP server calls. A dashboard, read-only except Applications
+  and Settings.
 
 A human applies by hand. The old fit scorer and Telegram alerts are removed.
 
