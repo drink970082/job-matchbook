@@ -35,6 +35,8 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 
 ### Added
 
+- **Web Settings dialog**: the header Settings button edits the hard requirements and the
+  JEV profile through the same actions as MCP, confirming the re-assessment cost first.
 - **JEV profile in the DB (#157)**: a `jev_profile` row, seeded once from `jev_dir` with
   the texts as read (same policy hash), then authoritative. MCP `get_jev_profile`
   (includes how many postings a change re-assesses) and `set_jev_profile` (profile text

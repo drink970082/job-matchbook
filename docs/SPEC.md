@@ -1800,6 +1800,12 @@ not change other adapters.
   Engineering, Data & Analytics, Product, Design, Finance, Marketing, Operations, Sales,
   Others) is only the seed/fallback before the user chooses. Category values are free-form
   labels — nothing in the pipeline reads them.
+- **Settings:** the header **Settings** button opens a dialog over the two stored worker
+  settings (§8): the hard requirements (`setCandidatePreferences`) and the JEV profile
+  text and experience context (`setJevProfile`), with actor `web`. It loads on open
+  (`getSettings`, which also counts the in-window postings a JEV change re-assesses) and
+  asks for confirmation, with that count and an estimated cost, before a JEV save. With no
+  stored JEV profile it explains the `jev_dir` seed instead of offering an editor.
 
 **Schema changes and migrations.** The schema is applied with `prisma db push`
 (`make db-push`), so there is **no migration history**. This is a deliberate tradeoff
