@@ -37,7 +37,7 @@ private data. Ranking within `keep` is not activated (#135).
 |---|---|---|
 | `make eval-screen` / `tools/screen_eval.py` | Screen fact/verdict accuracy; zero false disqualification in any draw, recall reported | Manual, provider-using; needs the private `apps/worker/eval/` corpus |
 | `--selftest` on that tool | Gate/parser/rule checks without model calls | Does not certify model quality |
-| `preselection_profile.py`, `preselection_replay.py`, `preselection_evaluation.py` | Allowlisted profile rendering, provider-free grouped replay and aggregate shadow reports | Offline tooling; synthetic fixtures; no quality claim |
+| `preselection_profile.py`, `preselection_replay.py`, `preselection_evaluation.py` | Allowlisted profile rendering, provider-free grouped replay and aggregate shadow reports ([module README](../apps/worker/ats_worker/preselection/README.md)) | Offline tooling; synthetic fixtures; no quality claim |
 | `backfill_descriptions.py` | Explicit JD hydration maintenance | Data-quality tool |
 
 Tool paths are relative to `apps/worker/tools`. The eval corpora are gitignored, so a
@@ -53,6 +53,21 @@ proposing or spending on a run. Never repair ID-only labels by fuzzy title remap
   has local qwen3.5:4b at 7 false disqualifications (recall 31/37) and Codex
   gpt-5.6-luna at 0 (recall 30/37, flip 3), effort unrecorded, so it does not certify the
   deployed **medium** effort. One passing run is insufficient; use repeated draws.
+  Its conventions are load-bearing for every row added:
+  - The clearance half can fail only because 14 golden-`false` rows carry a clearance
+    token in a non-security sense (customs/import clearance, permits, trading
+    pre-clearance, background checks, a defense JD saying "Minimum Clearance Required to
+    Start: None", a "Trade Clearance & Settlement" title). The data holds no genuinely
+    optional security clearance.
+  - "Must be able to obtain and maintain a TS/SCI clearance" is labelled
+    `requires_clearance: true`.
+  - The sponsorship half rests on 11 gate-eligible rows of 21: a non-`refuses` row that
+    retrieves no snippet cannot be moved by the classifier.
+  - Rows are picked by hand and read in full; a regex sweep for offer language was wrong
+    on two whole companies. Repeated identical JD shapes are excluded.
+  - A row labelled as a bar must carry that requirement's vocabulary in its own
+    excerpt+title (`--selftest`'s `unsupportable_bars`); rebuild a truncated excerpt from
+    a +/-780-character window on the match, not from `sponsorship_snippets`.
 - **Machine-labelled frames and seniority sets:** useful for sampling, agreement and flip
   rate, not unbiased accuracy claims.
 
@@ -65,5 +80,9 @@ proposing or spending on a run. Never repair ID-only labels by fuzzy title remap
 - A model-labelled comparison favors the labelling model; self-disagreement needs its own
   report.
 - Numeric scores fluctuate at band edges; verdict agreement is not calibrated fit.
+- A JD-shape rate measured on the oldest rows (`ORDER BY id LIMIT n`) or on corpus
+  excerpts misleads: the bullet-list sentence-window defect read 27%/14% that way and
+  13%/5% on a random 3,000 live descriptions. Randomize over the id range and name the
+  sample with the figure.
 
 Detailed evidence stays in [SCORING](SCORING.md) and [REJECTED](REJECTED.md).

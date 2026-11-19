@@ -24,15 +24,17 @@ feature is implemented; see the [feature readiness matrix](docs/ROADMAP.md#featu
 
 - **Discover:** scheduled watchlists and public discovery feeds, official-board JD
   retrieval, generic HTTP/browser recipes and unresolved-source records.
-- **Read with ChatGPT:** ten bounded read-only MCP tools covering postings, full JD
-  chunks, standalone screenings, applications/history and the other ATS record types.
+- **Work through your assistant (MCP):** bounded read tools for postings, full JD chunks,
+  screenings, applications/history, the watchlist and settings; with a write key, tools
+  to log applications, update status/notes, override keep/skip, manage the watchlist and
+  set preferences. Works with ChatGPT (via a tunnel), Claude Code or Codex.
 - **Track:** manual application entry, Mark Applied, status history, CSV import/export,
-  KPIs and charts; a web-managed watchlist.
+  KPIs and charts; the web shows the watchlist and activity read-only.
 - **Assist optionally:** hard-requirement screening (local Ollama by default, or a
-  CLI/API backend) and the paid JEV keep/skip filter (OpenRouter).
-- **Write API:** a key-scoped loopback `/api/v1` for applications and the watchlist,
-  off until a key is set. MCP write tools (log an application, update status/notes)
-  call it when the MCP server has `ATS_API_KEY`.
+  CLI/API backend) and the JEV keep/skip filter (metered OpenRouter by default, or
+  through the screen backend).
+- **Write API:** a key-scoped loopback `/api/v1` that the MCP write tools call, off
+  until a key is set.
 
 A scheduled assistant task must be configured and tested separately for unattended daily
 delivery. Without `ATS_API_KEY` the MCP server is read-only. Cross-day deduplication is best-effort until a
@@ -41,7 +43,7 @@ persistent delivery ledger exists.
 No auto-apply, no public multi-tenant service and no CAPTCHA workarounds. Private
 configuration, résumé files and databases are gitignored. A hosted screen backend
 receives JD text and your hard requirements, the JEV filter sends JD text and your
-private `jev_dir` profile to OpenRouter, and connecting an assistant exposes
+private `jev_dir` profile to OpenRouter (or the screen backend), and connecting an assistant exposes
 the data returned by the enabled MCP tools to that chat.
 
 ## Quick start
@@ -76,6 +78,10 @@ Run `codex login` on the host first. `--screen-unlimited` is an explicit alterna
 `--screen-limit`, not unlimited subscription entitlement. Read [SETUP](docs/SETUP.md)
 before enabling a metered provider or the JEV filter (`--jev`).
 
+**Connect your assistant:** [SETUP Path D](docs/SETUP.md#path-d--ai-assistant-access-mcp)
+installs the MCP server and connects Claude Code, Codex or ChatGPT; then
+[DAILY_BRIEF](docs/DAILY_BRIEF.md) sets up a scheduled daily brief.
+
 ## Sources and components
 
 11 platform adapters: Greenhouse, Lever, Ashby, Workday, SmartRecruiters, Workable,
@@ -89,20 +95,32 @@ See [current and target architecture](docs/ARCHITECTURE.md) and the detailed
 
 ## Documentation
 
+**Using it**
+
 | Document | Purpose |
 |---|---|
+| [Setup](docs/SETUP.md) | Tracker, discovery, optional screen/JEV, connecting an assistant (MCP) and the write API |
+| [Daily Brief](docs/DAILY_BRIEF.md) | Prompt template and checklist for a scheduled daily job brief |
+| [Security](SECURITY.md) | Accepted-risk scope and reporting |
+
+**Contributing**
+
+| Document | Purpose |
+|---|---|
+| [Contributing](CONTRIBUTING.md) | Tests, conventions, branching and releases |
+| [Development](docs/DEVELOPMENT.md) | Session protocol: task types, verify gate, definition of done |
+| [Principles](docs/PRINCIPLES.md) | Design rules for forks |
+| [Changelog](CHANGELOG.md) | Release history |
+
+**Project internals**
+
+| Document | Purpose |
+|---|---|
+| [Spec](docs/SPEC.md) | Shipped capabilities, contracts, data model and operational reference |
 | [Architecture](docs/ARCHITECTURE.md) | Ownership boundary and current implementation |
 | [Roadmap](docs/ROADMAP.md) | Feature readiness and delivery order |
-| [Pivot decision](docs/superpowers/specs/2026-10-22-chatgpt-first-pivot-design.md) | Approved ChatGPT-primary direction |
-| [Setup](docs/SETUP.md) | Tracker, discovery, optional screen/JEV, MCP and write-API paths |
-| [Spec](docs/SPEC.md) | Shipped capabilities, contracts, data model and operational reference |
 | [Progress](docs/PROGRESS.md) | Branch claims, next work and current limitations |
-| [Backlog](docs/BACKLOG.md) | Open and deferred work |
-| [Evaluation](docs/EVALUATION.md) | Which checks apply, eval tools and private corpus limitations |
-| [Scoring reference](docs/SCORING.md) | Screen contracts and measured failure modes |
-| [Principles](docs/PRINCIPLES.md) / [Development](docs/DEVELOPMENT.md) | Design and contribution protocol |
-| [Rejected proposals](docs/REJECTED.md) | Negative findings to consult before redesign |
-| [Contributing](CONTRIBUTING.md) / [Security](SECURITY.md) | Tests, conventions and accepted-risk scope |
-| [Changelog](CHANGELOG.md) | Release history |
+| [Backlog](docs/BACKLOG.md) / [Rejected](docs/REJECTED.md) | Unselected work; negative findings to consult before a redesign |
+| [Evaluation](docs/EVALUATION.md) / [Scoring](docs/SCORING.md) | Which checks apply; screen contracts and measured failure modes |
 
 [MIT license](LICENSE) · [Code of conduct](CODE_OF_CONDUCT.md)

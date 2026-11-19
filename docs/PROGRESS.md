@@ -20,26 +20,10 @@ behavior. Completed work belongs in CHANGELOG, not this queue.
 - **JEV keep/skip filter — acceptance: the first pass after the 7-day window deploys
   attempts only postings from the last 7 days (worker `[jev]` tally); then delete this
   entry** `[JEV · M]` (#139).
-  The worker unit runs `--jev --jev-limit 300 --jev-max-usd 0.10` from `ats-runtime` at
-  main; private inputs are `resume/pivot/jev-prod-v1/` (profile `level` line at 3 years).
-  JEV assesses only the last 7 days of postings, so there is no backlog to drain; the
-  ~5,900 older screened postings stay `unassessed` and listed. Rollback = drop `--jev`
-  from `ats-worker.service.d/20-screen-only.conf` and restart; the table is additive.
-
-- **Daily Brief instructions for issue #94 — unattended acceptance remains open**
-  [ORCH · M · branch docs/issue-94-daily-brief]. Public task instructions, an interactive
-  preflight record, and an unattended acceptance checklist are in [the Daily Brief
-  guide](reports/2026-10-23-daily-brief-instructions.md).
-  The current Codex CLI session can read the ATS MCP tunnel interactively, but has no
-  Scheduled management interface; issue #94 still needs a task created in ChatGPT web
-  or desktop and one observed unattended run. The deployed MCP supports standalone-screen update windows and source-lifecycle
-  summaries/check timestamps. Verify that the actual Scheduled connection discovers
-  that schema; legacy postings without source evidence still have unknown freshness.
-  Web Scheduled tasks can use uploaded files and connected tools; desktop tasks can run in
-  a local project directory or worktree. Verify the actual task can access the private
-  preference and résumé files. Exact 20:00 delivery depends on account eligibility.
-  The guide excludes confirmed prior applications and keeps probable duplicates flagged
-  for review. Interactive access is not acceptance.
+  Production runs `--jev --jev-limit 300 --jev-max-usd 0.10` against private packs. JEV
+  assesses only the last 7 days of postings, so there is no backlog to drain; the ~5,900
+  older screened postings stay `unassessed` and listed. Rollback = drop `--jev` from the
+  worker's flags and restart; the table is additive.
 
 These references reserve unfinished work; they do not claim the branches are currently
 executing or establish merge readiness. Inspect actual refs/worktrees and coordinate
@@ -47,10 +31,12 @@ before changing them. No older research authorization schedules new provider cal
 
 ## Do next — the pick order
 
-1. [#135 JEV ranking → MCP](https://github.com/drink970082/job-matchbook/issues/135),
-   packages P1–P6 (#137–#142) in dependency order; open drafts #134, #143–#146.
-2. [#94 Scheduled Daily Brief](https://github.com/drink970082/job-matchbook/issues/94)
-   still needs unattended access/delivery evidence. #95 remains deferred.
+1. [#152 AI-orchestrated ATS](https://github.com/drink970082/job-matchbook/issues/152):
+   its last open slice, #157 (preferences and profile in the DB), is in flight above.
+2. [#94 Scheduled Daily Brief](https://github.com/drink970082/job-matchbook/issues/94):
+   one observed unattended run ([DAILY_BRIEF](DAILY_BRIEF.md) checklist).
+3. [#135 JEV ranking → MCP](https://github.com/drink970082/job-matchbook/issues/135),
+   gated on the keep/skip filter's acceptance (#139). #95 stays conditional.
 
 [ROADMAP](ROADMAP.md) links every issue and dependency. Issues own status; this file
 owns active branch claims. Documentation plans do not launch agents or deploy services.
@@ -63,8 +49,9 @@ owns active branch claims. Documentation plans do not launch agents or deploy se
 
 - Fetch applies candidate/title gates before the agent sees the data. Existing dedup
   ignores repeated source/external IDs rather than generally refreshing their JDs.
-- Liveness rechecks cover detail adapters only; a stored board-source posting is not
-  guaranteed open.
+- Liveness rechecks (`run_expire`) cover detail adapters only; a stored board-source
+  posting is not guaranteed open. Closing it means diffing each board's current listing
+  against stored rows, where a fetch failure must never read as "every job closed".
 - Imported/manual applications may have no posting link. Deduplicate against the
   applications table, not only `application_id`.
 - No persistent Brief delivery ledger. Cross-day deduplication is
@@ -91,8 +78,6 @@ A worker pass is fetch -> screen, plus the JEV keep/skip filter under `--jev`. C
 
 [BACKLOG](BACKLOG.md) triages optional and deferred work;
 [REJECTED](REJECTED.md) preserves evaluated alternatives and negative results.
-The retained [engineering catalogue](ENGINEERING_CATALOGUE.md) is context to revalidate,
-not a second priority queue.
 
 ## How to update
 

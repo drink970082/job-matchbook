@@ -74,12 +74,12 @@ PR to get a run.
 ```bash
 git switch -c feat/dead-link-sweep main   # feat/ · fix/ · docs/ · chore/
 # ... commits ...
-gh pr create --fill                       # CI runs; squash-merge when green
+gh pr create --fill --base main           # CI runs; squash-merge when green
 ```
 
-- **Pull requests** are the norm for anything substantive — they're squash-merged
-  (one commit per PR on `main`) and the branch is deleted automatically. Small doc
-  fixes may be pushed straight to `main`.
+- **Everything goes through a pull request**, a one-line doc fix included: a repository
+  rule rejects direct pushes to `main`. PRs are squash-merged (one commit per PR on
+  `main`) and the branch is deleted automatically.
 - **`main` is protected**: CI (`Web` + `Worker`) must pass, force-pushes and branch
   deletion are blocked, and history stays linear. Long-lived `dev`/`release/*`
   branches are deliberately not used.
@@ -103,8 +103,8 @@ cd apps/worker
 cp resume/resume.txt.example resume/resume.txt
 ```
 
-See `apps/worker/resume/README.md` for the multi-resume convention (multiple
-targeted versions, the optional profile file, and how labels are derived).
+See `apps/worker/resume/README.md` for what goes there (targeted versions, the
+optional profile file, and the JEV packs).
 
 Secrets (`apps/worker/.env`), the résumé (`apps/worker/resume/`), and the
 database (`db/`) are gitignored — never commit them.

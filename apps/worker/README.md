@@ -3,8 +3,9 @@
 The Python pipeline service of the ATS project — one of two services in this
 repo (the other is the [`../web`](../web) app). On a schedule it **fetches**
 postings from company ATS boards and **screens** each against your hard requirements
-(degree, work authorization, clearance, location, internships; local Ollama by default).
-You review in the web UI, apply by hand, then one-click "Mark Applied".
+(degree, work authorization, clearance, location, internships; local Ollama by default),
+optionally followed by the JEV keep/skip filter (`--jev`). Your AI assistant reads the
+results over MCP; you apply by hand and record it there or with the web's "Mark Applied".
 
 ```
 fetch ──► screen
@@ -37,8 +38,9 @@ Most sources take a single-token `slug`. `workday` packs three parts as
 `tenant/datacenter/site` (it does a cheap list call then one detail call per
 posting for the description).
 
-Add a board (most new companies need only a watchlist row via the `onboard-board`
-skill, not an adapter):
+**Adding a company is a watchlist row, not code.** Use the `onboard-board` skill (or
+MCP `add_source`): it tries a known platform, then a plain-HTTP `custom` recipe, then a
+`browser` recipe. Write a new adapter only for a platform none of those can read:
 
 1. `fetch/<source>.py` with `SOURCE` and `fetch` (lists a board), `fetch_one` (one job
    by id, for a feed-only source), or both.
@@ -59,8 +61,8 @@ stub-gate entry (that only costs a skipped optimization).
 
 1. `config.yaml` — company list + an optional `title_filter` (title-keyword
    pre-filter) + the `candidate` screening block (degree / work authorization /
-   clearance / locations / internships; auto-discards conflicting postings) +
-   schedule. See the committed sample.
+   clearance / locations / internships; the screen records a verdict per posting in
+   `job_screenings` and never deletes one) + schedule. See the committed sample.
 2. `.env` — copy `.env.example` → `.env` and set `OLLAMA_HOST` (or pick another
    `SCREEN_BACKEND`; only the metered API backends need a key).
 
@@ -109,65 +111,14 @@ The expanded 103-row evaluation measured Luna at zero false disqualifications
 That historical evaluation does not record effort, so medium is not separately
 measured. Do not rerun an unchanged evaluation.
 
-## Optional read-only MCP service
+## MCP server
 
-Install the pinned optional SDK only for MCP use, then launch the stdio service from
-the worker directory:
-
-```bash
-cd apps/worker
-python -m pip install -r requirements-mcp.txt
-ATS_DB_PATH=/absolute/path/to/applications.db python -m ats_worker.mcp
-```
-
-Omit `ATS_DB_PATH` when the repository's default Prisma database path is correct.
-Apply the Prisma schema first (`make db-push` from the repository root) so all eight
-models, including `job_screenings`, exist. The service opens SQLite read-only and
-query-only, offers bounded reads for all eight
-Prisma models, and binds no TCP listener. It does not start the worker or change data.
-Job descriptions and application notes use chunked reads; watchlist recipe headers and
-conventional secret URL query values are redacted. The MCP server has no separate
-user-authentication layer, so only connect it to a trusted ChatGPT workspace.
-
-To connect through [OpenAI Secure MCP Tunnel](https://developers.openai.com/api/docs/guides/secure-mcp-tunnels),
-use a separate ATS profile. Install the current tunnel client from Platform tunnel
-settings or its official release. The current guide documents `help quickstart`, the
-`sample_mcp_stdio_local` init sample, `doctor --profile ... --explain`, and `run --profile ...`.
-For that documented profile flow, enter the runtime key without putting it in shell
-history and initialize a distinct profile from `apps/worker`:
-
-```bash
-cd apps/worker
-read -r -p 'OpenAI tunnel ID: ' ATS_TUNNEL_ID
-read -r -s -p 'Tunnel runtime API key: ' CONTROL_PLANE_API_KEY
-printf '\n'
-export CONTROL_PLANE_API_KEY
-tunnel-client init --sample sample_mcp_stdio_local --profile ats-local \
-  --tunnel-id "$ATS_TUNNEL_ID" --mcp-command 'python -m ats_worker.mcp'
-tunnel-client doctor --profile ats-local --explain
-tunnel-client run --profile ats-local
-```
-
-Set `ATS_DB_PATH` in the environment first if the checkout's default database path is
-not the intended file. The command runs from `apps/worker` so the Python module resolves;
-keep the existing Sure target/profile untouched. Confirm the tunnel client's healthy and
-ready state, then in ChatGPT Plugins choose **Add custom MCP server → Connection: Tunnel**.
-Select the same tunnel, configure authentication, review and accept the risk warning,
-create the plugin, and install it before use. OpenAI's current guide requires a tunnel
-id, runtime API key, and Tunnels Read + Use access. Keep the key out of logs and repository
-files.
-
-If the installed client is outside PATH, use its absolute executable path in these
-commands. The operator deployment uses a dedicated ATS profile and systemd user service;
-its doctor checks, health/ready endpoints and outbound control-plane polling pass.
-The existing Sure profile/service is unchanged. Local stdio verification reads all eight
-models, pagination and a complete multi-chunk JD. The operator confirms a successful
-ChatGPT `get_ats_overview` invocation; the connected ATS plugin also passes remote reads
-through all ten tools, including job details, application notes/history and complete
-multi-chunk text. For another deployment, enable its ATS plugin and observe a completed
-tool invocation before claiming the connection is verified. Start with the installed
-client's `help quickstart` if its release differs from the guide; do not reuse a profile
-intended for another server.
+`python -m ats_worker.mcp` (after `pip install -r requirements-mcp.txt`) is the stdio MCP
+server your AI client starts: read tools over a read-only SQLite connection, plus write
+tools through the web's `/api/v1` when `ATS_API_KEY` is set. Install, write-key and client
+connection steps (Claude Code, Codex, ChatGPT through a tunnel) are in
+[SETUP Path D](../../docs/SETUP.md#path-d--ai-assistant-access-mcp); the tool contracts are
+in [SPEC §7.1](../../docs/SPEC.md#71-worker-appsworkerats_worker).
 
 ## Module map
 

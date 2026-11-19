@@ -137,3 +137,30 @@
   a *convention*, so it lives in [`CONTRIBUTING.md`](../CONTRIBUTING.md) where it is
   read at the moment it applies — adding a dependency — not here.
 
+- **Fetch levers measured dead — do not re-open.**
+  (1) *Workday prose-date age gating.* Workday's ladder tops out at `"Posted 30+ Days
+  Ago"`, which parses to exactly 30 days, and `_too_old` tests `> max_age_days`, so at
+  `max_age_days: 30` the gate cannot fire; dropping the global threshold to 29 would
+  tighten every board for a handful of Workday postings. Parse coverage is 100%; the
+  threshold, not the parser, neutralises it.
+  (2) *A per-position detail-leg retry for `empty_description` re-fetches* (built and
+  reverted). It rescued nothing — every sampled row was already stored with a full JD,
+  and `ON CONFLICT DO NOTHING` means a bodyless re-fetch cannot overwrite it — and it
+  is a per-position budget for a board-wide failure: a throttling board would cost hours
+  per pass under a `pass_lock` that refuses rather than queues. Any future retry needs a
+  board-level breaker first, and 404 stays terminal.
+  (3) *A recipe date for `tiktok`, `janestreet`, `bytedance`, `ibm`.* Their list payloads
+  carry no date-like field at all, so `posted_at` is the scrape day and `max_age_days`
+  cannot fire for them; only a per-posting detail call could supply a date, which is not
+  worth it. Check the payload before filing this as a bug on another board.
+  (4) *Per-page stealth for bot-walled boards.* `Stealth().apply_stealth_sync(page)`
+  under-patches (six arms failed); the context-level `use_sync` form in SPEC §7.1 is the
+  working rung, and a wall is per host, not per company. If a board resists it,
+  Patchright is the drop-in next rung; Camoufox (200MB+ per instance, ~42s per
+  challenge) is the wrong shape for a several-times-daily pipeline.
+- **Boards held off the watchlist — decision recorded.** Validated but not added because
+  of the board, not a bug. *Empty list JD:* Uber, Netflix, Morgan Stanley, Brevan
+  Howard, Campbell — they insert nothing until `custom` gains a chained detail call.
+  *Render cost:* Citi (~3.5k postings), Barclays (~1k), Bloomberg, Moody's — a `browser`
+  `detail:` block costs one Chromium render per posting with no stub gate. Reopen when
+  `custom` gains a chained detail call (or an HTML mode, for Citi/Barclays).
