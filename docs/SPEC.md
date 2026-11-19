@@ -869,6 +869,16 @@ worker modules are pure and dependency-injected; real services are wired only in
   OpenRouter key is needed. Refused with `--screen-backend none`. **UNVALIDATED**: the
   measured basis above is native-only.
 
+  **Pack format** (`jev_dir`, four files; a synthetic set is committed as
+  `apps/worker/jev.example/`). `profile-binding.json` and `yoe-context.txt` are sent
+  verbatim as candidate context (any text; the example profile is JSON). The two packs
+  are `{"version": str, "questions": [...]}`; each question is `{"id", "type",
+  "instructions"}` plus `criteria` — an object of `key: description` for `choice`, an
+  ordered list of labels for `score`, none for `noul` (`ranking/native.py` validates).
+  `question-pack.json` must hold a `choice` question `preference` whose keys include
+  `weak`; `yoe-pack.json` must hold `required_yoe_for_candidate` whose keys include
+  `three_plus`. Other questions are answered and stored but do not change the verdict.
+
   **Import boundary.** No fit module exists to import, and no résumé is loaded.
   Provider-free review-batch, rehearsal, profile, and replay imports are guarded in fresh
   processes: legacy fit/profile/runtime module names and `.txt` resource reads fail

@@ -33,10 +33,9 @@ in the user's data (hard requirements, profile, résumé), not the prompt. The r
 pipeline only *screens* postings against hard requirements; it does not score fit.
 **The worker never reads the profile or résumé.** They are private inputs for the AI
 client (ChatGPT / Claude / Codex) that reviews jobs over MCP — the user attaches them
-to that client's project or task. The optional paid JEV keep/skip filter reads its own
-prepared `jev_dir` packs (`config.yaml.example`), which this skill does not build; the
-worker copies them into the DB once, and the profile is edited after that through MCP
-`set_jev_profile`.
+to that client's project or task. The optional JEV keep/skip filter reads its own
+`jev_dir` packs (Step 7); the worker copies them into the DB once, and the profile is
+edited after that through MCP `set_jev_profile`.
 
 ## What you'll produce (all gitignored personal data)
 
@@ -214,8 +213,13 @@ is left is filling in values **only the user can give you**. Fill them into
   key. `SCREEN_BACKEND=api` reaches any OpenAI-compatible endpoint (OpenAI,
   OpenRouter, Gemini, LM Studio, ...): it needs `SCREEN_MODEL`, usually
   `SCREEN_API_BASE_URL` and `SCREEN_API_KEY`, and hosted vendors bill per call.
-- `OPENROUTER_API_KEY` — only for the optional paid `--jev` filter. Leave it unset
-  unless they already have prepared JEV packs; nothing else needs it.
+- **Keep/skip backend** — ask separately from the screen; off is a fine answer. If
+  they want it: `cp -r apps/worker/jev.example apps/worker/resume/jev`, rewrite the
+  example `profile-binding.json` and `yoe-context.txt` from what they told you, set
+  `jev_dir: resume/jev`. Then `JEV_BACKEND=openrouter-native` (default, measured,
+  metered; needs `OPENROUTER_API_KEY`) or `JEV_BACKEND=extract` (reuses the screen
+  backend, no extra key, sends the profile to it, unvalidated). Never set
+  `OPENROUTER_API_KEY` for any other purpose. Leave the question packs as shipped.
 
 **Verify, don't fabricate.** Never invent a token or key. If a prereq is genuinely
 missing, say so plainly and point at `docs/SETUP.md` — a clear "you still need X" is

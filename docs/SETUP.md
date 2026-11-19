@@ -62,16 +62,40 @@ explicit unlimited mode with one worker; this bounded example is not a deploymen
 
 ## Path C2 — optional JEV keep/skip filter
 
-Set `jev_dir` in `config.yaml` (four private input files, see `config.yaml.example`)
-and `OPENROUTER_API_KEY` in `apps/worker/.env`, then add the flags to a screening run:
+Start from the committed example packs and make them yours (the worker copies them into
+the DB once; after that edit the profile with MCP `set_jev_profile`):
 
 ```bash
-python -m ats_worker.run --screen-only ... --jev --jev-limit 300 --jev-max-usd 0.10 --once
+cp -r apps/worker/jev.example apps/worker/resume/jev   # resume/ is gitignored
+# edit resume/jev/profile-binding.json and yoe-context.txt; set jev_dir: resume/jev
 ```
 
-Calls are metered; `--jev-max-usd` caps settled spend per pass. Verdicts live in
-`job_jev_assessments`; MCP `list_jobs` hides a current `skip` by default. Without the key
-the stage logs a line and is skipped.
+Then pick the keep/skip backend (`--jev-backend` / `JEV_BACKEND`):
+
+- `openrouter-native` (default) — the measured path; metered OpenRouter calls, needs
+  `OPENROUTER_API_KEY`, `--jev-max-usd` caps settled spend per pass.
+- `extract` — the screen backend answers the same packs (no OpenRouter key; it receives
+  your profile). Unvalidated; `--jev-limit` (default 40 postings) is the only cap.
+
+```bash
+python -m ats_worker.run --screen-only ... --jev --once                       # native
+python -m ats_worker.run --screen-only ... --jev --jev-backend extract --once # extract
+```
+
+Verdicts live in `job_jev_assessments`; MCP `list_jobs` hides a current `skip` by
+default. Native without the key logs a line and skips the stage.
+
+**What works with what you have** (screen = hard requirements; keep/skip = `--jev`):
+
+| You have | Screen (`SCREEN_BACKEND`) | Keep/skip |
+|---|---|---|
+| nothing | `none` (deterministic gates only, low recall on sponsorship) | off |
+| a GPU, or any Ollama host | `ollama` (default, free) | `extract` |
+| ChatGPT subscription | `codex` (`codex login`) | `extract` |
+| Claude subscription | `claude-code` (`claude` logged in) | `extract` |
+| an API key (OpenAI, Gemini, ...) | `api` + `SCREEN_MODEL`, metered | `extract` |
+| a local OpenAI-compatible server (LM Studio, vLLM) | `api`, no key | `extract` |
+| an OpenRouter key | `api` via OpenRouter, metered | `openrouter-native` (measured) or `extract` |
 
 ## Path D — AI-assistant access (MCP)
 

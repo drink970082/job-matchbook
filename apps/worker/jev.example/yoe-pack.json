@@ -1,0 +1,16 @@
+{
+  "version": "example-yoe-threshold-3-v1",
+  "questions": [
+    {
+      "id": "required_yoe_for_candidate",
+      "type": "choice",
+      "instructions": "Find the minimum years of professional experience the posting REQUIRES for a candidate with the education in candidate_context. If the posting gives different floors per degree, use the one matching that education; for a range, use the lower bound. Preferred or nice-to-have experience does not count.",
+      "criteria": {
+        "under_3": "The required minimum for this candidate is under 3 years.",
+        "three_plus": "The required minimum for this candidate is 3 years or more.",
+        "not_stated": "The posting states no required years of experience.",
+        "unclear": "Years are mentioned but the requirement for this candidate cannot be determined."
+      }
+    }
+  ]
+}

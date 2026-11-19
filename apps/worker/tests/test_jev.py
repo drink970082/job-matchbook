@@ -642,3 +642,33 @@ def test_cli_jev_limit_default_depends_on_backend(backend, limit, monkeypatch, t
     run.main(["--once", "--config", str(cfg), "--db", str(tmp_path / "x.db"),
               "--jev", "--jev-backend", backend])
     assert seen["jev_limit"] == limit and seen["jev_backend"] == backend
+
+
+# --- the committed example packs (jev.example/) run on a fresh checkout ----------
+
+EXAMPLE_DIR = __import__("pathlib").Path(__file__).resolve().parents[1] / "jev.example"
+
+
+def test_example_packs_run_through_extract_from_a_fresh_db(monkeypatch, tmp_path):
+    conn = _screened_db(tmp_path, ["a", "b"])
+
+    class Cfg:
+        jev_dir = str(EXAMPLE_DIR)
+    picks = {"preference": "weak", "required_yoe_for_candidate": "under_3"}
+    run._run_jev_extract(conn, Cfg(), extract=lambda p, s: {k: picks[k] for k in s["properties"]},
+                         limit=5, model="extract:test", now=NOW)
+    rows = _rows(conn)
+    assert {r["verdict"] for r in rows.values()} == {"skip"} and len(rows) == 2
+    assert db.get_jev_profile(conn) is not None          # seeded from the example dir
+
+
+def test_example_packs_validate_on_the_native_path():
+    inputs = jev.load_inputs(EXAMPLE_DIR)
+
+    def post(raw):
+        body = json.loads(raw)
+        pack = inputs.c_pack if "preference" in body["questions"] else inputs.yoe_pack
+        pick = {"preference": "strong", "required_yoe_for_candidate": "not_stated"}
+        return _reply(pack["questions"], pick), Decimal("0.0001")
+    out = jev.assess(make_posting("a"), inputs=inputs, post=post, resolved_model=MODEL)
+    assert out["verdict"] == "keep"
