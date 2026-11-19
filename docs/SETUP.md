@@ -133,6 +133,9 @@ overrides the web address (default `http://127.0.0.1:3000`). With no key the API
 `503` and the server offers only its read tools.
 
 **3. Connect a client.** Replace `/abs/path/to/checkout` with your checkout.
+The same commands, a Claude Desktop config and starter prompts are in
+[`apps/web/templates/mcp/`](../apps/web/templates/mcp/), which the web app's setup
+checklist shows with Copy buttons.
 
 Claude Code or Codex CLI on the same machine:
 

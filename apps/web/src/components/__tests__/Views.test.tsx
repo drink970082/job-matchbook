@@ -1,13 +1,16 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
-import userEvent from '@testing-library/user-event'
-import { Dashboard } from '@/components/Dashboard'
+import { ApplicationsView } from '@/components/ApplicationsView'
+import { JobsView } from '@/components/JobsView'
+import { SourcesTab } from '@/components/SourcesTab'
+import { ActivityTab } from '@/components/ActivityTab'
+import { Onboarding } from '@/components/Onboarding'
 import * as applicationActions from '@/lib/application-actions'
 import * as jobActions from '@/lib/job-actions'
 import * as watchlistActions from '@/lib/watchlist-actions'
 import * as activityActions from '@/lib/activity-actions'
 import * as unresolvedActions from '@/lib/unresolved-actions'
 
-// Smoke test of Dashboard's own wiring (tabs, KPI grid, the table views).
+// Smoke tests of the per-route views (#211): each page renders its own view.
 // Stub the server actions (no real Prisma) and the recharts-based charts (jsdom
 // has no layout, so ResponsiveContainer renders nothing).
 jest.mock('@/lib/application-actions')
@@ -42,18 +45,16 @@ beforeEach(() => {
     ;(unresolvedActions.getUnresolvedFeeds as jest.Mock).mockResolvedValue({ data: [], total: 0 })
 })
 
-const props = {
+const appProps = {
     initialApps: [],
     initialKpis: { applied: 3, active: 2, assessment: 0, interviewing: 1, rejected: 0, offer: 0 },
     totalApps: 0,
     initialStatusFlow: [],
     initialTimeline: [],
     initialCategories: [],
-    initialJobPostings: [],
-    totalJobPostings: 0,
-    initialCategoryOptions: ['SWE', 'Others'],
-    initialCategoriesConfigured: true,
+    categoryOptions: ['SWE', 'Others'],
 }
+const jobProps = { initialJobPostings: [], totalJobPostings: 0, categoryOptions: ['SWE', 'Others'] }
 
 function deferred<T>() {
     let resolve!: (value: T) => void
@@ -62,38 +63,18 @@ function deferred<T>() {
     return { promise, resolve, reject }
 }
 
-test('renders both tabs and the KPI grid from initial props', () => {
-    render(<Dashboard {...props} />)
-    expect(screen.getByRole('button', { name: /Discovered Jobs/i })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: /^Applications$/i })).toBeInTheDocument()
+test('the Applications view shows the KPI grid and the CSV actions', () => {
+    render(<ApplicationsView {...appProps} />)
     expect(screen.getByText('Applied')).toBeInTheDocument() // KPI tile label
+    expect(screen.getByRole('button', { name: /Export CSV/i })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /Import CSV/i })).toBeInTheDocument()
 })
 
-test('switching to the Discovered Jobs tab shows the discovered view', async () => {
-    const user = userEvent.setup()
-    render(<Dashboard {...props} />)
-    await user.click(screen.getByRole('button', { name: /Discovered Jobs/i }))
-    // Now "Discovered Jobs" appears twice — the tab button AND the panel heading.
-    expect(screen.getAllByText('Discovered Jobs').length).toBeGreaterThanOrEqual(2)
-    // The discovered table's search box (distinct "...or job titles" placeholder).
+test('the Jobs view opens on the Keep stage and loads stage counts', async () => {
+    render(<JobsView {...jobProps} />)
     expect(screen.getByPlaceholderText(/companies, roles, or locations/i)).toBeInTheDocument()
     expect(screen.getByRole('tab', { name: /^Keep/ })).toHaveAttribute('aria-selected', 'true')
     await waitFor(() => expect(screen.getByRole('tab', { name: /^JEV skip/ })).toHaveTextContent('9'))
-})
-
-test('selected stage and filters survive switching away from Discovered Jobs', async () => {
-    const user = userEvent.setup()
-    render(<Dashboard {...props} />)
-    await user.click(screen.getByRole('button', { name: /Discovered Jobs/i }))
-    await user.click(screen.getByRole('tab', { name: /^JEV skip/ }))
-    const search = screen.getByPlaceholderText(/search companies, roles/i)
-    fireEvent.change(search, { target: { value: 'kept selection' } })
-
-    await user.click(screen.getByRole('button', { name: /^Applications$/i }))
-    await user.click(screen.getByRole('button', { name: /Discovered Jobs/i }))
-
-    expect(screen.getByRole('tab', { name: /^JEV skip/ })).toHaveAttribute('aria-selected', 'true')
-    expect(screen.getByPlaceholderText(/search companies, roles/i)).toHaveValue('kept selection')
 })
 
 test('overlapping inventory requests never show stale rows under newer filters', async () => {
@@ -109,9 +90,7 @@ test('overlapping inventory requests never show stale rows under newer filters',
             backend: null, model: null, effort: null, evaluator_version: null, origin: 'none' },
         legacy_screen_evidence: { available: false, origin: null },
     }
-    const user = userEvent.setup()
-    render(<Dashboard {...props} initialJobPostings={[initialRow]} totalJobPostings={1} />)
-    await user.click(screen.getByRole('button', { name: /Discovered Jobs/i }))
+    render(<JobsView {...jobProps} initialJobPostings={[initialRow]} totalJobPostings={1} />)
     expect(screen.getByText('Old page row')).toBeInTheDocument()
 
     const search = screen.getByPlaceholderText(/companies, roles, or locations/i)
@@ -134,22 +113,30 @@ test('overlapping inventory requests never show stale rows under newer filters',
     expect(screen.queryByText('Old page row')).not.toBeInTheDocument()
 })
 
-test('the Sources tab lists watched boards with 30-day postings and offers no add or remove', async () => {
-    const user = userEvent.setup()
-    render(<Dashboard {...props} />)
-    await user.click(await screen.findByRole('button', { name: /^Sources/ }))
-    expect(await screen.findByText('Acme')).toBeInTheDocument()
+test('the Sources view lists watched boards with 30-day postings and offers no add or remove', () => {
+    render(<SourcesTab sources={[{ id: 1, source: 'greenhouse', slug: 'acme', name: 'Acme', postings_30d: 12 }]} unresolved={[]} />)
+    expect(screen.getByText('Acme')).toBeInTheDocument()
     expect(screen.getByText('12')).toBeInTheDocument()
     expect(screen.queryByPlaceholderText(/board slug/i)).toBeNull()
     expect(screen.queryByRole('button', { name: /^(Add|Remove|Re-add)$/i })).toBeNull()
 })
 
-test('the Activity tab loads recent writes on open and marks MCP writes', async () => {
-    const user = userEvent.setup()
-    render(<Dashboard {...props} />)
-    await user.click(screen.getByRole('button', { name: /^Activity/ }))
-    expect(await screen.findByText('Acme - Engineer')).toBeInTheDocument()
+test('the Activity view marks MCP writes', async () => {
+    render(<ActivityTab activity={await activityActions.getRecentActivity()} />)
+    expect(screen.getByText('Acme - Engineer')).toBeInTheDocument()
     expect(screen.getByText('via MCP')).toBeInTheDocument()
     expect(screen.getByText('update JEV profile v2')).toBeInTheDocument()
-    expect(activityActions.getRecentActivity).toHaveBeenCalledTimes(1)
+})
+
+const TEMPLATES = Object.fromEntries(['claude-code.txt', 'claude-desktop.json', 'codex.txt', 'chatgpt.txt',
+    'prompt-set-me-up.txt', 'prompt-log-application.txt', 'prompt-update-from-email.txt'].map((f) => [f, `template ${f}`])) as any
+
+test('onboarding ticks done steps and hides their help; open steps link to their page', () => {
+    render(<Onboarding templates={TEMPLATES}
+        steps={{ aiClient: false, requirements: true, sources: false, jev: false, firstFetch: false }} />)
+    expect(screen.getByText('template claude-code.txt')).toBeInTheDocument()
+    expect(screen.getByText('template prompt-set-me-up.txt')).toBeInTheDocument()
+    expect(screen.getAllByLabelText('done')).toHaveLength(1)
+    expect(screen.queryByText(/discarded for free/)).toBeNull()
+    expect(screen.getByRole('link', { name: 'Sources' })).toHaveAttribute('href', '/sources')
 })

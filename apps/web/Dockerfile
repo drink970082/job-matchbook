@@ -41,6 +41,8 @@ ARG GID=1000
 COPY --from=builder --chown=${UID}:${GID} /app/.next/standalone ./
 COPY --from=builder --chown=${UID}:${GID} /app/.next/static    ./.next/static
 COPY --from=builder --chown=${UID}:${GID} /app/public          ./public
+# MCP onboarding templates, read at request time (lib/setup-actions.ts).
+COPY --from=builder --chown=${UID}:${GID} /app/templates       ./templates
 
 # Prisma schema only — the .db file is bind-mounted at runtime (see compose / run cmd).
 # .dockerignore already excludes prisma/*.db and db/*.db from the build context.

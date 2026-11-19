@@ -1496,13 +1496,25 @@ worker modules are pure and dependency-injected; real services are wired only in
   are not listed), `LOW_CONTEXT_MAX_DESCRIPTION_LENGTH`
   (200; below this trimmed-`description` length the table labels a row "Short JD"), `getStatusColor`. **Edit here
   to extend statuses/sources (categories are edited in-app, not here).**
-- **`components/`** — `Dashboard` (Applications ↔ Discovered Jobs ↔ Sources ↔
-  Activity tabs, each delegated to a `*Tab` wrapper; only Applications, Settings and
-  Mark Applied write), `ApplicationTable` (inline status edit), `KPIGrid`,
+- **`app/` routes** — one route per tab: `/applications` (`/` redirects there), `/jobs`,
+  `/sources`, `/activity`, `/settings`; each page loads only its own data and renders
+  inside `AppShell` (product title, tab nav, and the Jobs badge = keep postings first
+  fetched in the last 24h, `getNewJobsCount`). `AppShell` also shows the `Onboarding`
+  checklist while setup is incomplete (`lib/setup-actions.ts` `getSetupStatus`, the web
+  counterpart of MCP `get_setup_status`: hard requirements set, a board watched, a
+  posting fetched; connecting an AI client — any `mcp` audit row — and JEV are optional
+  steps). The checklist carries copy-paste MCP client configs and starter prompts read
+  from `apps/web/templates/mcp/` (plain text, placeholder keys only; the Docker image
+  copies the directory).
+- **`components/`** — `ApplicationsView` (KPI grid, Export/Import CSV, the
+  Applications table/form/charts and history modal) and `JobsView` (Discovered Jobs and
+  the Mark Applied flow); only Applications, Settings and Mark Applied write;
+  `SettingsPanel` (hard requirements + JEV profile) and `CategoriesEditor` (the category
+  vocabulary) make up `/settings`; `ApplicationTable` (inline status edit), `KPIGrid`,
   `StatusHistoryModal`, `AddApplicationForm`, `DiscoveredJobsTable` (the funnel: stage tabs
   Keep (default) / Unassessed / JEV skip / Screen rejected / Rule rejected / Applied-closed
   / All, each with its count from `getJobStageCounts`; filters are controlled by
-  `Dashboard` and survive tab unmount/remount, request-version checks discard stale
+  `JobsView`, request-version checks discard stale
   responses and pending/error states hide old rows; literal metadata/all-text search,
   standalone outcome filter, fetched/posted sort; a JEV column with the verdict, its
   reasons and any override; screen summaries (advisory outcome, bounded reason,
@@ -1769,8 +1781,8 @@ not change other adapters.
   `Interviewing: 1st…5th round` → `Final Round` → `Offer` → `Accepted`; terminals
   `Rejected`, `Withdrew`, `Ghosted`.
 - **Categories:** user-configurable, **not a fixed enum** — the list lives per-install
-  in `app_settings` (key `categories`) and is edited in-app (the header **Categories**
-  button, auto-opened on first run). `DEFAULT_CATEGORIES` in `constants.ts` (Software
+  in `app_settings` (key `categories`) and is edited in-app (the **Application categories**
+  section of `/settings`). `DEFAULT_CATEGORIES` in `constants.ts` (Software
   Engineering, Data & Analytics, Product, Design, Finance, Marketing, Operations, Sales,
   Others) is only the seed/fallback before the user chooses. Category values are free-form
   labels — nothing in the pipeline reads them.
@@ -2092,7 +2104,7 @@ automated coverage — those rely on code review or the human in the loop, not a
 | A **blind** live backend (nothing usable: not a dict, or neither a `screen` object nor any requirement key) is a `provider_error`, not a verdict; the FLAT shape the 4B emits ~1 call in 100 is a real verdict and is honoured, byte-identical to the nested shape — so it cannot discard on the phrase floor and cannot record breaker successes; the narrow scope is pinned on the other side, where an empty `screen` dict is an answer and keeps the floor | `test_screen.py` (`test_a_blind_response_is_a_provider_error_not_a_verdict`, `test_an_empty_screen_object_is_a_verdict_and_keeps_the_floor`, `test_the_flat_shape_is_a_verdict_and_is_honoured`, `test_the_flat_shape_and_the_schema_shape_agree`, `test_the_observed_flat_response_is_kept_not_discarded`) |
 | `mark_failed` → terminal `failed` + `attempts+1` (fetch/score paths) | `test_db.py` |
 | Discovered Jobs funnel: each posting in exactly one stage, keep by default, per-stage counts, effective JEV status identical in Web and MCP, Mark Applied scoped to its view, retired filter keys rejected | `web/src/__tests__/jev-status-parity.int.test.ts`, `worker/tests/test_jev_status_parity.py` (shared `jev-status-cases.json`), `web/src/__tests__/inventory-contract.int.test.ts` |
-| Discovered Jobs, Sources and Activity are read-only except Mark Applied (no server-action import in their components; the Dashboard wires only reads plus `markJobApplied`; no discard/reopen/bulk export); Sources `postings_30d`; Activity lists by actor | `web/src/__tests__/readonly-dashboard.test.ts`, `watchlist.int.test.ts`, `activity.int.test.ts`, `web/e2e/discovered.spec.ts`, `web/e2e/sources-activity.spec.ts` |
+| Discovered Jobs, Sources and Activity are read-only except Mark Applied (no server-action import in their components; `JobsView` wires only reads plus `markJobApplied`; no discard/reopen/bulk export); Sources `postings_30d`; Activity lists by actor | `web/src/__tests__/readonly-dashboard.test.ts`, `watchlist.int.test.ts`, `activity.int.test.ts`, `web/e2e/discovered.spec.ts`, `web/e2e/sources-activity.spec.ts` |
 | `markJobApplied` atomic create + back-link + dedup | `actions.test.ts`, `actions.int.test.ts` (real-Prisma tx) |
 | `updateApplicationStatus` validates `STATUSES`, appends history | `actions.test.ts`, `actions.int.test.ts` |
 | `deleteHistoryItem` recomputes current status | `actions.int.test.ts` |
@@ -2137,10 +2149,10 @@ automated coverage — those rely on code review or the human in the loop, not a
 | Missing Codex credentials or usage HTTP 401 set a re-login notice with a ready-to-paste `login_command` (prefixed with a non-default `CODEX_HOME`); transient failures retain prior telemetry and successful capture clears the notice; `codex` and `claude-code` screen passes capture usage, `api`/`ollama` do not | `test_codex_login_notice.py`, `test_run.py::test_run_once_defaults_codex_to_luna_medium`, `test_run.py::test_run_once_captures_quota_only_for_subscription_backends`, `LoginNotice.test.tsx`, `e2e/login-notice.spec.ts` |
 | Screen backends come from one stdlib-only registry (`screen_providers.py`); only `api` is metered and the default is free; retired `openai-api`/`claude-api` fail startup naming `api`; `api` sends strict `json_schema`, falls back once on a 400 and keeps that mode, needs `SCREEN_MODEL`, sends no `Authorization` without a key, and tolerates `<think>`/fenced replies | `test_screen_providers.py`, `test_backends_screen.py` (`test_api_extract_*`), `test_run.py` (`test_make_screener_api_*`, `test_main_rejects_retired_backends_before_any_work`), `test_doctor.py::test_backend_row_lists_the_registry_and_flags_an_unknown_value` |
 | `/api/health` 200/503 probe; `/api/quota` snapshot route (incl. backend passthrough); usage-bar labelling | `web/src/__tests__/health.test.ts`, `quota.test.ts`, `web/src/components/__tests__/QuotaBar.test.tsx` |
-| Core UI rendering (tabs, KPI grid, application table, add form, pagination, history modal) | `web/src/components/__tests__/` (`Dashboard`, `KPIGrid`, `ApplicationTable`, `AddApplicationForm`, `Pagination`, `StatusHistoryModal`) |
+| Core UI rendering (per-route views, onboarding checklist, KPI grid, application table, add form, pagination, history modal); setup status, Jobs badge and MCP templates | `web/src/__tests__/setup.int.test.ts`, `web/e2e/empty-state.spec.ts`, `web/src/components/__tests__/` (`Views`, `KPIGrid`, `ApplicationTable`, `AddApplicationForm`, `Pagination`, `StatusHistoryModal`) |
 | The job query directly queries/counts every non-removed lifecycle in SQL, defaults to stable discovery recency, matches the shared standalone outcome fixture, escapes literal full-text search, and scopes Mark Applied | `web/src/__tests__/inventory-query-shape.test.ts`, `web/src/__tests__/inventory-contract.int.test.ts` |
 | Web/MCP triage classification, SQL filtering before paging, overview partition, raw screen-outcome compatibility, legacy rule-only detection, duplicate-member rejection, mathematically integral JS-safe legacy revisions, unknown-lifecycle priority and bounded summaries agree on the shared synthetic contract fixture | `web/src/lib/__tests__/triage-summary.test.ts`, `web/src/__tests__/inventory-contract.int.test.ts`, `web/src/__tests__/inventory-query-shape.test.ts`, `worker/tests/test_mcp_repository.py::test_job_triage_contract_fixture`, `test_job_triage_filter_summary_and_overview_share_one_partition`, `worker/tests/test_mcp_protocol.py` |
-| Inventory filter/page requests hide stale rows, retain the selected view across tabs, and discard an older response after a newer request resolves | `web/src/components/__tests__/Dashboard.test.tsx` (`overlapping inventory requests never show stale rows under newer filters`), `web/e2e/discovered.spec.ts` |
+| Inventory filter/page requests hide stale rows and discard an older response after a newer request resolves | `web/src/components/__tests__/Views.test.tsx` (`overlapping inventory requests never show stale rows under newer filters`), `web/e2e/discovered.spec.ts` |
 | Unknown lifecycle names cannot crash inventory rendering; impossible calendar dates and invalid assessment times remain null with shared Python/web timestamp fixtures | `web/src/components/__tests__/DiscoveredJobsTable.test.tsx`, `web/src/lib/__tests__/screen-summary.test.ts`, `worker/tests/test_mcp_repository.py` |
 | Synthetic browser flow: newest unscored job, full JD, all-text search, second page, retained Matched details and All-jobs application workflow | `web/e2e/discovered.spec.ts`, `apply-loop.spec.ts` |
 | Integration-harness self-check (real Prisma round-trip on the temp DB) | `web/src/__tests__/harness.int.test.ts` |

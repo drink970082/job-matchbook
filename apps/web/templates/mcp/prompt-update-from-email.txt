@@ -1,0 +1,2 @@
+Read my recruiter email since <date>. For each message about an application in this
+tracker, tell me the status change it implies and apply the ones I confirm.

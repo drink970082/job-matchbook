@@ -1,0 +1,6 @@
+Set me up in this job-search tool. Call get_setup_status first. Then interview me, one
+question at a time, for my hard requirements (degree, work authorization, security
+clearance, every country or state I will work in, whether remote counts, internships)
+and save them with set_preferences. Ask which companies I want watched and add their
+boards with add_source. Do not assume anything about me; leave a requirement blank if I
+do not give one.

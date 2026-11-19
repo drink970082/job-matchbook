@@ -411,6 +411,16 @@ export async function getJobStageCounts() {
     return counts
 }
 
+// The Jobs nav badge: postings in the default (keep) view first fetched in the last 24h.
+export async function getNewJobsCount() {
+    const since = new Date(Date.now() - 86_400_000).toISOString()
+    const rows = await prisma.$queryRaw<Array<{ n: number | bigint }>>(Prisma.sql`
+        SELECT COUNT(*) AS n ${Prisma.raw(FROM_SQL)}
+        WHERE p.pipeline_status <> 'removed' AND (${Prisma.raw(STAGE_SQL)}) = 'keep' AND p.created_at >= ${since}
+    `)
+    return Number(rows[0]?.n ?? 0)
+}
+
 type JobScopeClient = Pick<Prisma.TransactionClient, 'job_postings' | '$queryRaw'>
 
 // A mutation sends back the view that offered it, so a stale or crafted request cannot
