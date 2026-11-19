@@ -1,6 +1,9 @@
 # Claude Code: run once in a terminal. Replace /abs/path/to/checkout with your checkout.
 # The write key is read from ~/.config/ats-mcp/api-key (the same value as
 # ATS_API_KEY_READ_WRITE in the repo's .env); drop the ATS_API_KEY line for read-only.
+# Create the key file once (the value of ATS_API_KEY_READ_WRITE in the repo's .env):
+#   mkdir -p ~/.config/ats-mcp && grep '^ATS_API_KEY_READ_WRITE=' /abs/path/to/checkout/.env \
+#     | cut -d= -f2- > ~/.config/ats-mcp/api-key && chmod 600 ~/.config/ats-mcp/api-key
 claude mcp add ats \
   -e PYTHONPATH=/abs/path/to/checkout/apps/worker \
   -e ATS_API_KEY="$(cat ~/.config/ats-mcp/api-key)" \

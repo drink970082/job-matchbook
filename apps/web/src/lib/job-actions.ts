@@ -416,7 +416,7 @@ export async function getNewJobsCount() {
     const since = new Date(Date.now() - 86_400_000).toISOString()
     const rows = await prisma.$queryRaw<Array<{ n: number | bigint }>>(Prisma.sql`
         SELECT COUNT(*) AS n ${Prisma.raw(FROM_SQL)}
-        WHERE p.pipeline_status <> 'removed' AND (${Prisma.raw(STAGE_SQL)}) = 'keep' AND p.created_at >= ${since}
+        WHERE (${Prisma.raw(STAGE_SQL)}) = 'keep' AND p.created_at >= ${since}
     `)
     return Number(rows[0]?.n ?? 0)
 }

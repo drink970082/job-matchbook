@@ -12,14 +12,16 @@ export async function getSetupStatus() {
         prisma.watched_companies.count(),
         prisma.jev_profile.count(),
         prisma.job_postings.findFirst({ select: { id: true } }),
-        prisma.audit_log.findFirst({ where: { actor: 'mcp' }, select: { id: true } }),
+        Promise.all([prisma.audit_log, prisma.applications, prisma.status_history].map((t: any) =>
+            t.findFirst({ where: { actor: 'mcp' }, select: { id: true } }))).then((rows) => rows.some(Boolean)),
     ])
     const requirements = !!pref && (
         [pref.highest_degree, pref.work_authorization, pref.security_clearance].some((v) => v.trim())
-        || JSON.parse(pref.locations || '[]').length > 0 || pref.exclude_internships)
+        || pref.locations.trim() !== '[]' && pref.locations.trim() !== '' || pref.exclude_internships)
     const steps = {
-        // ponytail: "connected" = the MCP server has written through /api/v1 at least once.
-        aiClient: !!mcpWrite,
+        // ponytail: "connected" = the MCP server has written through /api/v1 at least once;
+        // a read-only connection never ticks it (the step is optional).
+        aiClient: mcpWrite,
         requirements,
         sources: sources > 0,
         jev: jev > 0,

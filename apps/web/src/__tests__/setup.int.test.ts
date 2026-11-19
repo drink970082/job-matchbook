@@ -1,7 +1,7 @@
 import { getMcpTemplates, getSetupStatus } from '@/lib/setup-actions'
 import { getNewJobsCount } from '@/lib/job-actions'
 import { prisma, resetDb } from '@/test-utils/db'
-import { makeJobPosting, makeWatchedCompany } from '@/test-utils/factories'
+import { makeApplication, makeJobPosting, makeWatchedCompany } from '@/test-utils/factories'
 
 beforeEach(resetDb)
 afterAll(() => prisma.$disconnect())
@@ -19,7 +19,8 @@ test('setup is complete once requirements, a board and a posting exist; AI clien
     expect(await getSetupStatus()).toEqual({ complete: true,
         steps: { aiClient: false, requirements: true, sources: true, jev: false, firstFetch: true } })
 
-    await prisma.audit_log.create({ data: { at: 'x', actor: 'mcp', action: 'add', entity: 'watched_companies', entity_id: 1, payload: '{}' } })
+    // An application logged over MCP counts as a connected client (it writes no audit row).
+    await prisma.applications.create({ data: makeApplication({ actor: 'mcp' }) })
     expect((await getSetupStatus()).steps.aiClient).toBe(true)
 })
 

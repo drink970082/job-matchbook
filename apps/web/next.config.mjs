@@ -1,6 +1,9 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
     output: 'standalone',
+    // Every tab is its own dynamic route (#211); re-read it on each navigation instead of
+    // serving a 30s client-cached copy that predates a write made on another tab.
+    experimental: { staleTimes: { dynamic: 0 } },
     async headers() {
         // Minimal hardening for a single-user localhost app. CSP intentionally permits
         // Next's inline runtime ('unsafe-inline'/'unsafe-eval'); the high-value wins here
