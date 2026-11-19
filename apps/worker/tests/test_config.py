@@ -202,7 +202,7 @@ def test_accepts_documented_work_authorization_values(value):
 
 def test_work_authorization_vocabulary_is_case_insensitive():
     cfg = config.load_config("companies: []\ncandidate:\n  work_authorization: 'Citizen'\n")
-    assert cfg.candidate.work_authorization == "Citizen"
+    assert cfg.candidate.work_authorization == "citizen"  # stored canonical (lowercase)
 
 
 @pytest.mark.parametrize("value", ["F-1 OPT", "STEM OPT", "H-1B", "US citizen"])

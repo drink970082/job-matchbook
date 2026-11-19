@@ -830,6 +830,8 @@ def test_a_scheduled_pass_skips_the_slot_instead_of_dying(monkeypatch, tmp_path,
     monkeypatch.setattr(run, "_run_scheduler", fake_scheduler)
     calls: list = []
     monkeypatch.setattr(run, "run_once", lambda cfg, **kw: calls.append(kw))
+    monkeypatch.setattr(run, "_candidate_for_pass", lambda conn, cfg, now: None)
+    monkeypatch.setattr(run.db, "connect", lambda path: type("C", (), {"close": lambda self: None})())
     real_load_config = cfgmod.load_config
     monkeypatch.setattr(run.config_mod, "load_config",
                         lambda path: real_load_config("companies: []\n"))
@@ -912,6 +914,9 @@ def _daemon_harness(monkeypatch, schedule_hours=4):
 
     monkeypatch.setattr(run, "_run_scheduler", fake_scheduler)
     monkeypatch.setattr(run, "run_once", fake_run_once)
+    # The startup preference seed; a no-op here (no real DB behind the daemon stub).
+    monkeypatch.setattr(run.db, "connect", lambda path: type("C", (), {"close": lambda self: None})())
+    monkeypatch.setattr(run, "_candidate_for_pass", lambda conn, cfg, now: None)
     real_load_config = cfgmod.load_config
     monkeypatch.setattr(run.config_mod, "load_config",
                         lambda path: real_load_config(
@@ -1170,3 +1175,15 @@ def test_run_once_rejects_an_off_vocabulary_stored_value(monkeypatch, tmp_path):
     conn.commit()
     with pytest.raises(cfgmod.ConfigError, match="work_authorization"):
         run.run_once(cfgmod.load_config("companies: []\n"), db_path=str(dbfile), env=_ENV)
+
+
+def test_daemon_startup_seeds_preferences_before_the_first_slot(monkeypatch, tmp_path):
+    # Until a row exists MCP reports the requirements missing, and a set_preferences in
+    # that window would pre-empt the config seed; so the daemon seeds at launch.
+    real_load_config = cfgmod.load_config
+    dbfile = tmp_path / "applications.db"
+    bootstrap_db(str(dbfile))
+    monkeypatch.setattr(run, "_run_scheduler", lambda job, hours: None)
+    monkeypatch.setattr(run.config_mod, "load_config", lambda path: real_load_config(_CANDIDATE_YAML))
+    run.main(["--db", str(dbfile), "--env", str(tmp_path / "none.env")])
+    assert dbmod.get_preferences(dbmod.connect(str(dbfile)))["actor"] == "config"

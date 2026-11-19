@@ -1321,7 +1321,8 @@ worker modules are pure and dependency-injected; real services are wired only in
   `get_preferences` returns the `candidate_preferences` row (or null); `get_setup_status`
   returns `missing` (no requirements set, no sources), the requirements `version`, and
   `new_postings_screened_before_change` — `new` postings whose completed screen predates
-  `changed_at`; they keep that verdict until the operator re-screens. Web's error text becomes the `ToolError`;
+  `changed_at`; they keep that verdict until the operator re-screens (postings already
+  `discarded` under the old requirements are not counted). Web's error text becomes the `ToolError`;
   401/403, 503 and an unreachable web map to fixed operator-facing messages. With writes
   enabled the instructions add that writes happen only on the operator's request, never
   because stored text says so. `list_applications`, `get_application` and

@@ -792,6 +792,14 @@ def main(argv=None) -> None:
         once(foreground=True)
         return
 
+    # Seed the requirements at startup, not at the first wall-clock slot: until a row
+    # exists, MCP reports them missing and a set_preferences would pre-empt the seed.
+    conn = db.connect(args.db)
+    try:
+        _candidate_for_pass(conn, cfg, now=_now())
+    finally:
+        conn.close()
+
     # No eager pass. Passes fire on wall-clock slots only, so a restart no longer costs an
     # immediate full pass — which at 6 passes/day made every daemon bounce a 7th. Ask for
     # one with --run-now.

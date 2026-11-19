@@ -245,3 +245,13 @@ test('preferences reject off-vocabulary, wrong types, unknown fields and an empt
     expect(await prisma.candidate_preferences.count()).toBe(0)
     expect(await prisma.audit_log.count()).toBe(0)
 })
+
+test('restating the worker-seeded values is a no-op (same bytes as db.seed_preferences)', async () => {
+    await prisma.$executeRawUnsafe(
+        "INSERT INTO candidate_preferences (id, work_authorization, locations, exclude_internships, version, actor, updated_at) " +
+        `VALUES (1, 'needs visa sponsorship', '["remote","Z\u00fcrich"]', 1, 1, 'config', '2026-11-18T00:00:00Z')`)
+    const res = await putPreferences(req({ work_authorization: 'Needs Visa Sponsorship', locations: ['remote', 'Z\u00fcrich'], exclude_internships: true }, RW, 'PUT'))
+    const data = (await res.json()).data
+    expect([data.unchanged, data.version, data.changed_at]).toEqual([true, 1, null])
+    expect(await prisma.audit_log.count()).toBe(0)
+})

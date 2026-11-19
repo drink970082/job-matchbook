@@ -172,7 +172,9 @@ def get_preferences(conn: sqlite3.Connection) -> dict | None:
 def seed_preferences(conn: sqlite3.Connection, candidate: dict, *, now: str) -> bool:
     """Insert the one-time config seed; a no-op (False) once any row exists."""
     values = {k: candidate[k] for k in PREFERENCE_FIELDS}
-    values["locations"] = json.dumps(list(values["locations"]), ensure_ascii=False)
+    # Same bytes as the web's JSON.stringify, so restating the seed is a no-op there.
+    values["locations"] = json.dumps(list(values["locations"]), ensure_ascii=False,
+                                     separators=(",", ":"))
     values["exclude_internships"] = int(bool(values["exclude_internships"]))
     cur = conn.execute(
         "INSERT INTO candidate_preferences (id, highest_degree, work_authorization, "

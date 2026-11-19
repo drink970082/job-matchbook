@@ -324,7 +324,8 @@ def create_server(repository: ReadOnlyATSRepository | None = None,
         """What this install still needs before the worker can screen for the operator
         (`missing` lists the next tools to call), the requirements version, and how many
         `new` postings were screened before the last requirement change (they keep their
-        old verdict until the operator re-screens). The JEV profile is file-based, not here."""
+        old verdict until the operator re-screens; postings already discarded are not
+        counted). The JEV profile is file-based, not here."""
         return read(repo.get_setup_status)
 
     @server.tool(annotations=_READ_ONLY)
