@@ -576,6 +576,7 @@ def test_run_jev_extract_keys_policy_on_the_backend(monkeypatch, tmp_path):
 @pytest.mark.parametrize("extra,message", [
     (["--jev-backend", "bogus"], "--jev-backend"),
     (["--jev-backend", "extract", "--screen-backend", "none"], "other than none"),
+    (["--jev-backend", "extract", "--jev-max-usd", "1"], "does not apply"),
 ])
 def test_cli_validates_jev_backend(tmp_path, capsys, extra, message):
     cfg = tmp_path / "config.yaml"
@@ -629,3 +630,14 @@ def test_run_once_refuses_a_bad_jev_backend(kw, tmp_path):
     with pytest.raises(ValueError):
         run.run_once(cfgmod.load_config("companies: []\n"), db_path=str(tmp_path / "x.db"),
                      env={}, jev_enabled=True, **kw)
+
+
+@pytest.mark.parametrize("backend,limit", [("extract", 40), ("openrouter-native", 300)])
+def test_cli_jev_limit_default_depends_on_backend(backend, limit, monkeypatch, tmp_path):
+    cfg = tmp_path / "config.yaml"
+    cfg.write_text("jev_dir: /tmp/x\n")
+    seen = {}
+    monkeypatch.setattr(run, "run_once", lambda *_a, **k: seen.update(k))
+    run.main(["--once", "--config", str(cfg), "--db", str(tmp_path / "x.db"),
+              "--jev", "--jev-backend", backend])
+    assert seen["jev_limit"] == limit and seen["jev_backend"] == backend

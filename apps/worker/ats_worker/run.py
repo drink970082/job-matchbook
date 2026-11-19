@@ -703,10 +703,12 @@ def main(argv=None) -> None:
     parser.add_argument("--jev-backend", default=os.environ.get("JEV_BACKEND", "openrouter-native"),
                         help="openrouter-native (default, measured) or extract (the screen "
                              "backend answers the same packs; UNVALIDATED, no USD cap)")
-    parser.add_argument("--jev-limit", type=int, default=300,
-                        help="max postings the JEV filter assesses per pass")
-    parser.add_argument("--jev-max-usd", default="0.10",
-                        help="stop the JEV filter once a pass has spent this much (USD)")
+    parser.add_argument("--jev-limit", type=int,
+                        help="max postings the JEV filter assesses per pass (default 300; "
+                             "40 with --jev-backend extract)")
+    parser.add_argument("--jev-max-usd",
+                        help="stop the JEV filter once a pass has spent this much (USD, "
+                             "default 0.10; refused with --jev-backend extract)")
     parser.add_argument("--screen-workers", type=int,
                         default=int(os.environ.get("SCREEN_WORKERS", "0")),
                         help="concurrent screen calls (0 = 1)")
@@ -775,6 +777,15 @@ def main(argv=None) -> None:
             parser.error(f"--jev-backend/JEV_BACKEND must be one of {', '.join(JEV_BACKENDS)}")
         if args.jev_backend == "extract" and args.screen_backend == "none":
             parser.error("--jev-backend extract needs a screen backend other than none")
+        if args.jev_backend == "extract" and args.jev_max_usd is not None:
+            parser.error("--jev-max-usd does not apply to --jev-backend extract (no cost "
+                         "is reported); cap it with --jev-limit")
+    if args.jev_limit is None:
+        # ponytail: extract has no USD cap, so its default is the screen's 40, not 300
+        args.jev_limit = 40 if args.jev_backend == "extract" else 300
+    if args.jev_max_usd is None:
+        args.jev_max_usd = "0.10"
+    if args.jev:
         if args.jev_limit <= 0:
             parser.error("--jev-limit must be positive")
         try:

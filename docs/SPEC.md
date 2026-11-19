@@ -863,7 +863,8 @@ worker modules are pure and dependency-injected; real services are wired only in
   The JD is truncated to `num_ctx * 2` characters as in the screen; Ollama ignores the
   schema (`format="json"`), so there the enum is enforced only by post-validation. Its policy hash names `extract:<screen backend>:<model>:<effort>`, so
   switching re-queues every verdict. The seam reports no cost: `--jev-limit` is the only
-  cap and `--jev-max-usd` does not apply; no OpenRouter key is needed. Refused with
+  cap (default 40 postings here, not 300) and an explicit `--jev-max-usd` is refused; no
+  OpenRouter key is needed. Refused with
   `--screen-backend none`. **UNVALIDATED**: the measured basis above is native-only.
 
   **Import boundary.** No fit module exists to import, and no résumé is loaded.

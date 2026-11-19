@@ -77,6 +77,10 @@ owns active branch claims. Documentation plans do not launch agents or deploy se
   applications table, not only `application_id`.
 - No persistent Brief delivery ledger. Cross-day deduplication is
   best-effort; background task/tunnel access still needs workflow-level acceptance.
+- `--jev-backend extract` is unmeasured and has no shadow mode: one pass replaces the
+  production policy hash (every native verdict shows stale) and overwrites native rows
+  that cost money to rebuild. Do not switch production to it before a measurement path
+  exists.
 - Optional model quality remains bounded by corpus provenance. Luna/medium screening
   lacks an effort-identified accuracy run; legacy fit labels include unsupported inputs.
   These limitations matter for judgment changes, not as blockers for unrelated work.

@@ -12,7 +12,7 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 - **JEV keep/skip on any screen provider** (#178). `--jev-backend extract` (or
   `JEV_BACKEND=extract`) sends the same question packs through the screen backend's
   `extract` seam, one call per pack; the backend joins the policy hash, and
-  `--jev-limit` is its only cap (no cost is reported). `openrouter-native` stays the
+  `--jev-limit` (default 40 there) is its only cap; `--jev-max-usd` is refused. `openrouter-native` stays the
   default and unchanged. Unvalidated: no measurement has been run on the extract path.
 
 ### Removed
