@@ -7,6 +7,11 @@ session boot path. Revalidate an entry against current code and data before sele
 
 ## Relevant to the source/tool product
 
+- **MCP free-text arguments that look like JSON are decoded:** the SDK JSON-parses a
+  string argument typed `str | None` when it parses as JSON, so a note such as `{"a":1}`
+  through `update_application_notes` (or `record_application`'s `notes`) fails
+  validation. `set_jev_profile` avoids it with plain `str`; the other text tools do not.
+
 - **Source lifecycle adapter coverage:** the bounded one-shot refresh supports
   SmartRecruiters; other boards need verified source-specific identity and closure
   signals before they can be refreshed safely. No broad backfill is selected.

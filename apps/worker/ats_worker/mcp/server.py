@@ -70,7 +70,8 @@ _WRITE_NOTE = (
     "add_source with its known ATS board and slug. 'Restore that one' (a posting JEV skipped) -> "
     "get_job to confirm, then override_triage(N, 'keep'); 'clear' returns to the model "
     "verdict. Onboarding by conversation -> get_setup_status, then set_preferences with the "
-    "hard requirements the operator states and add_source per company. Confirm the target "
+    "hard requirements the operator states and add_source per company; what they want from a "
+    "job goes in the JEV profile (get_jev_profile, then set_jev_profile). Confirm the target "
     "application or job id from a read tool before writing. Workflows: 'I applied to job "
     "N' -> get_job(N), then mark_job_applied(N) (it dates the application today; if the "
     "operator applied on another day, use record_application with that date and the job "
@@ -329,6 +330,14 @@ def create_server(repository: ReadOnlyATSRepository | None = None,
         return read(repo.get_setup_status)
 
     @server.tool(annotations=_READ_ONLY)
+    def get_jev_profile() -> dict[str, Any]:
+        """The JEV keep/skip filter's stored profile (profile_text, a JSON document sent to
+        the model verbatim) and yoe_context (education/experience facts), the question ids
+        of its seeded packs, and reassess_on_change: how many postings a change would send
+        back for a paid assessment (about USD 0.0003 each). Read before set_jev_profile."""
+        return read(repo.get_jev_profile)
+
+    @server.tool(annotations=_READ_ONLY)
     def get_preferences() -> dict[str, Any]:
         """The hard requirements the screen disqualifies postings on (degree, work
         authorization, clearance, locations, exclude_internships), with version and actor;
@@ -443,6 +452,25 @@ def _add_write_tools(server: MCPServer, repo: ReadOnlyATSRepository, writer: ATS
         if not body:
             raise ToolError("Give at least one preference field")
         return {"preferences": write("PUT", "/api/v1/preferences", body)}
+
+    @server.tool(annotations=_WRITE)
+    def set_jev_profile(
+        # Plain `str` (not Optional): the SDK JSON-decodes a JSON-looking argument typed
+        # `str | None`, which would replace the operator's exact text with a dict.
+        profile_text: Annotated[str, Field(max_length=16000, description=(
+            "The whole profile JSON document; it replaces the stored one byte for byte. "
+            "Omit to keep it."))] = "",
+        yoe_context: Annotated[str, Field(max_length=2000, description=(
+            "Education and experience facts for the required-years question. Omit to keep."))] = "",
+    ) -> dict[str, Any]:
+        """Update the JEV filter's profile and/or experience facts, only as the operator
+        states them. First get_jev_profile, edit from its profile_text, and tell the operator
+        the change re-assesses reassess_on_change postings (paid) on the next worker pass;
+        write once they agree. A restatement is a no-op. The question packs cannot be set here."""
+        body = {k: v for k, v in (("profile_text", profile_text), ("yoe_context", yoe_context)) if v}
+        if not body:
+            raise ToolError("Give profile_text and/or yoe_context")
+        return {"jev_profile": write("PUT", "/api/v1/jev-profile", body)}
 
     @server.tool(annotations=_WRITE)
     def add_source(

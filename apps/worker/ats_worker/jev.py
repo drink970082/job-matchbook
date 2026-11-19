@@ -67,22 +67,40 @@ class JevInputs:
                         "yoe_context": sha(self.yoe_context.encode())}))
 
 
-def _pack(path: Path, required_question: str) -> dict:
-    value = json.loads(path.read_bytes())
+def _pack(text: str, name: str, required_question: str) -> dict:
+    value = json.loads(text)
     ids = {q.id for q in jev_question_set_from_value(value).questions}
     if required_question not in ids:
-        raise ValueError(f"{path.name} lacks the {required_question!r} question")
+        raise ValueError(f"{name} lacks the {required_question!r} question")
     return value
 
 
-def load_inputs(directory: str | Path) -> JevInputs:
+# The stored form of the inputs (the DB `jev_profile` row and its one-time seed): the
+# texts as read, so the policy hash of the stored row equals the hash of the files.
+INPUT_TEXTS = ("profile_text", "c_pack", "yoe_pack", "yoe_context")
+
+
+def read_files(directory: str | Path) -> dict[str, str]:
     d = Path(directory)
+    return {"profile_text": (d / "profile-binding.json").read_text(encoding="utf-8"),
+            # Packs hash as parsed JSON, so a BOM may go (json.loads of bytes accepted one);
+            # the profile keeps its exact text because the hash covers it.
+            "c_pack": (d / "question-pack.json").read_bytes().decode("utf-8-sig"),
+            "yoe_pack": (d / "yoe-pack.json").read_bytes().decode("utf-8-sig"),
+            "yoe_context": (d / "yoe-context.txt").read_text(encoding="utf-8").strip()}
+
+
+def inputs_from_texts(texts: dict[str, str]) -> JevInputs:
     return JevInputs(
-        profile_text=(d / "profile-binding.json").read_text(encoding="utf-8"),
-        c_pack=_pack(d / "question-pack.json", PREFERENCE_Q),
-        yoe_pack=_pack(d / "yoe-pack.json", YOE_Q),
-        yoe_context=(d / "yoe-context.txt").read_text(encoding="utf-8").strip(),
+        profile_text=texts["profile_text"],
+        c_pack=_pack(texts["c_pack"], "question-pack.json", PREFERENCE_Q),
+        yoe_pack=_pack(texts["yoe_pack"], "yoe-pack.json", YOE_Q),
+        yoe_context=texts["yoe_context"].strip(),
     )
+
+
+def load_inputs(directory: str | Path) -> JevInputs:
+    return inputs_from_texts(read_files(directory))
 
 
 def _wire(pack: dict) -> dict:

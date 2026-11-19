@@ -34,7 +34,9 @@ pipeline only *screens* postings against hard requirements; it does not score fi
 **The worker never reads the profile or résumé.** They are private inputs for the AI
 client (ChatGPT / Claude / Codex) that reviews jobs over MCP — the user attaches them
 to that client's project or task. The optional paid JEV keep/skip filter reads its own
-prepared `jev_dir` packs (`config.yaml.example`), which this skill does not build.
+prepared `jev_dir` packs (`config.yaml.example`), which this skill does not build; the
+worker copies them into the DB once, and the profile is edited after that through MCP
+`set_jev_profile`.
 
 ## What you'll produce (all gitignored personal data)
 

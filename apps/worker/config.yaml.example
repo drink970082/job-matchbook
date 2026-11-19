@@ -139,4 +139,6 @@ enable_browser_sources: false
 #   question-pack.json    the preference question pack (must contain `preference`)
 #   yoe-pack.json         the required-experience pack (`required_yoe_for_candidate`)
 #   yoe-context.txt       education/experience facts sent with the experience question
+# ONE-TIME SEED: the worker copies these into the DB once; after that the DB wins and
+# edits here are ignored (logged). Change the profile/context with MCP set_jev_profile.
 # jev_dir: resume/jev

@@ -164,6 +164,18 @@ CREATE TABLE "candidate_preferences" (
     "updated_at" TEXT NOT NULL
 );
 
+CREATE TABLE "jev_profile" (
+    "id" INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+    "profile_text" TEXT NOT NULL,
+    "c_pack" TEXT NOT NULL,
+    "yoe_pack" TEXT NOT NULL,
+    "yoe_context" TEXT NOT NULL,
+    "version" INTEGER NOT NULL DEFAULT 1,
+    "actor" TEXT NOT NULL,
+    "changed_at" TEXT,
+    "updated_at" TEXT NOT NULL
+);
+
 CREATE INDEX "job_postings_pipeline_status_idx" ON "job_postings"("pipeline_status");
 CREATE INDEX "job_postings_source_source_last_check_attempted_at_idx" ON "job_postings"("source", "source_last_check_attempted_at");
 CREATE UNIQUE INDEX "job_screenings_job_posting_id_key" ON "job_screenings"("job_posting_id");

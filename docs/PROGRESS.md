@@ -8,10 +8,11 @@ behavior. Completed work belongs in CHANGELOG, not this queue.
 
 ## In flight
 
-- **JEV profile into the DB — unclaimed** `[WORKER+WEB · M]` (#157, second slice). The
-  hard requirements are in `candidate_preferences`; the JEV profile is still files under
-  `jev_dir`. Seeding must reproduce the profile bytes exactly (test that `policy_sha` is
-  unchanged), or every in-window verdict re-queues for paid calls.
+- **JEV profile into the DB — PR open** `[WORKER+WEB · M]` (#157, second slice, branch
+  `feat/157-jev-profile-db`). `jev_dir` seeds a `jev_profile` row; MCP
+  `get_jev_profile`/`set_jev_profile`. Deploy: schema push, then restart the worker
+  (seeds at startup), then web and MCP; check the first JEV pass after it re-queues
+  nothing (same policy hash).
 
 - **MCP source tools — deployed, acceptance open** `[MCP · S]` (#156, epic #152).
   `audit_log` is pushed to production, web and the MCP tunnel run the new code. Open:

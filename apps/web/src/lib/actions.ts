@@ -1760,6 +1760,60 @@ export async function setCandidatePreferences(input: Record<string, unknown>, ac
     }
 }
 
+// --- JEV profile (#157): the keep/skip filter's profile and experience facts -----
+// The worker seeds row id=1 from config `jev_dir` (question packs included, and those
+// come only from there). This updates the profile text and/or the experience context;
+// a change bumps `version` and is audited. The policy hash covers both, so the next JEV
+// pass re-assesses every in-window posting.
+
+const MAX_JEV_PROFILE = 16000
+const MAX_YOE_CONTEXT = 2000
+
+export async function setJevProfile(input: Record<string, unknown>, actor: Actor = 'web') {
+    checkedActor(actor)
+    try {
+        const unknown = Object.keys(input).filter((k) => k !== 'profile_text' && k !== 'yoe_context')
+        if (unknown.length) throw new Error(`Only profile_text and yoe_context can be set (got ${unknown.join(', ')}); question packs come from jev_dir`)
+        const fields: { profile_text?: string; yoe_context?: string } = {}
+        if (input.profile_text !== undefined) {
+            if (typeof input.profile_text !== 'string') throw new Error('profile_text must be a string')
+            if (input.profile_text.length > MAX_JEV_PROFILE) throw new Error(`profile_text is over ${MAX_JEV_PROFILE} characters`)
+            let parsed: unknown
+            try { parsed = JSON.parse(input.profile_text) } catch { throw new Error('profile_text must be a JSON object') }
+            if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error('profile_text must be a JSON object')
+            fields.profile_text = input.profile_text // verbatim: the policy hash covers these bytes
+        }
+        if (input.yoe_context !== undefined) {
+            if (typeof input.yoe_context !== 'string') throw new Error('yoe_context must be a string')
+            const text = input.yoe_context.trim()
+            if (!text) throw new Error('yoe_context must not be empty')
+            if (text.length > MAX_YOE_CONTEXT) throw new Error(`yoe_context is over ${MAX_YOE_CONTEXT} characters`)
+            fields.yoe_context = text
+        }
+        if (!Object.keys(fields).length) throw new Error('Give profile_text and/or yoe_context')
+        const data = await prisma.$transaction(async (tx) => {
+            const before = await tx.jev_profile.findUnique({ where: { id: 1 } })
+            if (!before) throw new Error('No JEV profile is stored yet: the worker seeds it from jev_dir, which also supplies the question packs')
+            const pick = (r: typeof before) => ({ version: r.version, profile_text: r.profile_text, yoe_context: r.yoe_context })
+            if (Object.entries(fields).every(([k, v]) => (before as Record<string, unknown>)[k] === v)) {
+                return { version: before.version, changed_at: before.changed_at, unchanged: true }
+            }
+            const now = new Date().toISOString()
+            const row = await tx.jev_profile.update({
+                where: { id: 1 }, data: { ...fields, actor, changed_at: now, updated_at: now, version: { increment: 1 } },
+            })
+            await tx.audit_log.create({ data: {
+                at: now, actor, action: 'update', entity: 'jev_profile', entity_id: 1,
+                payload: JSON.stringify({ before: pick(before), after: pick(row) }),
+            } })
+            return { version: row.version, changed_at: row.changed_at, unchanged: false }
+        })
+        return { success: true, data }
+    } catch (error: any) {
+        return { success: false, error: error.message }
+    }
+}
+
 // --- Categories (DB-backed vocabulary the user picks at onboarding) ----------
 // The application-category list lives in one app_settings row (key='categories',
 // value = a JSON string array) so a user can pick their own field's labels instead

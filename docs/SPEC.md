@@ -839,8 +839,12 @@ worker modules are pure and dependency-injected; real services are wired only in
   changes. Each pass records its policy hash in `app_settings`
   (`jev_current_policy_sha256`) so MCP can label older verdicts stale. Without
   `OPENROUTER_API_KEY` or model metadata the stage is skipped with a log line; fetch and
-  screen have already run. Inputs are four private files under config `jev_dir`
-  (`config.yaml.example`). Measured basis (2026-11, model-proxy, not human truth):
+  screen have already run. Inputs are the `jev_profile` row (§8): config `jev_dir` (four
+  private files, `config.yaml.example`) seeds it once with the texts exactly as read, so
+  the policy hash is the files' hash; after that the row wins and differing files are
+  logged. `--jev` refuses to start with neither a `jev_dir` nor a stored row. Only the
+  profile and experience context are editable (`set_jev_profile`); the question packs
+  come from `jev_dir` only. Measured basis (2026-11, model-proxy, not human truth):
   preference skips 57-69% of screened candidates per day with 0 of 7 real applications
   skipped; the experience question agreed with a blind review on 50 of 52; together they
   leave about a quarter of screened candidates. Ranking within `keep` was measured and
@@ -1313,7 +1317,9 @@ worker modules are pure and dependency-injected; real services are wired only in
   slug/source/duplicate checks and messages), `remove_source(source_id)` (returns the
   removed row), `override_triage(job_id, keep|skip|clear, reason?)`, `set_preferences`
   (the screen's hard requirements; omitted fields keep their value, `locations` replaces
-  the list), and `update_application_notes(application_id, text)`, which appends
+  the list), `set_jev_profile(profile_text?, yoe_context?)` (replaces the profile text
+  verbatim; typed plain `str` because the SDK JSON-decodes JSON-looking `str | None`
+  arguments), and `update_application_notes(application_id, text)`, which appends
   after a blank line and never replaces. The append is read-then-`PATCH` of the whole
   field with no version check: a web edit to the same notes in that window is
   overwritten (accepted for a single operator; a web-side append is the fix if it bites). Annotations are `readOnlyHint=false`,
@@ -1321,7 +1327,9 @@ worker modules are pure and dependency-injected; real services are wired only in
   removal; it is audited in web and re-addable. `list_sources` (a read tool, always
   present) returns every watchlist row with `has_recipe`, `postings_30d` (postings with
   that `source` + `company_slug` created in 30 days) and a global `unresolved_30d`.
-  `get_preferences` returns the `candidate_preferences` row (or null); `get_setup_status`
+  `get_preferences` returns the `candidate_preferences` row (or null); `get_jev_profile`
+  returns the editable `jev_profile` fields, the packs' question ids and
+  `reassess_on_change` (eligible in-window postings a change re-queues); `get_setup_status`
   returns `missing` (no requirements set, no sources), the requirements `version`, and
   `new_postings_screened_before_change` — `new` postings whose completed screen predates
   `changed_at`; they keep that verdict until the operator re-screens (postings already
@@ -1413,7 +1421,10 @@ worker modules are pure and dependency-injected; real services are wired only in
   each set, replace (`update`, payload `{before, after}`) and clear lands in
   `audit_log`), `PUT preferences` (`setCandidatePreferences`: merges the given fields over
   row id=1; an actual change bumps `version`, sets `changed_at` and is audited as
-  `add`/`update`; a no-op returns `unchanged: true` and writes nothing).
+  `add`/`update`; a no-op returns `unchanged: true` and writes nothing), `PUT jev-profile`
+  (`setJevProfile`: `profile_text` (a JSON object, at most 16,000 chars, stored verbatim)
+  and/or `yoe_context` (trimmed, at most 2,000); packs are refused; needs the seeded row;
+  same version/no-op/audit rules).
   Auth (`lib/api-v1.ts`): `Authorization: Bearer <key>` against `ATS_API_KEY_READ_WRITE`
   (scope `read_write`) or `ATS_API_KEY_READ` (scope `read`); neither set -> `503`
   (disabled, never open), missing/wrong key -> `401`, read key on a write -> `403`, an
@@ -1544,10 +1555,10 @@ worker modules are pure and dependency-injected; real services are wired only in
 
 *Class: **Snapshot** — mirrors `schema.prisma` (the real source of truth); if they disagree, update this spec.*
 
-Twelve tables, owned solely by `apps/web/prisma/schema.prisma` (`applications`,
+Thirteen tables, owned solely by `apps/web/prisma/schema.prisma` (`applications`,
 `status_history`, `job_postings`, `watched_companies`, `audit_log`, `feed_unresolved`,
 `promotion_dismissed`, `app_settings`, `job_screenings`, `job_jev_assessments`,
-`job_triage_overrides`, `candidate_preferences`). Dates are stored as **ISO-8601 strings** for sortability and
+`job_triage_overrides`, `candidate_preferences`, `jev_profile`). Dates are stored as **ISO-8601 strings** for sortability and
 timezone-independence (`date_applied` as `YYYY-MM-DD`; timestamps as full ISO with
 millisecond precision to match Prisma / the worker's `_now()`).
 
@@ -1732,6 +1743,18 @@ model candidate_preferences {    // the screen's hard requirements; one row, id=
   actor               String                 // config (seed) | web | mcp
   changed_at          String?                // last change after the seed; null = seeded values
   updated_at          String
+}
+
+model jev_profile {              // JEV filter inputs; one row, id=1, seeded from jev_dir
+  id           Int     @id
+  profile_text String             // profile-binding.json, verbatim (policy hash input)
+  c_pack       String             // question-pack.json text (seed only)
+  yoe_pack     String             // yoe-pack.json text (seed only)
+  yoe_context  String
+  version      Int     @default(1)
+  actor        String             // config (seed) | web | mcp
+  changed_at   String?
+  updated_at   String
 }
 ```
 

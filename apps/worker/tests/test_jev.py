@@ -319,7 +319,7 @@ def test_run_jev_without_a_key_skips_loudly(capsys):
 def test_run_jev_wires_the_client_into_the_pipeline(monkeypatch, tmp_path):
     conn = _screened_db(tmp_path, ["a"])
     monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
-    monkeypatch.setattr(jev, "load_inputs", lambda d: _inputs())
+    monkeypatch.setattr(run, "_jev_inputs", lambda conn, cfg, now: _inputs())
 
     class Client:
         def __init__(self, session, key):
@@ -337,7 +337,7 @@ def test_run_jev_wires_the_client_into_the_pipeline(monkeypatch, tmp_path):
 
 
 def test_run_jev_metadata_failure_skips_the_stage(monkeypatch, capsys):
-    monkeypatch.setattr(jev, "load_inputs", lambda d: _inputs())
+    monkeypatch.setattr(run, "_jev_inputs", lambda conn, cfg, now: _inputs())
 
     class Client:
         def __init__(self, session, key):
@@ -417,3 +417,83 @@ def test_run_jev_does_not_retry_an_error_that_aged_out_and_falls_back_to_created
     tally = _run(conn, _assess_with())
     assert tally["attempted"] == 1 and _rows(conn)["dateless"]["verdict"] == "keep"
     assert _rows(conn)["aged"]["state"] == "provider_error"
+
+
+# --- stored JEV profile (#157): jev_dir seeds the row once, then the row wins --------
+
+def _write_jev_dir(path, profile='{"profile": {"note": "café "}, "domains": {}}  '):
+    path.mkdir()
+    # Odd bytes on purpose (non-ASCII, trailing spaces, no newline; pack indentation):
+    # the policy hash covers the profile's exact text, so the seed must keep it verbatim.
+    (path / "profile-binding.json").write_text(profile, encoding="utf-8")
+    (path / "question-pack.json").write_text(json.dumps(C_PACK, indent=4), encoding="utf-8")
+    (path / "yoe-pack.json").write_text(json.dumps(YOE_PACK), encoding="utf-8")
+    (path / "yoe-context.txt").write_text("Synthetic MS.\n", encoding="utf-8")
+    return path
+
+
+class _DirCfg:
+    def __init__(self, jev_dir):
+        self.jev_dir = str(jev_dir)
+
+
+def test_seeded_profile_keeps_the_policy_hash_of_the_files(tmp_path, capsys):
+    jev_dir = _write_jev_dir(tmp_path / "jev")
+    conn = db.connect(bootstrap_db(tmp_path / "p.db"))
+    from_db = run._jev_inputs(conn, _DirCfg(jev_dir), now=NOW)
+    assert "seeded the JEV profile" in capsys.readouterr().out
+    assert from_db.policy_sha(MODEL) == jev.load_inputs(jev_dir).policy_sha(MODEL)
+    assert db.get_jev_profile(conn)["profile_text"] == (jev_dir / "profile-binding.json").read_text(encoding="utf-8")
+    # Read back with no jev_dir at all: still the same policy.
+    assert run._jev_inputs(conn, _DirCfg(""), now=NOW).policy_sha(MODEL) == from_db.policy_sha(MODEL)
+
+
+def test_stored_profile_wins_over_edited_files_and_is_reported(tmp_path, capsys):
+    jev_dir = _write_jev_dir(tmp_path / "jev")
+    conn = db.connect(bootstrap_db(tmp_path / "p.db"))
+    run._jev_inputs(conn, _DirCfg(jev_dir), now=NOW)
+    conn.execute("UPDATE jev_profile SET profile_text='{\"profile\":\"from mcp\"}', version=2")
+    conn.commit()
+    (jev_dir / "profile-binding.json").write_text('{"profile":"edited file"}', encoding="utf-8")
+    capsys.readouterr()
+    assert run._jev_inputs(conn, _DirCfg(jev_dir), now=NOW).profile_text == '{"profile":"from mcp"}'
+    assert "differ from the stored JEV profile" in capsys.readouterr().out
+
+
+def test_no_jev_dir_and_no_row_skips_the_stage(tmp_path, monkeypatch, capsys):
+    conn = db.connect(bootstrap_db(tmp_path / "p.db"))
+    assert run._jev_inputs(conn, _DirCfg(""), now=NOW) is None
+    run._run_jev(conn, _DirCfg(""), env={"OPENROUTER_API_KEY": "k"}, limit=1,
+                 max_usd=Decimal("1"), now=NOW)
+    assert "no stored JEV profile" in capsys.readouterr().out
+
+
+def test_cli_jev_accepts_a_stored_profile_without_jev_dir(tmp_path, monkeypatch):
+    conn = db.connect(bootstrap_db(tmp_path / "p.db"))
+    db.seed_jev_profile(conn, jev.read_files(_write_jev_dir(tmp_path / "jev")), now=NOW)
+    conn.close()
+    cfg = tmp_path / "config.yaml"
+    cfg.write_text("max_age_days: 1\n")
+    seen = []
+    monkeypatch.setattr(run, "run_once", lambda cfg, **kw: seen.append(kw["jev_enabled"]))
+    run.main(["--once", "--config", str(cfg), "--jev", "--db", str(tmp_path / "p.db"),
+              "--env", str(tmp_path / "none.env")])
+    assert seen == [True]
+
+
+def test_stored_profile_survives_a_missing_jev_dir_and_packs_may_carry_a_bom(tmp_path, capsys):
+    jev_dir = _write_jev_dir(tmp_path / "jev")
+    pack = jev_dir / "question-pack.json"
+    pack.write_bytes(b"\xef\xbb\xbf" + pack.read_bytes())
+    conn = db.connect(bootstrap_db(tmp_path / "p.db"))
+    first = run._jev_inputs(conn, _DirCfg(jev_dir), now=NOW)
+    assert first.policy_sha(MODEL) == _inputs_from(jev_dir).policy_sha(MODEL)
+    for f in jev_dir.iterdir():
+        f.unlink()
+    capsys.readouterr()
+    assert run._jev_inputs(conn, _DirCfg(jev_dir), now=NOW).policy_sha(MODEL) == first.policy_sha(MODEL)
+    assert "jev_dir is unreadable" in capsys.readouterr().out
+
+
+def _inputs_from(jev_dir):
+    return jev.load_inputs(jev_dir)

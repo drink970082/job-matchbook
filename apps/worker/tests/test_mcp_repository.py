@@ -1126,3 +1126,28 @@ def test_setup_status_counts_new_postings_screened_before_the_last_change(tmp_pa
     assert status["preferences"]["configured"] is True
     assert status["preferences"]["new_postings_screened_before_change"] == 1
     assert status["missing"] == []
+
+
+def test_get_jev_profile_reports_the_row_and_the_in_window_reassessment_count(tmp_path):
+    path = bootstrap_db(tmp_path / "j.db")
+    repo = ReadOnlyATSRepository(path, clock=lambda: datetime(2026, 11, 19, 12, tzinfo=timezone.utc))
+    assert repo.get_jev_profile() == {"jev_profile": None, "reassess_on_change": 0}
+    conn = sqlite3.connect(path)
+    conn.execute("INSERT INTO jev_profile (id, profile_text, c_pack, yoe_pack, yoe_context, actor, "
+                 "updated_at) VALUES (1, '{\"profile\":1}', '{\"questions\":[{\"id\":\"preference\"}]}', "
+                 "'not json', 'MS.', 'config', '2026-11-19T00:00:00Z')")
+    for pid, posted, status, result in ((1, "2026-11-12", "new", '{"disqualified":false}'),
+                                        (2, "2026-11-11", "new", '{"disqualified":false}'),
+                                        (3, "2026-11-18", "new", '{"disqualified":true}'),
+                                        (4, "2026-11-18", "applied", '{"disqualified":false}')):
+        conn.execute("INSERT INTO job_postings (id, source, external_id, company_name, job_title, job_url, "
+                     "description, pipeline_status, created_at, posted_at) VALUES (?, 'greenhouse', ?, 'A', "
+                     "'Eng', 'https://x', 'jd', ?, '2026-11-01T00:00:00Z', ?)", (pid, str(pid), status, posted))
+        conn.execute("INSERT INTO job_screenings (job_posting_id, state, result_json, backend, "
+                     "evaluator_version, last_attempted_at, created_at) VALUES (?, 'complete', ?, 'ollama', "
+                     "'screen-v1', 'x', 'x')", (pid, result))
+    conn.commit()
+    out = repo.get_jev_profile()
+    assert out["reassess_on_change"] == 1          # only id 1: in window, eligible, new
+    assert out["jev_profile"]["pack_questions"] == {"preference_pack": ["preference"], "yoe_pack": []}
+    assert (out["jev_profile"]["version"], out["jev_profile"]["actor"]) == (1, "config")
