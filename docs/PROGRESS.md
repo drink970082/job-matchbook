@@ -8,10 +8,11 @@ behavior. Completed work belongs in CHANGELOG, not this queue.
 
 ## In flight
 
-- **MCP write path, first slice — `feat/web-write-api`** `[WEB · M]` (#153 -> #154 ->
-  #159, epic #152). #153 (key-scoped `/api/v1` write API + `actor` columns) is on this
-  branch; #154 (MCP write tools calling it) and #159 (workflow text) follow. Deploying
-  needs `make db-push` (additive `actor`) and a key in the root `.env`.
+- **MCP write path, first slice — `feat/mcp-write-tools`** `[MCP · M]` (#154 -> #159,
+  epic #152). #153 (web `/api/v1`) is merged and deployed (key in `ats-runtime/.env`,
+  web built from `ats-runtime` with a local compose override for the DB mount). #154
+  (MCP write tools) is on this branch; deploying it = `ATS_API_KEY` in the MCP launcher
+  and a tunnel restart. #159 (workflow text) follows.
 
 - **JEV keep/skip filter — deployed, backlog draining until about early December** `[JEV · M]` (#139).
   The worker unit runs `--jev --jev-limit 300 --jev-max-usd 0.10` from `ats-runtime` at

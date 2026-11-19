@@ -48,12 +48,14 @@ REQUIRED_TABLES = frozenset({
 PIPELINE_STATUSES = frozenset({
     "new", "scored", "notified", "applied", "discarded", "failed", "removed", "expired",
 })
-APPLICATION_STATUSES = frozenset({
+# Mirrors STATUSES in apps/web/src/lib/constants.ts, in the same order.
+APPLICATION_STATUS_ORDER = (
     "Applied", "Online Assessment", "Phone Screen", "Interviewing: 1st round",
     "Interviewing: 2nd round", "Interviewing: 3rd round", "Interviewing: 4th round",
     "Interviewing: 5th round", "Final Round", "Offer", "Accepted", "Rejected",
     "Withdrew", "Ghosted",
-})
+)
+APPLICATION_STATUSES = frozenset(APPLICATION_STATUS_ORDER)
 
 # This is the allowlist for all dynamic table names and primary keys. User input selects
 # only an entry from this closed map; it never becomes a SQL identifier.
@@ -1426,7 +1428,7 @@ class ReadOnlyATSRepository:
         where = " WHERE " + " AND ".join(clauses) if clauses else ""
         sql = (
             "SELECT a.id,a.company_name,a.job_title,a.application_url,a.date_applied,a.category,"
-            "a.status,a.last_updated,length(a.notes) AS notes_chars,a.notes IS NULL AS notes_is_null,"
+            "a.status,a.last_updated,a.actor,length(a.notes) AS notes_chars,a.notes IS NULL AS notes_is_null,"
             "(SELECT COUNT(*) FROM job_postings p WHERE p.application_id=a.id) AS linked_job_count "
             "FROM applications a" + where + " ORDER BY a.id DESC LIMIT ?"
         )
@@ -1473,7 +1475,7 @@ class ReadOnlyATSRepository:
                 params.extend((decoded.key, decoded.key, int(decoded.extra or 0)))
             params.append(limit + 1)
             rows = [dict(row) for row in conn.execute(
-                f"SELECT id,application_id,status,timestamp FROM status_history WHERE {where} "
+                f"SELECT id,application_id,status,timestamp,actor FROM status_history WHERE {where} "
                 "ORDER BY timestamp ASC,id ASC LIMIT ?", params,
             ).fetchall()]
         page = _page(rows, limit, scope, "timestamp", descending=False, extra_field="id")

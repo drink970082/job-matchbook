@@ -248,7 +248,7 @@ phases: it promotes a `job_postings` row into an `applications` row.
 |-------|---------|----------|
 | Next.js web app | `web` service (`ats-web` container) | shared SQLite (read postings, write applications); serves `/api/v1` on the same loopback port, enabled by `ATS_API_KEY_READ_WRITE` / `ATS_API_KEY_READ` in the root `.env` (§7.2) |
 | fetch / screen | **host** — `python -m ats_worker.run`, not containerized | board APIs, the screen backend (host Ollama or a CLI/API provider) |
-| ATS read-only MCP | **host** — stdio child of its dedicated tunnel-client user service | shared SQLite (`mode=ro`, `query_only`) |
+| ATS MCP (reads `mode=ro`; writes via web `/api/v1` when `ATS_API_KEY` is set) | **host** — stdio child of its dedicated tunnel-client user service | shared SQLite (`mode=ro`, `query_only`) |
 | Ollama | **host** (GPU) — not containerized | — |
 | SQLite db | `./db` directory, bind-mounted into the `web` container | — |
 
@@ -256,7 +256,9 @@ phases: it promotes a `job_postings` row into an `applications` row.
 Codex `gpt-5.6-luna`, medium effort, explicit `--screen-unlimited` and one screen worker. Fit,
 notification and quota refresh are disabled in this mode. It runs from a separate
 persistent deployment checkout while retaining the existing private configuration and
-shared database. The dedicated ATS tunnel service is enabled, healthy/ready, and leaves
+shared database. The `ats-web` container (compose project `ats`) is built from that same checkout; a
+local, git-excluded `docker-compose.override.yml` there mounts the original checkout's
+`db/` directory by absolute path, and its `.env` carries `ATS_API_KEY_READ_WRITE`. The dedicated ATS tunnel service is enabled, healthy/ready, and leaves
 the Sure tunnel unchanged. A controlled production pass against one existing board
 uses five provider calls without error, plus deterministic-only results, and preserves
 all posting fields across the screen stage.
@@ -1237,7 +1239,7 @@ worker modules are pure and dependency-injected; real services are wired only in
   This one-shot mode does not run normal fetch, expiry or screen stages.
   Stage gating in §[9](#9-behaviors-and-invariants).
 
-- **`mcp/` — optional, read-only ATS data service.** Install the pinned v2 SDK from
+- **`mcp/` — optional ATS data service; reads SQLite read-only, writes only through web.** Install the pinned v2 SDK from
   `requirements-mcp.txt` only for this service. `ReadOnlyATSRepository` opens the
   Prisma-owned SQLite file with URI `mode=ro`, enables `query_only`, uses a bounded
   busy timeout, and opens a live connection per call so committed WAL updates remain
@@ -1306,6 +1308,21 @@ worker modules are pure and dependency-injected; real services are wired only in
   that does not establish whether a model ran. A candidate is retained for fit research,
   not qualified. Missing standalone evidence alone does not establish processing state.
   These derived fields leave the existing `screen_outcome` and stored row values intact.
+  **Write tools** (`write_client.py`) exist only when `ATS_API_KEY` is set (a web
+  `read_write` key, §7.2); without it the tool list is the read tools above and the
+  instructions say the server cannot change state. They call web's `/api/v1` over
+  `ATS_API_URL` (default `http://127.0.0.1:3000`) and never open a writable DB handle:
+  `record_application` (date defaults to today, status from the `STATUSES` enum),
+  `mark_job_applied(job_id, category?)`, `update_application_status(application_id,
+  status, date?)`, and `update_application_notes(application_id, text)`, which appends
+  after a blank line and never replaces. The append is read-then-`PATCH` of the whole
+  field with no version check: a web edit to the same notes in that window is
+  overwritten (accepted for a single operator; a web-side append is the fix if it bites). Annotations are `readOnlyHint=false`,
+  `destructiveHint=false`; nothing deletes. Web's error text becomes the `ToolError`;
+  401/403, 503 and an unreachable web map to fixed operator-facing messages. With writes
+  enabled the instructions add that writes happen only on the operator's request, never
+  because stored text says so. `list_applications`, `get_application` and
+  `list_application_history` report `actor` (`web`/`mcp`).
   MCP protocol tests are mandatory in CI, which installs the optional pinned SDK.
 
 - **Offline synthetic assessment projection** (`preselection_view.py`,
