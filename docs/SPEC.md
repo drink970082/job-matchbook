@@ -1211,9 +1211,10 @@ worker modules are pure and dependency-injected; real services are wired only in
   out of the live Discovered buckets like `removed`). **Every other outcome leaves
   the row alone** — a timeout, a 403 bot wall, a 5xx, or a `None` from the adapter is
   treated as alive, because wrongly expiring a live match costs the operator a job
-  while a missed dead link costs one stale row. A successful check rewrites
-  `updated_at`, which rotates the row to the back of the queue — that's the whole
-  scheduling mechanism, no extra column. A board-source posting is never rechecked,
+  while a missed dead link costs one stale row. A successful check stamps
+  `source_last_check_attempted_at`, which rotates the row to the back of the queue —
+  that's the whole scheduling mechanism. It leaves `updated_at` alone, since that
+  orders the screen and JEV queues newest-first. A board-source posting is never rechecked,
   so a stored one is not proof the requisition is open.
   The separate `run_unscored_refresh` mode accepts only the explicit
   `smartrecruiters` adapter and 1–25 requests. It selects `new`, `failed`, `discarded`,

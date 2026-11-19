@@ -319,6 +319,19 @@ def test_run_expire_touches_live_rows_to_rotate_the_queue(db_path):
     assert checked == ["a", "b"]         # 'a' rotated to the back
 
 
+def test_run_expire_live_check_leaves_updated_at_alone(db_path):
+    # updated_at orders the screen and JEV queues newest-first; a liveness check on a
+    # `new` row must not move it to the front of them.
+    conn = db.connect(db_path)
+    db.upsert_postings(conn, [_posting("old", source=DETAIL_SRC)], now=NOW)
+    before = conn.execute("SELECT updated_at FROM job_postings").fetchone()[0]
+    pipeline.run_expire(conn, now=LATER,
+                        detail_fetch_fn=lambda *a: _posting("old", source=DETAIL_SRC))
+    row = conn.execute("SELECT updated_at, source_last_check_attempted_at "
+                       "FROM job_postings").fetchone()
+    assert tuple(row) == (before, LATER)
+
+
 def test_run_expire_zero_budget_checks_nothing(db_path):
     conn = db.connect(db_path)
     _seed_live(conn, ["x"])

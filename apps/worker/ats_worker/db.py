@@ -447,8 +447,9 @@ def save_jev(conn: sqlite3.Connection, posting_id: int, *, state: str, verdict: 
 
 def get_recheck_candidates(conn: sqlite3.Connection, sources, limit: int):
     """Live postings (new|scored|notified) from per-listing sources, least-recently
-    touched first — the expiry re-check queue (pipeline.run_expire). Every check
-    rewrites updated_at, so the queue rotates itself; no extra column needed."""
+    checked first — the expiry re-check queue (pipeline.run_expire). A live check
+    stamps source_last_check_attempted_at (`touch`), so the queue rotates itself
+    without touching updated_at, which orders the screen and JEV queues."""
     sources = list(sources)
     if not sources or limit <= 0:
         return []
@@ -456,7 +457,7 @@ def get_recheck_candidates(conn: sqlite3.Connection, sources, limit: int):
     return conn.execute(
         "SELECT * FROM job_postings WHERE pipeline_status IN ('new','scored','notified') "
         f"AND source IN ({placeholders}) "
-        "ORDER BY COALESCE(updated_at,'') ASC, id ASC LIMIT ?",
+        "ORDER BY COALESCE(source_last_check_attempted_at,updated_at,'') ASC, id ASC LIMIT ?",
         [*sources, limit],
     ).fetchall()
 
@@ -625,6 +626,7 @@ def save_source_observation(conn: sqlite3.Connection, posting_id: int, *,
 # never reach the SQL string (defense-in-depth; today all callers pass constants).
 _UPDATABLE_COLUMNS = frozenset({
     "score_detail", "pipeline_status", "pipeline_error", "updated_at",
+    "source_last_check_attempted_at",
 })
 
 
@@ -645,8 +647,9 @@ def mark_expired(conn, posting_id: int, *, now: str) -> None:
 
 
 def touch(conn, posting_id: int, *, now: str) -> None:
-    """Bump updated_at only — re-checked and still live, so rotate it to the back
-    of get_recheck_candidates' queue."""
-    _update(conn, posting_id, {"updated_at": now})
+    """Re-checked and still live: stamp the check attempt so the row rotates to the
+    back of get_recheck_candidates' queue. updated_at is left alone — bumping it
+    would move a `new` row to the front of the screen/JEV queues."""
+    _update(conn, posting_id, {"source_last_check_attempted_at": now})
 
 
