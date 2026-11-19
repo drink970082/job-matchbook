@@ -438,22 +438,24 @@ def _expand_unresolved(classified: list) -> list:
 
 
 def _allowed_entry_codes(entry) -> set[str]:
-    """The countries an allowed entry names, read the way a posting's location is: a
-    country, a US state or a city ("California", "Boston, MA", "Toronto") resolves to its
-    country. Country-level on purpose (#206): listing a state keeps postings anywhere in
-    that country rather than discarding a mis-parsed one in the state itself."""
-    code = _country_code(str(entry))
-    if code:
-        return {code}
-    classified = [_classify_token(t) for t in _tokenize(entry)]
-    strong = {c for kind, c in classified if kind in ("country", "us_state", "region") and c}
-    if strong:
-        return strong
-    tally: dict[str, int] = {}
-    for t in _tokenize(entry):
-        for c in _weak_readings(t):
-            tally[c] = tally.get(c, 0) + 1
-    return {c for c, n in tally.items() if n == max(tally.values())} if tally else set()
+    """The countries an allowed entry names, from STRONG evidence only: a country, a US
+    state or code ("California", "Boston, MA" -> US), a region's member countries
+    ("North America"), or a country named inside a phrase ("US Remote"). A name that is
+    both a state and a country ("Georgia") allows both. Ambiguous city/subdivision
+    readings add nothing ("Bay Area", "Ontario"): such an entry still keeps postings that
+    name it through the direct match, and a wrong country would defeat the user's list."""
+    text = str(entry)
+    codes: set[str] = set()
+    for t in [text, *_tokenize(text)]:
+        folded = _fold(t)
+        codes |= _REGION_MEMBERS.get(folded, set())
+        if _is_us_state(t):
+            codes.add("US")
+        code = _country_code(t)
+        if code:
+            codes.add(code)
+    codes |= {c for _, c in _phrase_countries(text)}
+    return codes
 
 
 def _tokenize(location_str) -> list[str]:

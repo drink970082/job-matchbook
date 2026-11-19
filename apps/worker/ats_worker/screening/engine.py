@@ -25,23 +25,20 @@ CLEARANCE_TOKENS = re.compile(
 _INTERN_TITLE = re.compile(r"\bintern(ship)?s?\b|\bco[\s-]?op\b", re.IGNORECASE)
 
 # Contract / part-time / temporary in the TITLE (#206; job_postings stores no
-# employment-type field). A hard-requirement discard errs toward keep, so a qualifier
-# counts only where titles put an employment type: in parentheses/brackets, as a
-# trailing segment ("- Contract", ", Part-Time"), or leading for the unambiguous words.
-# "Contract"/"Contractor"/"Temp" never count leading ("Smart Contract Engineer",
-# "Contractor Relations Manager", "Temp Control Technician"); any "full-time" keeps.
-_EMPLOYMENT_QUALIFIER = (r"(?:contract(?:[\s-]to[\s-]hire)?|contractor|part[\s-]?time|temporary|temp|"
-                         r"fixed[\s-]?term|seasonal|freelance|per[\s-]?diem)")
+# employment-type field). A hard-requirement discard errs toward keep, so only the
+# unambiguous shapes count: a bracket or a trailing segment that IS the qualifier
+# ("(Contract)", "- 6 Month Contract", ", Part-Time"), or a title leading with
+# "Part-Time" / "Contract-to-Hire". Words inside a role ("Smart Contract Engineer",
+# "Seasonal Forecasting Scientist", "(Contract Compliance)") keep; so does "full-time".
+_QUALIFIER = (r"(?:\d+[\s-]*(?:months?|mos?|weeks?)\s+)?"
+              r"(?:contract(?:[\s-]to[\s-]hire)?|contractor|part[\s-]?time|temporary|temp|"
+              r"fixed[\s-]?term|seasonal|freelance|per[\s-]?diem)"
+              r"(?:\s+(?:role|position|assignment|basis|opportunity|only))?")
 _FULL_TIME = re.compile(r"\bfull[\s-]?time\b", re.IGNORECASE)
-_QUALIFIER_IN_BRACKETS = re.compile(
-    r"[(\[][^)\]]*\b" + _EMPLOYMENT_QUALIFIER + r"\b[^)\]]*[)\]]", re.IGNORECASE)
-_QUALIFIER_SEGMENT = re.compile(
-    r"^(?:\d+[\s-]*(?:months?|mos?|weeks?)\s+)?" + _EMPLOYMENT_QUALIFIER
-    + r"(?:\s+(?:role|position|assignment|basis|opportunity|only))?$", re.IGNORECASE)
-_QUALIFIER_LEADING = re.compile(
-    r"^(?:part[\s-]?time|temporary|fixed[\s-]?term|seasonal|freelance|per[\s-]?diem|"
-    r"contract[\s-]to[\s-]hire)\b", re.IGNORECASE)
-_SEGMENT_SPLIT = re.compile(r"\s+[-–—|:]\s+|,\s*|\s+[-–—]$")
+_QUALIFIER_BRACKET = re.compile(r"[(\[]\s*" + _QUALIFIER + r"\s*[)\]]", re.IGNORECASE)
+_QUALIFIER_TRAILING = re.compile(
+    r"[-–—|:,/]\s*" + _QUALIFIER + r"\s*(?:[(\[][^)\]]*[)\]])?\s*$", re.IGNORECASE)
+_QUALIFIER_LEADING = re.compile(r"^(?:part[\s-]?time|contract[\s-]to[\s-]hire)\b", re.IGNORECASE)
 
 def deterministic_screen(screen: dict, posting: dict, candidate: dict | None) -> dict:
     """Apply the two CODE-only screen gates — intern/co-op title, and location string
@@ -613,10 +610,8 @@ def _is_non_fulltime(title: str) -> bool:
     t = str(title or "").strip()
     if not t or _FULL_TIME.search(t):
         return False
-    if _QUALIFIER_IN_BRACKETS.search(t) or _QUALIFIER_LEADING.search(t):
-        return True
-    segments = [x.strip() for x in _SEGMENT_SPLIT.split(t) if x and x.strip()]
-    return any(_QUALIFIER_SEGMENT.match(x) for x in segments[1:])
+    return bool(_QUALIFIER_BRACKET.search(t) or _QUALIFIER_TRAILING.search(t)
+                or _QUALIFIER_LEADING.search(t))
 
 def _is_internship(title: str) -> bool:
     """Whole-word intern/internship/co-op match on the job title."""

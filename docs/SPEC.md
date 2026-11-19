@@ -1122,20 +1122,24 @@ worker modules are pure and dependency-injected; real services are wired only in
   **rejected**: it discarded a US university building as Tanzania (via "Coast") and an
   Israeli site as Italy. Only the places the user lists count — no country is assumed
   (a user who will work in the US lists it; `["remote"]` alone discards on-site US
-  postings). Each listed entry resolves to its country the way a posting does
-  (`_allowed_entry_codes`: `California` and `Boston, MA` allow the US), so listing a
-  state never discards a posting in it; a region (`North America`, `Americas`) keeps
-  when it contains a listed country. The location gate is code-only, so a
+  postings). Each listed entry contributes the countries it names on strong evidence
+  (`_allowed_entry_codes`: a country, a US state or code — `California`, `Boston, MA`,
+  and `Georgia` as both — a region's members, a country inside a phrase like `US
+  Remote`), so listing a state never discards a posting in it. A city or area entry
+  (`Toronto`, `Bay Area`) adds no country and matches only postings that name it. A
+  posting region (`North America`, `Americas`) keeps when it contains a listed
+  country. The location gate is code-only, so a
   `locations`-only candidate makes no SCREEN call (any backend). The screen prompt
   carries no location clause. The screen prompt is
   `prompts/screen.txt`, shared by every backend. Separately, when
   `candidate.exclude_internships` is set,
   intern/co-op roles are disqualified by a whole-word match on the job title (no LLM
   call — runs even when no other screen clause is configured); `exclude_contract` does
-  the same for contract / part-time / temporary titles (`_is_non_fulltime`: only where a
-  title states its employment type — in brackets, as a trailing segment, or a leading
-  `Part-Time`/`Temporary`/`Seasonal`/...; a leading `Contract`/`Contractor`/`Temp` and
-  any title saying full-time keep, so `Smart Contract Engineer` is not discarded),
+  the same for contract / part-time / temporary titles (`_is_non_fulltime`: only a bracket or
+  trailing segment that is the qualifier — `(Contract)`, `- 6 Month Contract`, `,
+  Part-Time` — or a leading `Part-Time`/`Contract-to-Hire`; qualifier words inside a
+  role (`Smart Contract Engineer`, `(Contract Compliance)`, `Seasonal Forecasting
+  Scientist`) and any title saying full-time keep),
   recorded under the screen key `employment_type`. A SCREEN **provider**
   failure errs toward keep (not disqualified) and stamps `provider_error` on the
   verdict; `run_screen` stores it as a retryable error, and a run of them

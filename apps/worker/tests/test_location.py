@@ -234,6 +234,12 @@ def test_a_discard_always_names_a_country_the_string_actually_mentions():
     # A region keeps when it contains a listed country.
     ("Remote - North America", ["Canada", "remote"], True, "remote"),
     ("Americas", ["Mexico"], True, ""),
+    ("Atlanta, GA", ["Georgia"], True, ""),             # state AND country: both count
+    ("Toronto, Ontario, Canada", ["North America"], True, ""),
+    ("San Francisco, CA", ["Bay Area"], False, "on-site in United States"),  # no guessed country
+    ("Manila, Philippines", ["Bay Area"], False, "on-site in Philippines"),
+    ("Austin, TX", ["Ontario"], False, "on-site in United States"),
+    ("Austin, TX", ["US Remote"], True, ""),
     ("Sacramento, CA", ["USA"], True, ""),                 # CA=California, not Canada
     ("", ["remote", "USA"], True, ""),
     (None, ["remote", "USA"], True, ""),
