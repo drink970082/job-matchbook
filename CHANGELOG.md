@@ -9,6 +9,11 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 
 ### Added
 
+- **MCP application write tools** (#154): `record_application`, `mark_job_applied`,
+  `update_application_status`, `update_application_notes` (append-only), present only
+  when `ATS_API_KEY` is set and calling web's `/api/v1`; MCP still opens SQLite
+  read-only. Application and history reads now include `actor`.
+
 - **Key-scoped loopback write API** (`/api/v1/*`, #153). Thin route handlers over the
   existing `lib/actions.ts` application and watchlist actions, for the MCP server.
   Bearer key from `ATS_API_KEY_READ_WRITE` / `ATS_API_KEY_READ`; no key = `503`. New
