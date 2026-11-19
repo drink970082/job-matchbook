@@ -30,8 +30,6 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
   `--batch-size`, `--no-notify`, `--rescreen-discarded` and `--resume-dir` flags, a
   top-level `fit_profile` block and `candidate.years_experience` now fail startup
   instead of being ignored.
-  `--batch-size`, `--no-notify`, `--rescreen-discarded` and `--resume-dir` flags now
-  fail startup instead of being ignored.
 - **Web Server Actions split by domain** (#173). `lib/actions.ts` is now
   `application-`, `analytics-`, `csv-`, `watchlist-`, `job-`, `preference-` (hard
   requirements, JEV profile, Settings read) and `category-actions.ts`, with shared sync
