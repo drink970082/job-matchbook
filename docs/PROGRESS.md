@@ -8,12 +8,10 @@ behavior. Completed work belongs in CHANGELOG, not this queue.
 
 ## In flight
 
-- **Hard requirements into the DB — merged (#183), deploy pending** `[WORKER+WEB · L]`
-  (#157). `candidate:` moves to `candidate_preferences` with MCP
-  get/set and `get_setup_status`. Not deployed. Order: schema push, then restart the
-  worker (it seeds from `config.yaml` at startup), then web and MCP; a
-  `set_preferences` before the seed pre-empts it. The JEV profile move
-  waits for #139 (its policy hash re-queues every verdict on any byte change).
+- **JEV profile into the DB — unclaimed** `[WORKER+WEB · M]` (#157, second slice). The
+  hard requirements are in `candidate_preferences`; the JEV profile is still files under
+  `jev_dir`. Seeding must reproduce the profile bytes exactly (test that `policy_sha` is
+  unchanged), or every in-window verdict re-queues for paid calls.
 
 - **MCP source tools — deployed, acceptance open** `[MCP · S]` (#156, epic #152).
   `audit_log` is pushed to production, web and the MCP tunnel run the new code. Open:
