@@ -26,10 +26,6 @@ behavior. Completed work belongs in CHANGELOG, not this queue.
   ~5,900 older screened postings stay `unassessed` and listed. Rollback = drop `--jev`
   from `ats-worker.service.d/20-screen-only.conf` and restart; the table is additive.
 
-- **JEV keep/skip on any provider — in review** `[JEV · S]` (#178, branch
-  `feat/178-jev-extract-backend`). `--jev-backend extract` runs the packs through the
-  screen seam; hermetic tests only, unvalidated until measured per EVALUATION.md.
-
 - **Fit-scorer residue — unclaimed** `[SCORE · S]` (#174). Left: drop the columns
   nothing writes — `job_postings.score`, `attempts`, `notify_attempts`,
   `deprioritized_at` — after #158 removes the web reads.
