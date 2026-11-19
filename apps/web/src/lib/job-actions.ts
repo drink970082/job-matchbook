@@ -248,13 +248,14 @@ const JEV_STATUS_SQL = `CASE WHEN ${OVERRIDE_APPLIES_SQL} THEN o.decision ELSE $
 const JEV_JOIN_SQL = `LEFT JOIN job_jev_assessments j ON j.job_posting_id=p.id
     LEFT JOIN job_triage_overrides o ON o.job_posting_id=p.id`
 
-const STAGE_SQL = `CASE
-    WHEN (${TRIAGE_STATUS_SQL})='rule_disqualified' THEN 'rule_rejected'
-    WHEN (${TRIAGE_STATUS_SQL})='screen_disqualified' THEN 'screen_rejected'
-    WHEN p.pipeline_status<>'new' THEN 'other'
-    WHEN (${JEV_STATUS_SQL})='keep' THEN 'keep'
-    WHEN (${JEV_STATUS_SQL})='skip' THEN 'jev_skip'
-    ELSE 'unassessed' END`
+// Simple CASE (operand evaluated once): the triage and JEV expressions are the costly
+// parts, and the searched form would evaluate each twice per row.
+const STAGE_SQL = `CASE (${TRIAGE_STATUS_SQL})
+    WHEN 'rule_disqualified' THEN 'rule_rejected'
+    WHEN 'screen_disqualified' THEN 'screen_rejected'
+    ELSE CASE WHEN p.pipeline_status<>'new' THEN 'other'
+        ELSE CASE (${JEV_STATUS_SQL}) WHEN 'keep' THEN 'keep' WHEN 'skip' THEN 'jev_skip' ELSE 'unassessed' END
+    END END`
 
 function jevReasons(raw: unknown): string[] {
     try {
