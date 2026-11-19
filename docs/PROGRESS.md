@@ -8,12 +8,10 @@ behavior. Completed work belongs in CHANGELOG, not this queue.
 
 ## In flight
 
-- **Triage override — deploy and acceptance open** `[MCP · S]` (#155, epic #152,
-  branch `feat/triage-override-155`). Deploy in order: back up, production `db push`
-  (new `job_triage_overrides`), web rebuild, MCP restart; the MCP before the push fails
-  every JEV read. Open: in ChatGPT, "restore that one" on a JEV skip makes it listed
-  under the default keep filter. The ticket's Web/Python parity test waits for #158:
-  web computes no JEV status today.
+- **Triage override — deployed, acceptance open** `[MCP · S]` (#155, epic #152).
+  `job_triage_overrides` is pushed to production; web and the MCP tunnel run it. Open:
+  in ChatGPT, "restore that one" on a JEV skip (`list_jobs jev='skip'`) makes it listed
+  under the default keep filter. The Web/Python parity test is carried on #158.
 
 - **MCP source tools — deployed, acceptance open** `[MCP · S]` (#156, epic #152).
   `audit_log` is pushed to production, web and the MCP tunnel run the new code. Open:
