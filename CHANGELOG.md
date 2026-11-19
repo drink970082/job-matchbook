@@ -9,6 +9,10 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 
 ### Added
 
+- **MCP workflow text** (#159): server instructions name the apply/status-update
+  sequences, and MCP prompts `daily_brief`, `log_application`, `update_from_email`
+  (the last two only when writes are enabled).
+
 - **MCP application write tools** (#154): `record_application`, `mark_job_applied`,
   `update_application_status`, `update_application_notes` (append-only), present only
   when `ATS_API_KEY` is set and calling web's `/api/v1`; MCP still opens SQLite
