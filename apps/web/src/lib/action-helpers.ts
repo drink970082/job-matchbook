@@ -21,3 +21,12 @@ export function checkedActor(actor: unknown): Actor {
     if (!(ACTORS as readonly unknown[]).includes(actor)) throw new Error('Invalid actor')
     return actor as Actor
 }
+
+// One audit_log row for an application write (#242). Actions: add | update | status |
+// remove_history | remove. The payload is the row as added/removed, or {before, after}.
+export function applicationAudit(actor: Actor, action: string, entityId: number, payload: unknown) {
+    return {
+        at: new Date().toISOString(), actor, action,
+        entity: 'applications', entity_id: entityId, payload: JSON.stringify(payload),
+    }
+}

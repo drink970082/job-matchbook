@@ -160,6 +160,12 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 
 ### Added
 
+- **Application deletes free the posting; application writes are audited** (#242).
+  Deleting an application sets each linked `applied` posting back to `new` in the same
+  transaction, so it can be marked applied again. Create, detail edit, status change,
+  history-item delete and delete each write one `audit_log` row with the actor and the
+  row before/after; `PATCH /api/v1/applications/{id}` now stamps `actor='mcp'`. The
+  Activity tab lists edits and deletes.
 - **Example JEV packs and a per-stage provider guide** (#179). `apps/worker/jev.example/`
   holds a synthetic `jev_dir` (profile, both packs, experience context) a fresh checkout
   can run `--jev` against; SPEC documents the pack format; SETUP Path C2 adds a

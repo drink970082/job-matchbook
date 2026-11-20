@@ -157,6 +157,8 @@ describe('Backend Actions', () => {
 
   describe('updateApplicationDetails', () => {
     it('keeps a free-form category', async () => {
+      mockPrisma.$transaction.mockImplementation(async (cb: any) => cb(mockPrisma))
+      mockPrisma.applications.findUnique.mockResolvedValue({ id: 1 } as any)
       mockPrisma.applications.update.mockResolvedValue({ id: 1 } as any)
 
       await updateApplicationDetails(1, { company_name: 'A', job_title: 'B', category: 'Investment Banking' })

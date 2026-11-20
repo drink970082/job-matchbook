@@ -11,5 +11,5 @@ export function PATCH(req: Request, { params }: { params: { id: string } }) {
         application_url: str(b, 'application_url'),
         date_applied: str(b, 'date_applied'),
         notes: str(b, 'notes'),
-    }))
+    }, 'mcp'))
 }
