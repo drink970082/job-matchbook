@@ -49,10 +49,10 @@ data before selecting it.
 - **Rate limits:** bounded retry + salvage exists only in `phenom`; port it when a second
   board 429s. Whether it survives a live phenom WAF trip (a 403 deep in pagination) is
   unmeasured.
-- **Recipe validation happens a pass late:** a bad `mode`, an unmatched `item_path` or
-  missing field path fails silently at fetch time and shows up as `feed_unresolved` rows.
-  A `validate_recipe()` on every watchlist write would move it to write time,
-  beside the existing SSRF check.
+- **A well-formed recipe can still miss the live payload:** the recipe schema rejects
+  bad keys and values at write time, but an `item_path` or field path that matches
+  nothing in the real response only shows at fetch time, as an empty board or
+  `feed_unresolved` rows. A dry run before add is #239.
 - **`custom` has no chained detail call.** It is what Uber/Netflix/Morgan Stanley need
   (list JSON without a body), and what makes an `html` mode useful: an `html` recipe can
   only produce a description if the listing card carries the full JD, so without it

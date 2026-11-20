@@ -160,6 +160,13 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 
 ### Added
 
+- **Recipe JSON Schema, validated at every entry point** (#238).
+  `apps/web/src/lib/recipe.schema.json` declares every key the `custom` and `browser`
+  executors read, with one example per mode, and rejects any other key. Web add,
+  `POST /api/v1/watchlist` and MCP `add_source` validate with zod's `fromJSONSchema`; the
+  config seed, `add_watched.py` and `fetch_company` validate with `jsonschema` (new worker
+  dependency). An invalid stored recipe skips only its board, logged with the offending
+  key. All 15 recipe rows on the operator's watchlist validated when this shipped.
 - **Example JEV packs and a per-stage provider guide** (#179). `apps/worker/jev.example/`
   holds a synthetic `jev_dir` (profile, both packs, experience context) a fresh checkout
   can run `--jev` against; SPEC documents the pack format; SETUP Path C2 adds a

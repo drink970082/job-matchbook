@@ -26,7 +26,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 WORKER = os.path.normpath(os.path.join(HERE, "../../../../apps/worker"))  # <repo>/apps/worker
 sys.path.insert(0, WORKER)
 
-from ats_worker import config, db  # noqa: E402
+from ats_worker import config, db, recipe_schema  # noqa: E402
 
 # <repo>/db/applications.db — the real shared DB, not the (gitignored, may-not-exist)
 # apps/web/prisma/applications.db symlink, so the default works on a fresh checkout.
@@ -55,6 +55,9 @@ def main(argv=None):
             recipe = json.load(fh)
     if args.source in config.RECIPE_SOURCES and not isinstance(recipe, dict):
         sys.exit(f"error: source {args.source!r} needs a --recipe JSON file (a mapping)")
+    errs = recipe_schema.errors(args.source, recipe)
+    if errs:
+        sys.exit(f"error: invalid {args.source} recipe: " + "; ".join(errs))
 
     if not os.path.exists(args.db):
         sys.exit(f"error: watchlist DB not found at {args.db} (run `make db-push` first?)")

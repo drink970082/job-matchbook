@@ -4,6 +4,8 @@ from __future__ import annotations
 import re
 from datetime import date
 
+from ats_worker import recipe_schema
+
 from . import (ashby, browser, custom, greenhouse, icims, jobvite, lever, oracle,
                phenom, pinpoint, smartrecruiters, workable, workday)
 
@@ -148,6 +150,9 @@ def fetch_company(source: str, slug: str, company_name: str, *,
     if keep is not None and source in STUB_GATE_SOURCES:
         kwargs["keep"] = keep
     if source in RECIPE_SOURCES:
+        # Before any request: an invalid stored recipe raises here, naming the key, and
+        # run_fetch logs it and skips just this board.
+        recipe_schema.check(source, recipe)
         return adapter.fetch(slug, company_name, recipe=recipe, **kwargs)
     return adapter.fetch(slug, company_name, **kwargs)
 

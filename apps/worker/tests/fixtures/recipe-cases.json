@@ -1,0 +1,93 @@
+{
+  "_comment": "Shared by apps/worker/tests/test_recipe_schema.py and apps/web/src/lib/__tests__/recipe-schema.test.ts so the Python and TS validators of apps/web/src/lib/recipe.schema.json cannot drift. `valid` covers every key shape the watchlist's recipe boards use (the executor test recipes plus synthetic example.com rows for the shapes those lack); `invalid` lists each rejection with a substring its error must carry.",
+  "valid": [
+    {"source": "custom", "slug": "amazon", "recipe": {
+      "method": "GET", "url": "https://www.amazon.jobs/en/search.json?base_query=software+engineer",
+      "mode": "json", "item_path": "jobs", "total_path": "hits",
+      "page": {"type": "offset", "param": "offset", "size_param": "result_limit", "size": 100},
+      "fields": {"title": "title", "location": "normalized_location", "url": "https://www.amazon.jobs{job_path}",
+                 "description": "description", "posted_at": "posted_date", "external_id": "id_icims"}}},
+    {"source": "custom", "slug": "tiktok", "recipe": {
+      "method": "POST", "url": "https://jobs.bytedance.com/api/v1/public/supplier/search/job/posts",
+      "headers": {"website-path": "tiktok"},
+      "body": {"recruitment_id_list": [], "keyword": "", "limit": 100, "offset": 0},
+      "mode": "json", "item_path": "data.job_post_list", "total_path": "data.count",
+      "page": {"type": "offset", "body_param": "offset", "size": 100},
+      "fields": {"title": "title", "location": "city_info.en_name", "url": "https://lifeattiktok.com/search/{id}",
+                 "description": ["description", "requirement"], "external_id": "id"}}},
+    {"source": "custom", "slug": "deshaw", "recipe": {
+      "method": "GET", "url": "https://www.deshaw.com/careers", "mode": "next-data",
+      "item_path": "props.pageProps.regularJobs", "page": {"type": "none"},
+      "fields": {"title": "displayName", "location": "office.0.name", "url": "https://www.deshaw.com/careers/{data.jobUrl}",
+                 "description": "data.jobDescription.websiteDescription", "posted_at": "data.validFromDate", "external_id": "id"}}},
+    {"source": "custom", "slug": "janestreet", "recipe": {
+      "url": "https://www.janestreet.com/jobs/main.json", "mode": "json",
+      "headers": {"User-Agent": "Mozilla/5.0"}, "page": {"type": "none"},
+      "fields": {"title": "position", "location": "city", "url": "https://www.janestreet.com/join-jane-street/position/{id}/",
+                 "description": "overview", "external_id": "id"}}},
+    {"source": "custom", "slug": "detail-json", "recipe": {
+      "method": "POST", "url": "https://boards.example.com/api/search", "mode": "json",
+      "headers": {"Content-Type": "application/json"}, "body": {"query": "", "page": 1},
+      "item_path": "res.searchResults", "total_path": "res.totalRecords",
+      "page": {"type": "offset", "body_param": "page"},
+      "fields": {"title": "postingTitle", "location": "locations.0.name", "url": "https://boards.example.com/details/{positionId}",
+                 "description": "jobSummary", "posted_at": "postingDate", "external_id": "id"},
+      "detail": {"mode": "http-json", "url": "https://boards.example.com/api/jobDetails/{positionId}",
+                 "fields": {"description": ["res.description", "res.minimumQualifications"]}}}},
+    {"source": "custom", "slug": "detail-html", "recipe": {
+      "method": "GET", "url": "https://boards.example.com/api/search", "mode": "json", "item_path": "results",
+      "page": {"type": "page", "param": "p"},
+      "fields": {"title": "postingTitle", "url": "https://boards.example.com/{positionId}", "description": "teaser", "external_id": "id"},
+      "detail": {"mode": "http-html", "url_field": "job_url", "headers": {"Accept": "text/html"},
+                 "fields": {"description": ".jd", "location": {"selector": ".loc", "attr": "title"}}}}},
+    {"source": "browser", "slug": "citadelsecurities.com", "recipe": {
+      "url": "https://www.citadelsecurities.com/careers/open-opportunities/", "mode": "html-css",
+      "item": "a.careers-listing-card",
+      "page": {"type": "url", "template": "https://www.citadelsecurities.com/careers/open-opportunities/page/{n}/", "start": 2},
+      "fields": {"title": "h2", "location": ".careers-listing-card__location", "url": {"attr": "href"},
+                 "external_id": {"attr": "href", "extract": "details/([^/]+)/"}},
+      "detail": {"url_field": "job_url", "fields": {"description": ".single-job-post-description"}}}},
+    {"source": "browser", "slug": "rentec.com", "recipe": {
+      "url": "https://www.rentec.com/Careers.action?jobs=true", "mode": "html-css",
+      "item": "a[href*='selectedPosition=']", "page": {"type": "none"},
+      "fields": {"title": {"selector": null}, "url": {"attr": "href"},
+                 "external_id": {"attr": "href", "extract": "selectedPosition=([^&]+)"}},
+      "detail": {"url_field": "job_url", "fields": {"description": ".Body_content"}}}},
+    {"source": "browser", "slug": "template-url", "recipe": {
+      "url": "https://careers.example.com/careers", "item": "div.job",
+      "fields": {"title": ".t", "location": ".loc", "external_id": {"attr": "data-id"}, "url": "/s/details?jobReq={external_id}"}}},
+    {"source": "browser", "slug": "http-detail", "recipe": {
+      "url": "https://careers.example.com/jobs/results/", "item": "li.lLd3Je",
+      "page": {"type": "url", "template": "https://careers.example.com/jobs/results/?page={n}", "start": 1},
+      "fields": {"title": "h3", "location": "span.r0wTof", "description": ".Xsxa1e",
+                 "url": {"selector": "a.WpHeLc", "attr": "href"},
+                 "external_id": {"selector": "a.WpHeLc", "attr": "href", "extract": "results/(\\d+)"}},
+      "detail": {"url_field": "job_url", "mode": "http-html", "fields": {"description": ".aG5W3"}}}}
+  ],
+  "invalid": [
+    {"source": "custom", "error": "item_pth", "recipe": {
+      "url": "https://www.amazon.jobs/en/search.json", "item_pth": "jobs", "fields": {"title": "title", "external_id": "id"}}},
+    {"source": "custom", "error": "titel", "recipe": {
+      "url": "https://www.amazon.jobs/en/search.json", "fields": {"titel": "title", "external_id": "id"}}},
+    {"source": "custom", "error": "item", "recipe": {
+      "url": "https://boards.example.com/jobs", "item": "div.job", "fields": {"title": "title"}}},
+    {"source": "custom", "error": "fields", "recipe": {"url": "https://boards.example.com/jobs"}},
+    {"source": "custom", "error": "url", "recipe": {"fields": {"title": "title"}}},
+    {"source": "custom", "error": "url", "recipe": {"url": "ftp://boards.example.com/jobs", "fields": {"title": "title"}}},
+    {"source": "custom", "error": "mode", "recipe": {
+      "url": "https://boards.example.com/jobs", "mode": "html-css", "fields": {"title": "title"}}},
+    {"source": "custom", "error": "page", "recipe": {
+      "url": "https://boards.example.com/jobs", "page": {"type": "offset", "sise": 50}, "fields": {"title": "title"}}},
+    {"source": "custom", "error": "detail", "recipe": {
+      "url": "https://boards.example.com/jobs", "fields": {"title": "title"},
+      "detail": {"url_field": "job_url", "fields": {"descripton": ".jd"}}}},
+    {"source": "browser", "error": "item", "recipe": {
+      "url": "https://careers.example.com/", "fields": {"title": "h2"}}},
+    {"source": "browser", "error": "item_path", "recipe": {
+      "url": "https://careers.example.com/", "item": "a.job", "item_path": "jobs", "fields": {"title": "h2"}}},
+    {"source": "browser", "error": "page", "recipe": {
+      "url": "https://careers.example.com/", "item": "a.job", "page": {"type": "offset"}, "fields": {"title": "h2"}}},
+    {"source": "browser", "error": "fields", "recipe": {
+      "url": "https://careers.example.com/", "item": "a.job", "fields": {"title": {"selctor": "h2"}}}}
+  ]
+}

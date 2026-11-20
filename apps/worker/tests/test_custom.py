@@ -391,9 +391,9 @@ def test_config_custom_with_recipe_parses():
         "  - source: custom\n"
         "    slug: acme\n"
         "    name: Acme\n"
-        "    recipe: {url: 'https://x', item_path: jobs}\n"
+        "    recipe: {url: 'https://x', item_path: jobs, fields: {title: t}}\n"
     )
-    assert cfg.companies[0].recipe == {"url": "https://x", "item_path": "jobs"}
+    assert cfg.companies[0].recipe == {"url": "https://x", "item_path": "jobs", "fields": {"title": "t"}}
 
 
 def test_config_bad_recipe_type_rejected():

@@ -20,6 +20,8 @@ from dataclasses import dataclass, field, fields
 
 import yaml
 
+from . import recipe_schema
+
 # Must match fetch.ADAPTERS — but importing fetch here would pull in `requests`
 # at config-load time, so we keep an explicit local allowlist instead.
 # Watchlist-capable sources (boards we can enumerate). Feed-only per-listing
@@ -267,6 +269,10 @@ def _parse_companies(raw) -> list[Company]:
             raise ConfigError(
                 f"companies[{i}] source {source!r} requires a `recipe` mapping"
             )
+        try:
+            recipe_schema.check(source, recipe)
+        except ValueError as exc:
+            raise ConfigError(f"companies[{i}] {exc}") from None
         out.append(Company(source=source, slug=slug,
                            name=str(c["name"]), recipe=recipe))
     return out
