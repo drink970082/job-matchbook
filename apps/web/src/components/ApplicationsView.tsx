@@ -226,15 +226,17 @@ export function ApplicationsView({
 
     return (
         <div className="space-y-6">
-            <div className="flex items-center justify-end gap-2">
-                <Button variant="outline" size="sm" onClick={handleExportCSV}>
-                    <Download className="mr-2 h-4 w-4" /> Export CSV
-                </Button>
-                <Button variant="outline" size="sm" onClick={() => setImportDialogOpen(true)}>
-                    <Upload className="mr-2 h-4 w-4" /> Import CSV
-                </Button>
+            <div className="flex flex-wrap items-center justify-between gap-3">
+                <KPIGrid stats={kpis} />
+                <div className="ml-auto flex gap-2">
+                    <Button variant="outline" size="sm" title="Export CSV" aria-label="Export CSV" onClick={handleExportCSV}>
+                        <Download className="mr-1.5 h-4 w-4" /> Export
+                    </Button>
+                    <Button variant="outline" size="sm" title="Import CSV" aria-label="Import CSV" onClick={() => setImportDialogOpen(true)}>
+                        <Upload className="mr-1.5 h-4 w-4" /> Import
+                    </Button>
+                </div>
             </div>
-            <KPIGrid stats={kpis} />
             <ApplicationsTab
                 apps={apps}
                 categoryOptions={categoryOptions}

@@ -13,7 +13,7 @@ export default async function SettingsPage() {
             <Card>
                 <CardContent className="space-y-8 pt-6">
                     <SettingsPanel />
-                    <CategoriesEditor initial={categories} />
+                    <div className="border-t pt-8"><CategoriesEditor initial={categories} /></div>
                 </CardContent>
             </Card>
         </AppShell>

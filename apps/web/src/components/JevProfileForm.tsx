@@ -55,14 +55,101 @@ function ListEditor({ id, label, help, placeholder, items, onChange }: {
     )
 }
 
+type Json = null | boolean | number | string | Json[] | { [k: string]: Json }
+type Path = (string | number)[]
+
+const setAt = (v: Json, path: Path, x: Json): Json => {
+    if (!path.length) return x
+    const [h, ...t] = path
+    if (Array.isArray(v)) { const a = [...v]; a[h as number] = setAt(a[h as number], t, x); return a }  // h = length appends
+    const o = v as Record<string, Json>
+    return { ...o, [h]: setAt(o[h as string], t, x) }
+}
+const removeAt = (v: Json, path: Path, i: number): Json =>
+    setAt(v, path, (path.reduce<any>((o, k) => o[k], v) as Json[]).filter((_, j) => j !== i))
+// A blank copy of an array's last item, so Add gives an entry of the same shape.
+const blank = (v: Json): Json => typeof v === 'string' ? '' : typeof v === 'number' ? 0 : typeof v === 'boolean' ? false
+    : v === null ? null : Array.isArray(v) ? [] : Object.fromEntries(Object.entries(v).map(([k, e]) => [k, blank(e)]))
+const itemName = (v: Json, fallback: string) =>
+    v && typeof v === 'object' && !Array.isArray(v) && typeof v.id === 'string' && v.id ? v.id : fallback
+
+// One node of the stored profile JSON, edited in place: strings, numbers and booleans are
+// inputs; objects and lists nest; list entries can be added (same shape) and removed.
+function JsonField({ name, value, path, onSet, onRemove }: {
+    name: string; value: Json; path: Path; onSet: (path: Path, v: Json) => void; onRemove: (path: Path, i: number) => void
+}) {
+    const id = `jp-${path.join('.')}`
+    if (typeof value === 'string') return (
+        <div className="space-y-1">
+            <Label htmlFor={id}>{name}</Label>
+            <Textarea id={id} rows={1} className="min-h-9 text-sm" value={value} onChange={(e) => onSet(path, e.target.value)} />
+        </div>
+    )
+    if (typeof value === 'number') return (
+        <div className="space-y-1">
+            <Label htmlFor={id}>{name}</Label>
+            <Input id={id} type="number" value={value} onChange={(e) => onSet(path, Number(e.target.value) || 0)} />
+        </div>
+    )
+    if (typeof value === 'boolean') return (
+        <label className="flex items-center gap-2 text-sm">
+            <input type="checkbox" checked={value} onChange={(e) => onSet(path, e.target.checked)} /> {name}
+        </label>
+    )
+    // An {id, text} entry (the profile's background/preferences items) reads as one row.
+    if (value && typeof value === 'object' && !Array.isArray(value) && Object.keys(value).join() === 'id,text'
+        && typeof value.id === 'string' && typeof value.text === 'string') return (
+        <div className="grid grid-cols-[11rem_1fr] gap-2">
+            <Input aria-label={`${name} id`} className="font-mono text-xs" value={value.id} onChange={(e) => onSet([...path, 'id'], e.target.value)} />
+            <Textarea id={id} aria-label={`${name} text`} rows={1} className="min-h-9 text-sm" value={value.text}
+                onChange={(e) => onSet([...path, 'text'], e.target.value)} />
+        </div>
+    )
+    if (value === null) return <p className="text-sm text-muted-foreground">{name}: (empty)</p>
+    const list = Array.isArray(value)
+    const entries: [string | number, Json][] = list ? value.map((v, i) => [i, v]) : Object.entries(value)
+    const body = entries.map(([k, v]) => {
+        const label = list ? itemName(v, `${name} ${Number(k) + 1}`) : String(k)
+        const field = <JsonField key={k} name={label} value={v} path={[...path, k]} onSet={onSet} onRemove={onRemove} />
+        return !list ? field : (
+            <div key={k} className="flex items-start gap-2">
+                <div className="flex-1">{field}</div>
+                <Button type="button" variant="ghost" size="icon" aria-label={`Remove ${label}`}
+                    onClick={() => onRemove(path, Number(k))}><X className="h-4 w-4" /></Button>
+            </div>
+        )
+    })
+    if (!path.length) return <div className="space-y-4">{body}</div>
+    return (
+        <fieldset className="space-y-3 border-l-2 border-muted-foreground/30 pl-4">
+            <legend className="text-sm font-semibold">{name}</legend>
+            {body}
+            {list && (
+                <Button type="button" variant="outline" size="sm" aria-label={`Add to ${name}`}
+                    onClick={() => onSet([...path, value.length], value.length ? blank(value[value.length - 1]) : '')}>
+                    <Plus className="mr-1 h-4 w-4" /> Add
+                </Button>
+            )}
+        </fieldset>
+    )
+}
+
+const parseObject = (t: string): Json | null => {
+    try { const v = JSON.parse(t); return v && typeof v === 'object' && !Array.isArray(v) ? v : null } catch { return null }
+}
+
 // The JEV profile as a form (#206). Saves the structured fields; the server renders the
-// profile text from them. A stored profile the form did not write opens in Advanced.
+// profile text from them. A stored profile the form did not write (e.g. seeded from
+// jev_dir) is edited field by field as the JSON it is, so the page always shows it.
 export function JevProfileForm({ stored, reassessOnChange, saving, save }: Props) {
     const parsed = parseJevProfile(stored.profile_text, stored.yoe_context)
     const [form, setForm] = useState<JevForm>(parsed ?? EMPTY)
-    const [advanced, setAdvanced] = useState(!parsed)
-    const [profile, setProfile] = useState(stored.profile_text)
+    // Shown indented; the unedited text saves as the stored bytes (see saveRaw).
+    const [shown] = useState(() => { try { return JSON.stringify(JSON.parse(stored.profile_text), null, 2) } catch { return stored.profile_text } })
+    const [profile, setProfile] = useState(shown)
     const [yoe, setYoe] = useState(stored.yoe_context)
+    const original = parseObject(stored.profile_text)
+    const [doc, setDoc] = useState<Json | null>(original)
     const set = <K extends keyof JevForm>(k: K, v: JevForm[K]) => setForm({ ...form, [k]: v })
 
     const confirmCost = () => {
@@ -86,20 +173,41 @@ export function JevProfileForm({ stored, reassessOnChange, saving, save }: Props
         // A textarea normalizes line endings, so compare modulo CR; an edit that only
         // dropped CRs is no change, and the stored bytes (the policy hash input) stay.
         const lf = (t: string) => t.replace(/\r\n?/g, '\n')
-        const profileChanged = lf(profile) !== lf(stored.profile_text)
+        const profileChanged = lf(profile) !== lf(shown)
         if (!profileChanged && yoe.trim() === stored.yoe_context) return toast.success('JEV profile: nothing changed')
         if (confirmCost()) await save({ profile_text: profileChanged ? profile : stored.profile_text, yoe_context: yoe })
+    }
+
+    const saveDoc = async () => {
+        const unchanged = JSON.stringify(doc) === JSON.stringify(original)
+        if (unchanged && yoe.trim() === stored.yoe_context) return toast.success('JEV profile: nothing changed')
+        // Unchanged keeps the stored bytes (the policy hash input); an edit keeps its layout.
+        const compact = stored.profile_text.trim() === JSON.stringify(original)
+        const text = unchanged ? stored.profile_text : JSON.stringify(doc, null, compact ? undefined : 2)
+        if (confirmCost()) await save({ profile_text: text, yoe_context: yoe })
     }
 
     const row = 'grid grid-cols-[1fr_1fr_auto] gap-2'
     return (
         <div className="space-y-4">
-            {!parsed && (
-                <p className="text-sm">
-                    Your stored profile was written as free text, so it opens under Advanced. Filling in the form
-                    and saving replaces it.
-                </p>
+            {!parsed && doc && (
+                <div className="space-y-4">
+                    <JsonField name="" value={doc} path={[]} onRemove={(p, i) => setDoc(removeAt(doc, p, i))}
+                        onSet={(p, v) => setDoc(setAt(doc, p, v))} />
+                    <div className="space-y-1">
+                        <Label htmlFor="j-yoe">Education and experience</Label>
+                        <Textarea id="j-yoe" rows={3} value={yoe} onChange={(e) => setYoe(e.target.value)} />
+                    </div>
+                    <div className="flex items-center gap-3">
+                        <Button onClick={saveDoc} disabled={saving}>Save JEV profile</Button>
+                        <span className="text-sm text-muted-foreground">A change re-assesses recent postings on the next pass (paid; you confirm the cost first).</span>
+                    </div>
+                </div>
             )}
+            {!parsed && !doc && (
+                <p className="text-sm">Your stored profile is not a JSON object, so it can only be edited under Advanced below.</p>
+            )}
+            {parsed && (<>
             <div className="grid grid-cols-3 gap-4">
                 <ListEditor id="j-target" label="Target roles" items={form.target_roles} onChange={(v) => set('target_roles', v)}
                     placeholder="e.g. Backend engineer" help="The roles you want most." />
@@ -150,13 +258,14 @@ export function JevProfileForm({ stored, reassessOnChange, saving, save }: Props
                 <Button onClick={saveForm} disabled={saving}>Save JEV profile</Button>
                 <span className="text-sm text-muted-foreground">A change re-assesses recent postings on the next pass (paid; you confirm the cost first).</span>
             </div>
+            </>)}
 
-            <details open={advanced} onToggle={(e) => setAdvanced((e.target as HTMLDetailsElement).open)}>
+            <details>
                 <summary className="cursor-pointer text-sm font-medium">Advanced: edit the raw profile text</summary>
                 <div className="mt-2 space-y-3">
                     <div className="space-y-1">
                         <Label htmlFor="s-profile">Profile (JSON)</Label>
-                        <Textarea id="s-profile" rows={12} className="font-mono text-xs" value={profile}
+                        <Textarea id="s-profile" rows={20} className="font-mono text-xs" value={profile}
                             onChange={(e) => setProfile(e.target.value)} />
                     </div>
                     <div className="space-y-1">

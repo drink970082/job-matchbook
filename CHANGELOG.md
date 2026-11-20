@@ -139,6 +139,14 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 
 ### Fixed
 
+- **Web polish**: dark-mode `<select>` lists are readable (`color-scheme: dark` + themed
+  `<option>`); Applications puts Export/Import on the KPI row; Settings sections are
+  separated by rules; the raw JEV profile under Advanced starts collapsed and indented
+  (an unedited save is still no change).
+- **A seeded JEV profile showed an empty form.** A profile the form did not write (the
+  `jev_dir` seed) is now edited field by field as its own JSON instead of opening only
+  as raw text.
+
 - **`config.yaml.bak-*` was untracked and unignored.** `.gitignore` and
   `make check-privacy` now cover every `config.yaml*` except the `.example`.
 - `make doctor` reports `OPENROUTER_API_KEY` (needed by `--jev`); `.env.example`

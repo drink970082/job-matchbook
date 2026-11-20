@@ -109,9 +109,25 @@ describe('SettingsPanel', () => {
         confirm.mockRestore()
     })
 
-    it('a free-text profile opens under Advanced with a note', async () => {
+    it('a profile the form did not write is edited field by field as its JSON', async () => {
+        const profile_text = '{"profile":{"background":[{"id":"edu","text":"MS"}],"as_of":"2026-11"}}'
+        jest.mocked(getSettings).mockResolvedValue({ ...SETTINGS, jev: { ...SETTINGS.jev, profile_text } } as any)
+        const confirm = jest.spyOn(window, 'confirm').mockReturnValue(true)
         render(<SettingsPanel />)
-        expect(await screen.findByText(/written as free text/)).toBeInTheDocument()
-        expect(screen.getByLabelText('Profile (JSON)')).toHaveValue('{"profile":{}}')
+        // Unedited: no change, and the raw view under Advanced is the same JSON indented.
+        fireEvent.click(await screen.findByRole('button', { name: 'Save JEV profile' }))
+        expect(setJevProfile).not.toHaveBeenCalled()
+        expect(screen.getByLabelText('Profile (JSON)')).toHaveValue(JSON.stringify(JSON.parse(profile_text), null, 2))
+        fireEvent.click(screen.getByRole('button', { name: 'Save raw text' }))
+        expect(setJevProfile).not.toHaveBeenCalled()  // indenting alone is not a change
+        // Edit a list entry (labelled by its id), add a same-shaped one, remove nothing else.
+        fireEvent.change(screen.getByLabelText('edu text'), { target: { value: 'MEng' } })
+        fireEvent.click(screen.getByRole('button', { name: 'Add to background' }))
+        fireEvent.click(screen.getByRole('button', { name: 'Save JEV profile' }))
+        await waitFor(() => expect(setJevProfile).toHaveBeenCalledWith({
+            profile_text: '{"profile":{"background":[{"id":"edu","text":"MEng"},{"id":"","text":""}],"as_of":"2026-11"}}',
+            yoe_context: 'MS.',
+        }))  // compact in, compact out
+        confirm.mockRestore()
     })
 })
