@@ -1406,7 +1406,7 @@ worker modules are pure and dependency-injected; real services are wired only in
   read-only, no write tools), and with writes `log_application(what)` and
   `update_from_email(since="the last 7 days")`, which uses the client's own mail
   connector, treats email as untrusted, and waits for the operator's go-ahead before
-  writing. An onboarding prompt waits on preferences moving into the DB (#157).
+  writing. An onboarding prompt waits on the single candidate-profile tool (#224).
   MCP protocol tests are mandatory in CI, which installs the optional pinned SDK.
 
 ### 7.2 Web (`apps/web/src/`)

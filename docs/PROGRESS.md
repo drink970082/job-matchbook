@@ -12,22 +12,9 @@ behavior. Completed work belongs in CHANGELOG, not this queue.
   operator's confirmation** (#205; `analytics-actions.getKPIs`). Confirm or change it,
   then delete this entry.
 
-- **JEV profile in the DB — deployed; acceptance: tonight's JEV pass re-queues nothing
-  for a policy change (hash verified equal at deploy); then delete this entry**
-  `[WORKER+WEB · M]` (#157).
-
-- **JEV keep/skip filter — acceptance: the first pass after the 7-day window deploys
-  attempts only postings from the last 7 days (worker `[jev]` tally); then delete this
-  entry** `[JEV · M]` (#139).
-  Production runs `--jev --jev-limit 300 --jev-max-usd 0.10` against private packs. JEV
-  assesses only the last 7 days of postings, so there is no backlog to drain; the ~5,900
-  older screened postings stay `unassessed` and listed. Rollback = drop `--jev` from the
-  worker's flags and restart; the table is additive.
-
 - **One candidate profile; evaluate each posting once — spec approved; implementation
   not started** `[WORKER+WEB+MCP · L]` (epic #223; branch `docs/candidate-profile-spec`).
-  [Spec](superpowers/specs/2026-11-20-candidate-profile-design.md); slices #224-#227
-  start after #157 closes.
+  [Spec](superpowers/specs/2026-11-20-candidate-profile-design.md); #224 is next.
 
 These references reserve unfinished work; they do not claim the branches are currently
 executing or establish merge readiness. Inspect actual refs/worktrees and coordinate
@@ -35,14 +22,12 @@ before changing them. No older research authorization schedules new provider cal
 
 ## Do next — the pick order
 
-1. [#152 AI-orchestrated ATS](https://github.com/drink970082/job-matchbook/issues/152):
-   its last open slice, #157 (preferences and profile in the DB), is in flight above.
-2. [#223 One candidate profile](https://github.com/drink970082/job-matchbook/issues/223):
-   #224 -> #225 -> #226, with #227 after #224. Blocked on #157.
-3. [#94 Scheduled Daily Brief](https://github.com/drink970082/job-matchbook/issues/94):
+1. [#223 One candidate profile](https://github.com/drink970082/job-matchbook/issues/223):
+   #224 -> #225 -> #226, with #227 after #224.
+2. [#94 Scheduled Daily Brief](https://github.com/drink970082/job-matchbook/issues/94):
    one observed unattended run ([DAILY_BRIEF](DAILY_BRIEF.md) checklist).
-4. [#135 JEV ranking → MCP](https://github.com/drink970082/job-matchbook/issues/135),
-   gated on the keep/skip filter's acceptance (#139). #95 stays conditional.
+3. [#135 JEV ranking → MCP](https://github.com/drink970082/job-matchbook/issues/135),
+   ranking activation stays gated. #95 stays conditional.
 
 [ROADMAP](ROADMAP.md) links every issue and dependency. Issues own status; this file
 owns active branch claims. Documentation plans do not launch agents or deploy services.
