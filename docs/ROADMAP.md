@@ -1,9 +1,10 @@
-# Roadmap — AI-orchestrated job research
+# Roadmap — an elimination filter for job seekers
 
-**Direction:** Job Matchbook supplies reliable job evidence, tracking and tools; the AI
-assistant supplies judgment, supplemental search and recommendation delivery, and
-(epic #152) orchestrates the system through MCP. The hard-requirements screen and the
-JEV keep/skip filter are optional assistance.
+**Direction ([approved](superpowers/specs/2026-11-20-elimination-filter-positioning.md)):** every open job the candidate can actually get, none they
+can't — for new graduates and international students. Job Matchbook owns collection,
+elimination (with stated, rescuable reasons) and tracking; AI clients over MCP and the
+human analyze and apply downstream. Priority follows the three promises: nothing stale,
+nothing wrongly removed, nothing missed.
 
 This file orders unfinished work. [ARCHITECTURE](ARCHITECTURE.md) defines boundaries;
 [SPEC](SPEC.md) defines current behavior; [PROGRESS](PROGRESS.md) owns branch claims;
@@ -18,7 +19,7 @@ issues own scope and status.
 | MCP read tools, full-text chunks, write tools (applications, triage override, watchlist, preferences, JEV profile) and workflow prompts | Shipped (writes need `ATS_API_KEY`) | Core; the main channel under #152 |
 | All-jobs inventory with advisory screening | Shipped | Preserve the safe inventory and application-action boundaries |
 | Standalone Luna/medium screening | Shipped, operator-selected | Retain as low-cost assistance |
-| JEV keep/skip filter | Deployed (`--jev`, #139) over the last 7 days of postings; `skip` hidden by default in MCP | Accepted; ranking stays gated under #135 |
+| JEV keep/skip filter | Deployed (`--jev`, #139) over the last 7 days of postings; `skip` hidden by default in MCP | Accepted; eliminates only (ranking is not a goal) |
 | Loopback write API `/api/v1` | Shipped (#153) | Foundation for MCP writes |
 | Source lifecycle for unscored rows | Bounded refresh supports SmartRecruiters only | Extend only with verified source-specific identity and closure signals |
 | Daily Brief using ATS plus web | Interactive workflow works; unattended acceptance outstanding | Preferred judgment/delivery experience |
@@ -27,9 +28,11 @@ issues own scope and status.
 
 | Order | Deliverable | Dependencies | State |
 |---|---|---|---|
-| 1 | [#223 One candidate profile; evaluate once](https://github.com/drink970082/job-matchbook/issues/223): #224-#227 | #157 (closed) | Spec approved; #224 next |
-| 2 | [#94 Scheduled Daily Brief](https://github.com/drink970082/job-matchbook/issues/94) | Deployed tunnel and account/workspace task access | Unattended acceptance outstanding |
-| 3 | [#135 JEV ranking -> MCP](https://github.com/drink970082/job-matchbook/issues/135) | Keep/skip filter (#139) deployed | Ranking activation gated |
+| 1 | [#229 Sources tell the truth](https://github.com/drink970082/job-matchbook/issues/229): #230 closure first, then #231-#233, #235 | None | Not started |
+| 2 | [#223 One candidate profile; evaluate once](https://github.com/drink970082/job-matchbook/issues/223): #224-#227 | #157 (closed) | Spec approved; #224 next |
+| 3 | [#240 Applications: links, status rule, audit](https://github.com/drink970082/job-matchbook/issues/240): #241-#244 | None | Not started |
+| 4 | [#236 Sources are easy to extend](https://github.com/drink970082/job-matchbook/issues/236): #237-#239 | #231 for #239 | Not started |
+| 5 | [#94 Scheduled Daily Brief](https://github.com/drink970082/job-matchbook/issues/94) | Deployed tunnel and account/workspace task access | Unattended acceptance outstanding; a downstream consumer, not the product's core |
 | Parallel | [#181 Repo and docs cleanup](https://github.com/drink970082/job-matchbook/issues/181) | None | Only the onboarding discussion [#203](https://github.com/drink970082/job-matchbook/issues/203) is open |
 | Parallel | [#182 Provider-neutral judgment](https://github.com/drink970082/job-matchbook/issues/182) | None | Per-stage providers shipped (#177-#179); [#180](https://github.com/drink970082/job-matchbook/issues/180) research open; `extract` keep/skip unmeasured |
 | Conditional | [#95 Delivery ledger](https://github.com/drink970082/job-matchbook/issues/95) | #94; observed repeats | Deferred |

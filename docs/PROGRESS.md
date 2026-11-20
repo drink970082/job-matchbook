@@ -1,7 +1,7 @@
 # Job Matchbook — active work
 
-Job Matchbook is a job-source, tracking and tool layer for ChatGPT-led research and
-recommendations. Optional hard-requirements screening is supported; the fit scorer is removed.
+Job Matchbook is an elimination filter for job seekers: every open job the candidate can
+actually get, none they can't; AI clients analyze downstream over MCP. Optional hard-requirements screening is supported; the fit scorer is removed.
 [ROADMAP](ROADMAP.md) owns product order; [ARCHITECTURE](ARCHITECTURE.md) separates
 current implementation from target responsibilities; [SPEC](SPEC.md) describes shipped
 behavior. Completed work belongs in CHANGELOG, not this queue.
@@ -22,12 +22,15 @@ before changing them. No older research authorization schedules new provider cal
 
 ## Do next — the pick order
 
-1. [#223 One candidate profile](https://github.com/drink970082/job-matchbook/issues/223):
+1. [#229 Sources tell the truth](https://github.com/drink970082/job-matchbook/issues/229): #230 (closure) first — the "nothing
+   stale" promise.
+2. [#223 One candidate profile](https://github.com/drink970082/job-matchbook/issues/223):
    #224 -> #225 -> #226, with #227 after #224.
-2. [#94 Scheduled Daily Brief](https://github.com/drink970082/job-matchbook/issues/94):
+3. [#240 Applications](https://github.com/drink970082/job-matchbook/issues/240), then [#236 source extensibility](https://github.com/drink970082/job-matchbook/issues/236).
+4. [#94 Scheduled Daily Brief](https://github.com/drink970082/job-matchbook/issues/94):
    one observed unattended run ([DAILY_BRIEF](DAILY_BRIEF.md) checklist).
-3. [#135 JEV ranking → MCP](https://github.com/drink970082/job-matchbook/issues/135),
-   ranking activation stays gated. #95 stays conditional.
+
+#95 stays conditional.
 
 [ROADMAP](ROADMAP.md) links every issue and dependency. Issues own status; this file
 owns active branch claims. Documentation plans do not launch agents or deploy services.
@@ -58,7 +61,7 @@ owns active branch claims. Documentation plans do not launch agents or deploy se
 ## Evaluation and cost
 
 [EVALUATION](EVALUATION.md) maps changes to checks and inventories retained private
-artifacts. No live eval was run for the pivot. Subscription-backed Luna assistance is
+artifacts. Subscription-backed Luna assistance is
 acceptable; its allowance is finite, and old strong-fit token/cache measurements are not
 current Luna/medium budget forecasts. The roadmap does not require draining every row.
 

@@ -139,7 +139,6 @@ ideas. Recommendation history (#95) is conditional on observed repeats.
 - Agent-invoked official-page refresh and existing-fetch interaction, with bounded inputs
   and explicit mutation/authorization semantics.
 - Standard search/fetch compatibility for clients that require it.
-- JEV review *ranking* (#135) beyond the deployed keep/skip filter.
 - New boards and bulk onboarding after choosing actual coverage gaps. Follow onboard-board;
   do not add an adapter when a reviewed recipe suffices. Unexplored sources: LinkedIn's
   public `jobs-guest` endpoint (ToS caveat, low volume) and JobSpy as an aggregator.

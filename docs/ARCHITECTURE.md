@@ -2,8 +2,9 @@
 
 **Status:** the ownership boundary. [SPEC](SPEC.md) describes shipped behavior in
 detail; [ROADMAP](ROADMAP.md) holds the order of unfinished work. The
-[pivot decision](superpowers/specs/2026-10-22-chatgpt-first-pivot-design.md) set the
-ChatGPT-first split; epic #152 extends it so the AI assistant orchestrates through MCP.
+[product direction](superpowers/specs/2026-11-20-elimination-filter-positioning.md) makes Job Matchbook an
+elimination filter: it owns collection, elimination and tracking; AI assistants consume the
+remaining set over MCP.
 
 ## Responsibilities
 
@@ -11,8 +12,8 @@ ChatGPT-first split; epic #152 extends it so the AI assistant orchestrates throu
 |---|---|---|
 | Discovery | Scheduled board/feed collection, official URLs, full JD storage | Supplemental web discovery outside the watchlist |
 | Evidence | Posting identity, source text, timestamps, availability and data quality | Read evidence; verify official pages before recommending |
-| Judgment | Optional hard-requirements screen; optional JEV keep/skip filter | Eligibility interpretation, fit, career value and final ranking |
-| Personal context | Hard requirements in `config.yaml`; JEV reads the private `jev_dir` inputs | Résumé, background, preferences and recommendation rubric |
+| Elimination | Hard-requirements screen and keep/skip triage; every removal carries its reason and can be overridden | Optional analysis and prioritization of the remaining set |
+| Personal context | Hard requirements (`candidate_preferences`) and the JEV profile (`jev_profile`) in the DB; one candidate profile under #223 | Résumé, background, preferences and recommendation rubric |
 | Delivery | None from the worker; service health stays local | Daily recommendation and notification workflow |
 | Tracking | Applications, status history, watchlist, backups | Consult application history |
 

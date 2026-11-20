@@ -29,7 +29,7 @@ measurement, not human truth: preference skips 57-69% of screened candidates per
 with 0 of 7 real applications skipped, and the required-experience question agreed with
 a blind review on 50 of 52. Seven applications is a small recall sample. There is no
 committed corpus and no `make` target for it; a re-measurement uses the operator's
-private data. Ranking within `keep` is not activated (#135).
+private data. Ranking within `keep` is not a product goal.
 
 ## Tools and their scope
 

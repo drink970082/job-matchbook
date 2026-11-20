@@ -22,15 +22,16 @@
 
 ## Product direction and implementation boundary
 
-[The approved pivot](superpowers/specs/2026-10-22-chatgpt-first-pivot-design.md)
-positions ATS as a job-source, evidence, tracking and tool layer, with ChatGPT as the
-primary personal judgment/recommendation interface. **Hard-requirements screening is
-supported optional assistance; the fit scorer is removed.** The opt-in JEV keep/skip
+[The approved direction](superpowers/specs/2026-11-20-elimination-filter-positioning.md) positions Job Matchbook as an **elimination filter,
+not a recommender**, for new graduates and international students: every open job the
+candidate can actually get, the rest removed with a stated reason; AI clients and the
+human analyze and apply downstream. **Hard-requirements screening is supported optional
+assistance; the fit scorer is removed.** The opt-in JEV keep/skip
 filter (`--jev`, §7.1) runs after the screen and narrows a reported approximately
 200-posting daily load; MCP `list_jobs` hides its current `skip` verdicts by default.
-Ranking within `keep` stays gated (#135); the offline
-[preselection tooling](../apps/worker/ats_worker/preselection/README.md) is its
-provider-free foundation. Epic #152 makes MCP the main channel: the key-scoped loopback
+Ranking within `keep` is not a product goal; the offline
+[preselection tooling](../apps/worker/ats_worker/preselection/README.md) remains as
+evaluation tooling. Epic #152 makes MCP the main channel: the key-scoped loopback
 write API (`/api/v1`, §7.2), the MCP write tools over it, the MCP workflow prompts (#159)
 and a web dashboard read-only except Applications, Settings (#158), the Discovered
 Jobs "Not interested" override (#207) and Sources add/remove (#208) are shipped. #94
@@ -114,8 +115,8 @@ Two pains, addressed by the two services:
 1. **Tracking** is tedious and hard to analyze in a spreadsheet → the web app is
    "the spreadsheet plus the answers" (KPIs, heatmap, funnel, Sankey).
 2. **Discovery** is repetitive: scanning boards and retrieving JD evidence → the
-   worker collects it for review and optional assistance; ChatGPT-led research can
-   supply the primary personal judgment while the human controls actual submission.
+   worker collects it and removes what the candidate is ineligible for, with a stated
+   reason; the human, or an AI client over MCP, analyzes the rest and applies by hand.
 
 ---
 
@@ -129,7 +130,7 @@ Two pains, addressed by the two services:
 - **Privacy first.** Resume, secrets, target-company list, and the database are all
   gitignored; the repo ships only `*.example` templates so a clean clone runs
   without exposing personal data.
-- **Cheap optional assistance, primary judgment in ChatGPT.** The worker supports
+- **Cheap optional assistance; eliminate, don't recommend.** The worker supports
   multiple screen providers; no GPU is required for discovery or subscription-backed
   screening. Luna/medium is currently selected for standalone screen-only. Personal-fit
   ranking and delivery
@@ -704,7 +705,7 @@ worker modules are pure and dependency-injected; real services are wired only in
     each navigation URL and discards a render whose post-redirect `page.url` is non-public.
 - **`preselection/` — offline, provider-free tooling.** Synthetic review batches,
   assessment view, rehearsal, candidate profile, frozen replay and shadow evaluation for
-  the gated JEV ranking work (#135); nothing on the production path imports it. Contracts
+  offline evaluation; nothing on the production path imports it. Contracts
   and tests: [`apps/worker/ats_worker/preselection/README.md`](../apps/worker/ats_worker/preselection/README.md).
 - **`db.py` — SQLite layer.** WAL pragmas + `busy_timeout`; `upsert_postings`
   (dedup on `(source, external_id)`; persists `company_slug`; new complete source
