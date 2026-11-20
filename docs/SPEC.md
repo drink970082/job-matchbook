@@ -1515,10 +1515,16 @@ worker modules are pure and dependency-injected; real services are wired only in
     `(source, slug)`; `worker/tests/fixtures/board-url-cases.json` runs in both suites, and
     the worker's `feed/resolve.py` must agree on its job-URL cases. `feed_unresolved` is
     read through MCP only.
-  - *Activity* (`lib/activity-actions.ts`): `getRecentActivity(limit=15)` — the newest
-    applications (id order; they carry no creation stamp), `status_history` rows (with the
-    date the change happened) and `audit_log` rows (write time, with a one-line label per
-    entity), each with its `actor`.
+  - *Activity* (`lib/activity-actions.ts`, #210): `getActivityStatus` (newest
+    `job_postings.created_at`, new postings 24h / 7d, JEV assessments and
+    `provider_error` failures in the last 24h by `last_attempted_at`, JEV spend 7d as the
+    sum of `cost_usd`; no run table exists, so a failing pass shows only through these)
+    and `getActivityTimeline(offset, limit=30)` — applications (by `date_applied`; they
+    carry no creation stamp), `status_history` rows other than the initial `Applied`, and
+    `audit_log` rows merged newest first into one plain-English line each ("Applied to
+    Acme - Engineer", "Acme - Engineer -> Interviewing", "Added board Stripe", "Hid Acme -
+    Data Engineer", "Updated hard requirements"), each with its `actor`; offset paging
+    over the merge, capped at 500 rows deep.
   - *CSV:* `exportApplicationsCSV`, `importApplicationsCSV` (hand-rolled RFC-4180
     parser; validates status against `STATUSES`; keeps category free-form; dedups).
 - **`lib/db.ts`** — process-singleton Prisma client (avoids dev hot-reload
@@ -1570,9 +1576,10 @@ worker modules are pure and dependency-injected; real services are wired only in
   hover; "Pending first fetch" and "No postings in 30 days" flags with an "Only boards with
   no postings" filter; add by pasting a careers URL — resolved as you type, name
   prefilled from the slug, unresolvable sites pointed at the onboard-board skill — and
-  per-row remove after a confirm, any source type), `ActivityTab` (`getRecentActivity` on open: new
-  applications, status changes, and source/override/settings changes, MCP writes marked
-  "via MCP"), `QuotaBar` (subscription quota bar at the top of Activity — polls
+  per-row remove after a confirm, any source type), `ActivityTab` (a system status strip — last new
+  posting, amber after a day; new postings 24h / 7d; JEV assessed 24h, spend 7d and
+  failures 24h; the `QuotaBar` — over one timeline marking only MCP writes "via MCP",
+  with Load more), `QuotaBar` (subscription quota bar in Activity's status strip — polls
   `/api/quota`, one bar per window with % + "resets in Nd Hh" + "as of"; reflects
   the last captured snapshot, not a live reading. **Labels itself by backend** from the
   snapshot, so switching backends relabels the bar instead of showing the other
@@ -2162,7 +2169,7 @@ automated coverage — those rely on code review or the human in the loop, not a
 | A **blind** live backend (nothing usable: not a dict, or neither a `screen` object nor any requirement key) is a `provider_error`, not a verdict; the FLAT shape the 4B emits ~1 call in 100 is a real verdict and is honoured, byte-identical to the nested shape — so it cannot discard on the phrase floor and cannot record breaker successes; the narrow scope is pinned on the other side, where an empty `screen` dict is an answer and keeps the floor | `test_screen.py` (`test_a_blind_response_is_a_provider_error_not_a_verdict`, `test_an_empty_screen_object_is_a_verdict_and_keeps_the_floor`, `test_the_flat_shape_is_a_verdict_and_is_honoured`, `test_the_flat_shape_and_the_schema_shape_agree`, `test_the_observed_flat_response_is_kept_not_discarded`) |
 | `mark_failed` → terminal `failed` + `attempts+1` (fetch/score paths) | `test_db.py` |
 | Discovered Jobs: "for you" in both modes (closed, applied, rejected and not-interested rows excluded; badge on the same predicate); each posting in exactly one funnel stage, effective JEV status identical in Web and MCP, Mark Applied scoped to its view, retired filter keys rejected | `web/src/__tests__/jev-status-parity.int.test.ts`, `worker/tests/test_jev_status_parity.py` (shared `jev-status-cases.json`), `web/src/__tests__/inventory-contract.int.test.ts` |
-| Discovered Jobs and Activity are read-only except Mark Applied and Not interested, Sources writes only board add/remove (no server-action import in their display components; `JobsView` wires only reads plus `markJobApplied` and the triage override set/clear; no discard/reopen/bulk export); Sources `postings_30d`; Activity lists by actor | `web/src/__tests__/readonly-dashboard.test.ts`, `watchlist.int.test.ts`, `activity.int.test.ts`, `web/e2e/discovered.spec.ts`, `web/e2e/sources-activity.spec.ts` |
+| Discovered Jobs and Activity are read-only except Mark Applied and Not interested, Sources writes only board add/remove (no server-action import in their display components; `JobsView` wires only reads plus `markJobApplied` and the triage override set/clear; no discard/reopen/bulk export); Sources `postings_30d`; Activity's status strip and merged plain-English timeline with paging | `web/src/__tests__/readonly-dashboard.test.ts`, `watchlist.int.test.ts`, `activity.int.test.ts`, `web/e2e/discovered.spec.ts`, `web/e2e/sources-activity.spec.ts` |
 | `markJobApplied` atomic create + back-link + dedup | `actions.test.ts`, `actions.int.test.ts` (real-Prisma tx) |
 | `updateApplicationStatus` validates `STATUSES`, appends history | `actions.test.ts`, `actions.int.test.ts` |
 | `deleteHistoryItem` recomputes current status | `actions.int.test.ts` |

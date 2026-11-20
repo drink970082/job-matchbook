@@ -35,6 +35,11 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 
 ### Changed
 
+- **Activity is a status page plus one timeline (#210)**: a system status strip (last new
+  posting, amber after a day; new postings 24h / 7d; JEV assessed, spend and failures;
+  the `QuotaBar`) over a single newest-first timeline with one plain-English line per
+  application, status change and audited change, "via MCP" on MCP writes only, and Load
+  more. `getRecentActivity` is replaced by `getActivityStatus` and `getActivityTimeline`.
 - **Sources is writable (#208)**: add a board by pasting its careers or job URL (resolved
   by `lib/board-url.ts`, which MCP `add_source(url=...)` now shares through
   `/api/v1/watchlist`; one fixture runs in both suites), remove with a confirm, search,

@@ -14,7 +14,7 @@ import { PUT as putPreferences } from '@/app/api/v1/preferences/route'
 import { PUT as putJevProfile } from '@/app/api/v1/jev-profile/route'
 import { updateApplicationStatus } from '@/lib/application-actions'
 import { addWatchedCompany, removeWatchedCompany } from '@/lib/watchlist-actions'
-import { getRecentActivity } from '@/lib/activity-actions'
+import { getActivityTimeline } from '@/lib/activity-actions'
 import { prisma, resetDb } from '@/test-utils/db'
 import { makeApplication, makeJobPosting } from '@/test-utils/factories'
 
@@ -161,10 +161,10 @@ test('UI watchlist writes are audited as web, newest first in the activity list'
     const added = await addWatchedCompany({ source: 'lever', slug: 'beta', name: 'Beta' })
     expect(added.success).toBe(true)
     await removeWatchedCompany(added.data!.id)
-    const { changes } = await getRecentActivity()
-    expect(changes.map((a) => [a.action, a.actor, a.entity, a.label])).toEqual([
-        ['remove', 'web', 'watched_companies', 'Beta (lever/beta)'],
-        ['add', 'web', 'watched_companies', 'Beta (lever/beta)'],
+    const { items } = await getActivityTimeline()
+    expect(items.map((a) => [a.actor, a.text])).toEqual([
+        ['web', 'Removed board Beta'],
+        ['web', 'Added board Beta'],
     ])
     await expect(addWatchedCompany({ source: 'lever', slug: 'x', name: 'X' }, 'root' as any))
         .rejects.toThrow('Invalid actor')
