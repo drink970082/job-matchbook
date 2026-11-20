@@ -28,8 +28,9 @@ issues own scope and status.
 | Order | Deliverable | Dependencies | State |
 |---|---|---|---|
 | 1 | [#152 AI-orchestrated ATS](https://github.com/drink970082/job-matchbook/issues/152): #157 preferences/profile in the DB | #153 (merged) | In flight |
-| 2 | [#94 Scheduled Daily Brief](https://github.com/drink970082/job-matchbook/issues/94) | Deployed tunnel and account/workspace task access | Unattended acceptance outstanding |
-| 3 | [#135 JEV ranking -> MCP](https://github.com/drink970082/job-matchbook/issues/135) | Keep/skip filter (#139) deployed | Ranking activation gated |
+| 2 | [#223 One candidate profile; evaluate once](https://github.com/drink970082/job-matchbook/issues/223): #224-#227 | #157 closed | Spec draft awaiting approval |
+| 3 | [#94 Scheduled Daily Brief](https://github.com/drink970082/job-matchbook/issues/94) | Deployed tunnel and account/workspace task access | Unattended acceptance outstanding |
+| 4 | [#135 JEV ranking -> MCP](https://github.com/drink970082/job-matchbook/issues/135) | Keep/skip filter (#139) deployed | Ranking activation gated |
 | Parallel | [#181 Repo and docs cleanup](https://github.com/drink970082/job-matchbook/issues/181) | None | Only the onboarding discussion [#203](https://github.com/drink970082/job-matchbook/issues/203) is open |
 | Parallel | [#182 Provider-neutral judgment](https://github.com/drink970082/job-matchbook/issues/182) | None | Per-stage providers shipped (#177-#179); [#180](https://github.com/drink970082/job-matchbook/issues/180) research open; `extract` keep/skip unmeasured |
 | Conditional | [#95 Delivery ledger](https://github.com/drink970082/job-matchbook/issues/95) | #94; observed repeats | Deferred |
