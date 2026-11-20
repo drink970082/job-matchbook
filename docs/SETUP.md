@@ -188,7 +188,7 @@ interactive call.
 | Watchlist | Config seed, then DB | After initial seed, manage it in the web Sources tab (paste a careers URL, remove), through MCP (`add_source`/`remove_source`), or with the onboard-board skill for custom/browser recipes; config edits do not replace DB rows |
 | Provider selection/secrets | Private `.env` and CLI flags | Choose an explicit mode; metered providers are opt-in |
 | Private résumé/profile | `apps/worker/resume/` | Read by the worker only through `jev_dir` (JEV inputs); otherwise private onboarding material |
-| Primary personal judgment rubric | ChatGPT task/project or accessible user-controlled document | Keep current and available to each run; memory is not a versioned config |
+| Downstream analysis rubric (optional) | ChatGPT/Claude task, project or accessible user-controlled document | Keep current and available to each run; memory is not a versioned config |
 | Application history and job evidence | Shared SQLite directory | Back up with SQLite-aware tools; preserve WAL sidecars |
 
 All private config, résumé and database paths are gitignored.

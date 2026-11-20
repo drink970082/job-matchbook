@@ -48,7 +48,7 @@ early as context insurance produces exactly such drafts).
 - **A spec or plan is deleted in the PR that lands its work.** What shipped moves to
   `SPEC.md` and `CHANGELOG.md`, negative results to `REJECTED.md` or `SCORING.md`; an
   open question with no work behind it becomes an issue. Only an approved direction
-  that still governs future work (the pivot spec) stays.
+  that still governs future work (the product-direction spec) stays.
 
 ## 4. Implement
 

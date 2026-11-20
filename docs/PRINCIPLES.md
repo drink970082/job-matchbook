@@ -45,20 +45,21 @@ kept, not dropped. Scope: *opportunity* uncertainty only — see
 - *Smell:* a new gate whose default branch discards; tightening a filter without
   stating the false-drop story.
 
-**4. Cheap optional assistance; primary judgment belongs in the user workflow.**
+**4. Cheap optional assistance; the system eliminates, it does not recommend.**
 Use the cheapest adequate backend for repeated assistance. Keep discovery and evidence
-access independent of any model verdict; let ChatGPT apply personal context and
-make primary recommendations. Subscription inclusion is not unlimited allowance.
+access independent of any model verdict. Model stages remove provably ineligible or
+explicitly excluded postings; analysis and prioritization of what remains belong to the
+human or a downstream AI client. Subscription inclusion is not unlimited allowance.
 - *Why:* source quality, retrieval and durable tracking are useful before any model
-  verdict. Low-cost Luna/medium assistance remains valuable without duplicating the
-  whole ChatGPT decision process in the worker.
+  verdict. A fit score promises a precision nobody delivers (measured here as rubric
+  noise); a stated, rescuable removal is checkable.
 - *In this repo:* a worker pass is fetch -> screen, plus the optional JEV keep/skip filter
   (`--jev`, capped per pass by `--jev-max-usd`); fetch-only stops before the screen. Codex
   Luna/medium is selected for screening. There is no fit scorer. MCP exposes facts and
   separate assessment state.
 - *Smell:* deleting useful assistance just to claim zero cost; making every job buy a
-  model call before it is visible; treating a screen measurement as validation of a
-  ranking model;
+  model call before it is visible; a ranked "best match" list; treating a screen
+  measurement as validation of a ranking model;
   adding a metered provider or rerunning a large eval without a concrete need.
 
 **5. Fail loud into a visible queue.** Breakage surfaces on a board a human reviews;

@@ -1,7 +1,8 @@
 # preselection - offline, provider-free tooling
 
 Synthetic review-batch, assessment-view, rehearsal, candidate-profile, frozen-replay and
-shadow-evaluation modules behind the gated JEV ranking work (#135). Nothing on the
+shadow-evaluation modules, kept as offline evaluation tooling (ranking is not a product
+goal). Nothing on the
 production path imports this package: no `run.py`, MCP, scheduler, database, config,
 resume or provider wiring. Every fixture is synthetic, so nothing here is a quality or
 cost claim. CLIs: the `*_cli.py` modules here and `apps/worker/tools/preselection_*.py`.

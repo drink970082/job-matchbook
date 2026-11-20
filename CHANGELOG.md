@@ -35,6 +35,12 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 
 ### Changed
 
+- **Product direction**: Job Matchbook is an elimination filter, not a recommender, for
+  new graduates and international students
+  ([spec](docs/superpowers/specs/2026-11-20-elimination-filter-positioning.md)). It
+  replaces the ChatGPT-first pivot spec; JEV ranking (#135) is closed; PRINCIPLES 4 is
+  reworded; the pick order puts source truth (#229) first.
+
 - **Activity is a status page plus one timeline (#210)**: a system status strip (last new
   posting, amber after a day; new postings 24h / 7d; JEV assessed, spend and failures;
   the `QuotaBar`) over a single newest-first timeline with one plain-English line per

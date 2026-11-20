@@ -17,6 +17,12 @@
 > Open work lives in [`BACKLOG.md`](./BACKLOG.md); the live delta and open defects in
 > [`PROGRESS.md`](./PROGRESS.md).
 
+- **Ranking or match scores as the product — rejected · do not re-derive.** A ranked
+  "best matches" list (fit score, or JEV ranking within `keep`, formerly #135). Fit scores
+  measured as rubric-band noise at the decision threshold, and ranking within `keep` tied
+  publication-time order. The product direction is elimination with stated, rescuable
+  reasons ([positioning](superpowers/specs/2026-11-20-elimination-filter-positioning.md)).
+  Reopen only with a held-out measurement beating chronological order.
 - **An autoheal entrypoint watchdog — built, drilled, and rejected · do not re-derive.** The idea (a `sh -c` wrapper that pings the socket in a loop and exits when it
   dies, so `restart:` fires) was in the approved plan and its own drill **passed**: bogus
   socket path -> exit 1, restarted 7x in 8s; real socket -> healthy, `RestartCount 0`.
