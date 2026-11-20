@@ -142,4 +142,12 @@ describe('SettingsPanel', () => {
         expect(screen.queryByRole('button', { name: 'Remove edu' })).toBeNull()  // the shape Add copies
         expect(screen.getAllByLabelText('Education and experience')).toHaveLength(1)
     })
+
+    it('a stored profile that is not a JSON object is edited only under Advanced', async () => {
+        jest.mocked(getSettings).mockResolvedValue({ ...SETTINGS, jev: { ...SETTINGS.jev, profile_text: 'plain text' } } as any)
+        render(<SettingsPanel />)
+        expect(await screen.findByText(/not a JSON object/)).toBeInTheDocument()
+        expect(screen.getByLabelText('Profile (JSON)')).toHaveValue('plain text')
+        expect(screen.getAllByLabelText('Education and experience')).toHaveLength(1)
+    })
 })

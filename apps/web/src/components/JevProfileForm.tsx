@@ -78,7 +78,7 @@ const itemName = (v: Json, fallback: string) =>
 function JsonField({ name, value, path, onSet, onRemove }: {
     name: string; value: Json; path: Path; onSet: (path: Path, v: Json) => void; onRemove: (path: Path, i: number) => void
 }) {
-    const id = `jp-${path.join('.')}`
+    const id = `jp-${path.map((k) => encodeURIComponent(String(k))).join('.')}`  // a '.' inside a key cannot collide
     if (typeof value === 'string') return (
         <div className="space-y-1">
             <Label htmlFor={id}>{name}</Label>
@@ -97,7 +97,7 @@ function JsonField({ name, value, path, onSet, onRemove }: {
         </label>
     )
     // An {id, text} entry (the profile's background/preferences items) reads as one row.
-    if (value && typeof value === 'object' && !Array.isArray(value) && Object.keys(value).join() === 'id,text'
+    if (value && typeof value === 'object' && !Array.isArray(value) && Object.keys(value).sort().join() === 'id,text'
         && typeof value.id === 'string' && typeof value.text === 'string') return (
         <div className="grid grid-cols-[11rem_1fr] gap-2">
             <Input aria-label={`${name} id`} className="font-mono text-xs" value={value.id} onChange={(e) => onSet([...path, 'id'], e.target.value)} />
