@@ -22,13 +22,15 @@ before changing them. No older research authorization schedules new provider cal
 
 ## Do next — the pick order
 
-1. [#229 Sources tell the truth](https://github.com/drink970082/job-matchbook/issues/229): #230 (closure) first — the "nothing
-   stale" promise.
-2. [#223 One candidate profile](https://github.com/drink970082/job-matchbook/issues/223):
-   #224 -> #225 -> #226, with #227 after #224.
-3. [#240 Applications](https://github.com/drink970082/job-matchbook/issues/240), then [#236 source extensibility](https://github.com/drink970082/job-matchbook/issues/236).
-4. [#94 Scheduled Daily Brief](https://github.com/drink970082/job-matchbook/issues/94):
-   one observed unattended run ([DAILY_BRIEF](DAILY_BRIEF.md) checklist).
+1. [#229 Sources tell the truth](https://github.com/drink970082/job-matchbook/issues/229): #230 (closure) first, with #247 (pass record,
+   [#246 epic](https://github.com/drink970082/job-matchbook/issues/246)) alongside #231.
+2. [#223 One candidate profile](https://github.com/drink970082/job-matchbook/issues/223): #224 -> #225 -> #226, with #227 after #224.
+3. [#251 Runtime settings in the web](https://github.com/drink970082/job-matchbook/issues/251), then [#256 MCP as the downstream contract](https://github.com/drink970082/job-matchbook/issues/256)
+   (its #209 research can start any time).
+4. [#240 Applications](https://github.com/drink970082/job-matchbook/issues/240), then [#236 source extensibility](https://github.com/drink970082/job-matchbook/issues/236).
+5. [#94 Scheduled Daily Brief](https://github.com/drink970082/job-matchbook/issues/94): one observed unattended run.
+
+[ROADMAP](ROADMAP.md) holds the full phase table and the research list.
 
 #95 stays conditional.
 
