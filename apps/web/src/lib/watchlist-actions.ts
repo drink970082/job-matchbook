@@ -3,10 +3,12 @@
 import { prisma } from '@/lib/db'
 import { type Actor, VALID_SOURCES, RECIPE_SOURCES } from '@/lib/constants'
 import { checkedActor } from '@/lib/action-helpers'
+import { resolveBoardUrl, SLUG_OK } from '@/lib/board-url'
 
 // --- Watchlist (DB-backed; the worker fetches these companies in full) ------
-// The watchlist moved out of the worker's config.yaml into the DB. The dashboard shows
-// it read-only (Sources tab); add/remove are the MCP write API's (/api/v1/watchlist).
+// The watchlist moved out of the worker's config.yaml into the DB. The Sources tab and
+// the MCP write API (/api/v1/watchlist) both add (by careers URL or source+slug) and
+// remove through these actions (#208).
 
 type WatchedRow = { id: number; source: string; slug: string; name: string; recipe: string | null; created_at: string }
 
@@ -23,25 +25,43 @@ function watchlistAudit(actor: Actor, action: 'add' | 'remove', row: WatchedRow)
 // created_at as canonical UTC `...T..:..:..sssZ`; a hand-made non-UTC value could differ.
 export async function getWatchedCompanies() {
     const cutoff = new Date(Date.now() - 30 * 86_400_000).toISOString()
-    const [rows, total, counts] = await Promise.all([
+    const [rows, total, counts, ever] = await Promise.all([
         prisma.watched_companies.findMany({ orderBy: { name: 'asc' } }),
         prisma.watched_companies.count(),
         prisma.job_postings.groupBy({ by: ['source', 'company_slug'], where: { created_at: { gte: cutoff } }, _count: true }),
+        prisma.job_postings.groupBy({ by: ['source', 'company_slug'], _count: true }),
     ])
     const n = new Map(counts.map((c) => [`${c.source}/${c.company_slug}`, c._count]))
-    return { data: rows.map((r) => ({ ...r, postings_30d: n.get(`${r.source}/${r.slug}`) ?? 0 })), total }
+    // ponytail: the worker records no per-board fetch, so "pending first fetch" is a board
+    // that never produced a posting and was added in the last 48h (a daily worker has had
+    // a pass by then); a per-board last-fetched stamp would make it exact.
+    const all = new Set(ever.map((c) => `${c.source}/${c.company_slug}`))
+    const recent = new Date(Date.now() - 2 * 86_400_000).toISOString()
+    return { data: rows.map((r) => ({
+        ...r, postings_30d: n.get(`${r.source}/${r.slug}`) ?? 0,
+        pending: !all.has(`${r.source}/${r.slug}`) && r.created_at > recent,
+    })), total }
 }
 
+// A watchlist add by careers/job URL (resolved by lib/board-url.ts, shared with MCP via
+// /api/v1/watchlist) or by explicit source + slug.
+const NEEDS_RECIPE = 'This site needs a custom recipe - set it up from your AI client with the onboard-board skill.'
+
 export async function addWatchedCompany(input: {
-    source: string
-    slug: string
+    url?: string
+    source?: string
+    slug?: string
     name: string
     recipe?: string
 }, actor: Actor = 'web') {
     checkedActor(actor)
     try {
-        const source = (input.source || '').trim()
-        const slug = (input.slug || '').trim()
+        const url = (input.url || '').trim()
+        if (url && (input.source || input.slug)) return { success: false, error: 'give a url or a source and slug, not both' }
+        const resolved = url ? resolveBoardUrl(url) : null
+        if (url && !resolved) return { success: false, error: NEEDS_RECIPE }
+        const source = (resolved?.source ?? input.source ?? '').trim()
+        const slug = (resolved?.slug ?? input.slug ?? '').trim()
         const name = (input.name || '').trim()
         const recipeRaw = (input.recipe || '').trim()
         if (!source || !slug || !name) {
@@ -51,8 +71,7 @@ export async function addWatchedCompany(input: {
         // (e.g. https://{slug}.icims.com). Allow alnum . _ - and single '/'-joined
         // segments (workday "tenant/dc/site", phenom "host/domain"); block host-injection
         // metacharacters (@ : ? # % \ whitespace) and path traversal.
-        if (!/^[A-Za-z0-9._/-]+$/.test(slug) || slug.includes('..') ||
-            slug.startsWith('/') || slug.endsWith('/') || slug.includes('//')) {
+        if (!SLUG_OK(slug, source)) {
             return { success: false, error: 'slug contains invalid characters' }
         }
         if (!(VALID_SOURCES as readonly string[]).includes(source)) {

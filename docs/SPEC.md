@@ -32,8 +32,8 @@ Ranking within `keep` stays gated (#135); the offline
 [preselection tooling](../apps/worker/ats_worker/preselection/README.md) is its
 provider-free foundation. Epic #152 makes MCP the main channel: the key-scoped loopback
 write API (`/api/v1`, §7.2), the MCP write tools over it, the MCP workflow prompts (#159)
-and a web dashboard read-only except Applications, Settings (#158) and the Discovered
-Jobs "Not interested" override (#207) are shipped. #94
+and a web dashboard read-only except Applications, Settings (#158), the Discovered
+Jobs "Not interested" override (#207) and Sources add/remove (#208) are shipped. #94
 still needs actual unattended evidence.
 
 [ARCHITECTURE](ARCHITECTURE.md) separates target ownership from existing implementation;
@@ -1365,7 +1365,8 @@ worker modules are pure and dependency-injected; real services are wired only in
   `ATS_API_URL` (default `http://127.0.0.1:3000`) and never open a writable DB handle:
   `record_application` (date defaults to today, status from the `STATUSES` enum),
   `mark_job_applied(job_id, category?)`, `update_application_status(application_id,
-  status, date?)`, `add_source(source, slug, name)` (known-ATS boards; web's
+  status, date?)`, `add_source(name, url? | source + slug)` (known-ATS boards; a
+  `url` is resolved by the web's `lib/board-url.ts`, the Sources tab's resolver; web's
   slug/source/duplicate checks and messages), `remove_source(source_id)` (returns the
   removed row), `override_triage(job_id, keep|skip|clear, reason?)`, `set_preferences`
   (the screen's hard requirements; omitted fields keep their value, `locations` replaces
@@ -1497,14 +1498,23 @@ worker modules are pure and dependency-injected; real services are wired only in
     unchanged; candidates are not presented as qualified.
   - *Watchlist:* `getWatchedCompanies` (name asc, each row with `postings_30d`: postings
     with that `source` + `company_slug` created in the last 30 days, the MCP
-    `list_sources` figure); the dashboard has no watchlist writes — `addWatchedCompany` (validates
+    `list_sources` figure, and `pending` for a board that never produced a posting and
+    was added in the last 48h — a heuristic, the worker recording no per-board fetch: a
+    worker stopped for 48h shows a new board as "No postings in 30 days", and a bad slug
+    reads pending for its first 48h); `addWatchedCompany`
+    (takes a careers/job `url`, resolved by `lib/board-url.ts`; Ashby/SmartRecruiters slugs
+    may hold single inner spaces, as those boards are named by company — a site it cannot resolve
+    gets the onboard-board recipe message — or `source` + `slug`, not both; validates
     `source ∈ VALID_SOURCES`, dedups `(source, slug)`, and rejects a `slug` outside
     `[A-Za-z0-9._/-]` or containing `..`/leading-trailing-doubled `/` — the slug is
     interpolated into a fetch URL host/path by the worker, so this blocks
     host-injection metacharacters while still allowing multi-part slugs like
-    workday's `tenant/dc/site`) and `removeWatchedCompany` back the MCP write API only.
-  - *Unresolved* (`lib/unresolved-actions.ts`): `getUnresolvedFeeds` (groups
-    `feed_unresolved` by host + reason).
+    workday's `tenant/dc/site`) and `removeWatchedCompany` back the Sources tab and the
+    MCP write API. `lib/board-url.ts` (`resolveBoardUrl`) maps board and job URLs on
+    greenhouse, lever, ashby, smartrecruiters, workable, workday, pinpoint and icims to
+    `(source, slug)`; `worker/tests/fixtures/board-url-cases.json` runs in both suites, and
+    the worker's `feed/resolve.py` must agree on its job-URL cases. `feed_unresolved` is
+    read through MCP only.
   - *Activity* (`lib/activity-actions.ts`): `getRecentActivity(limit=15)` — the newest
     applications (id order; they carry no creation stamp), `status_history` rows (with the
     date the change happened) and `audit_log` rows (write time, with a one-line label per
@@ -1555,9 +1565,12 @@ worker modules are pure and dependency-injected; real services are wired only in
   picker behind the Import CSV button, with the column contract — required columns,
   `YYYY-MM-DD` dates, the exact `status` vocabulary, dedup-skips-never-overwrites —
   stated inline; guards on the `.csv` extension, not the MIME type, since Excel on
-  Windows reports a CSV as `application/vnd.ms-excel`), `SourcesTab` (read-only: watched
-  boards with `postings_30d`, then `UnresolvedFeedsTable`, the unresolved backlog; boards
-  are added and removed through MCP), `ActivityTab` (`getRecentActivity` on open: new
+  Windows reports a CSV as `application/vnd.ms-excel`), `SourcesTab` (#208: watched boards, 25 per
+  page, search by company, Source select, sortable Company and Postings (30d), slug on
+  hover; "Pending first fetch" and "No postings in 30 days" flags with an "Only boards with
+  no postings" filter; add by pasting a careers URL — resolved as you type, name
+  prefilled from the slug, unresolvable sites pointed at the onboard-board skill — and
+  per-row remove after a confirm, any source type), `ActivityTab` (`getRecentActivity` on open: new
   applications, status changes, and source/override/settings changes, MCP writes marked
   "via MCP"), `QuotaBar` (subscription quota bar at the top of Activity — polls
   `/api/quota`, one bar per window with % + "resets in Nd Hh" + "as of"; reflects
@@ -2149,7 +2162,7 @@ automated coverage — those rely on code review or the human in the loop, not a
 | A **blind** live backend (nothing usable: not a dict, or neither a `screen` object nor any requirement key) is a `provider_error`, not a verdict; the FLAT shape the 4B emits ~1 call in 100 is a real verdict and is honoured, byte-identical to the nested shape — so it cannot discard on the phrase floor and cannot record breaker successes; the narrow scope is pinned on the other side, where an empty `screen` dict is an answer and keeps the floor | `test_screen.py` (`test_a_blind_response_is_a_provider_error_not_a_verdict`, `test_an_empty_screen_object_is_a_verdict_and_keeps_the_floor`, `test_the_flat_shape_is_a_verdict_and_is_honoured`, `test_the_flat_shape_and_the_schema_shape_agree`, `test_the_observed_flat_response_is_kept_not_discarded`) |
 | `mark_failed` → terminal `failed` + `attempts+1` (fetch/score paths) | `test_db.py` |
 | Discovered Jobs: "for you" in both modes (closed, applied, rejected and not-interested rows excluded; badge on the same predicate); each posting in exactly one funnel stage, effective JEV status identical in Web and MCP, Mark Applied scoped to its view, retired filter keys rejected | `web/src/__tests__/jev-status-parity.int.test.ts`, `worker/tests/test_jev_status_parity.py` (shared `jev-status-cases.json`), `web/src/__tests__/inventory-contract.int.test.ts` |
-| Discovered Jobs, Sources and Activity are read-only except Mark Applied and Not interested (no server-action import in their components; `JobsView` wires only reads plus `markJobApplied` and the triage override set/clear; no discard/reopen/bulk export); Sources `postings_30d`; Activity lists by actor | `web/src/__tests__/readonly-dashboard.test.ts`, `watchlist.int.test.ts`, `activity.int.test.ts`, `web/e2e/discovered.spec.ts`, `web/e2e/sources-activity.spec.ts` |
+| Discovered Jobs and Activity are read-only except Mark Applied and Not interested, Sources writes only board add/remove (no server-action import in their display components; `JobsView` wires only reads plus `markJobApplied` and the triage override set/clear; no discard/reopen/bulk export); Sources `postings_30d`; Activity lists by actor | `web/src/__tests__/readonly-dashboard.test.ts`, `watchlist.int.test.ts`, `activity.int.test.ts`, `web/e2e/discovered.spec.ts`, `web/e2e/sources-activity.spec.ts` |
 | `markJobApplied` atomic create + back-link + dedup | `actions.test.ts`, `actions.int.test.ts` (real-Prisma tx) |
 | `updateApplicationStatus` validates `STATUSES`, appends history | `actions.test.ts`, `actions.int.test.ts` |
 | `deleteHistoryItem` recomputes current status | `actions.int.test.ts` |
@@ -2167,7 +2180,7 @@ automated coverage — those rely on code review or the human in the loop, not a
 | The feed re-runs the age gate on the BOARD's `posted_at` before upsert, so a fresh-per-feed evergreen req is not stored older than `max_age_days` | `test_feed_pipeline.py` (`test_run_feed_re_gates_on_the_boards_date_not_the_feeds`) |
 | An unreadable lock fails loud; a contender never names a dead pid as the holder, but does name a live one | `test_run.py` (`test_an_unreadable_lock_fails_loud_instead_of_degrading`, `test_a_contender_never_names_a_dead_pid_as_the_holder`, `test_a_contender_names_the_holder_when_the_pid_is_live`) |
 | `run_feed` keeps only surfaced ids, records unresolved, skips existing, isolates a bad board, stamps `company_slug` | `test_feed_pipeline.py`, `test_feed_simplify.py` |
-| Unresolved-feed grouping by host+reason | `web/src/__tests__/unresolved.test.ts`, `unresolved.int.test.ts` |
+| Board URL -> `(source, slug)`: web and worker resolvers agree on one fixture; add by URL, unresolvable message, pending/dead flags, remove with confirm | `web/src/lib/__tests__/board-url.test.ts`, `worker/tests/test_board_url_cases.py`, `api-v1.int.test.ts`, `watchlist.int.test.ts`, `SourcesTab.test.tsx`, `web/e2e/sources-activity.spec.ts` |
 | Watchlist DB helpers (import idempotent, record_unresolved upsert, existing ids) | `test_watchlist_db.py` |
 | Watchlist auto-seed-on-empty + feed wiring in `run_once` | `test_run.py` |
 | `feeds:` config parsing + defaults | `test_feed_config.py` |

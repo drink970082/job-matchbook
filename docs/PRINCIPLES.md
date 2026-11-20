@@ -19,7 +19,7 @@ human, never automated.
 - *Why:* the system's whole stance is "prepare everything, submit nothing" — trust
   survives only while the human stays the actor of record.
 - *In this repo:* no auto-apply (SPEC §4 non-goal); a board joins the watchlist only
-  when the operator asks (MCP `add_source`); "Mark Applied" is a human click.
+  when the operator asks (MCP `add_source` or the Sources tab); "Mark Applied" is a human click.
 - *Smell:* a change that removes a confirmation seam "for convenience" — auto-retrying
   an apply, auto-adding a watchlist entry, auto-sending anything beyond the alert.
 

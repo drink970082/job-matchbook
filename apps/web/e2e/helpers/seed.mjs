@@ -59,22 +59,6 @@ export const POSTINGS = [
     },
 ]
 
-// A couple of recorded unresolved feed listings so the Sources tab's backlog renders.
-export const FEED_UNRESOLVED = [
-    {
-        feed: 'simplify', url: 'https://careers.bigco.com/job/1?gh_jid=1',
-        company_name: 'BigCo', job_title: 'Software Engineer',
-        host: 'careers.bigco.com', reason: 'embedded_greenhouse',
-        created_at: '2026-01-01T00:00:00.000Z',
-    },
-    {
-        feed: 'simplify', url: 'https://jobs.jobvite.com/foocorp/job/2',
-        company_name: 'FooCorp', job_title: 'Engineer',
-        host: 'jobs.jobvite.com', reason: 'unsupported_host',
-        created_at: '2026-01-01T00:00:00.000Z',
-    },
-]
-
 export const EXISTING_APPLICATION = {
     company_name: 'Wayne Enterprises', job_title: 'Software Engineer',
     application_url: 'https://wayne.example', date_applied: '2026-01-02',
@@ -148,7 +132,6 @@ export async function seed(url = DATABASE_URL) {
             } })
         }
         for (const c of WATCHED_COMPANIES) await prisma.watched_companies.create({ data: c })
-        for (const u of FEED_UNRESOLVED) await prisma.feed_unresolved.create({ data: u })
     } finally {
         await prisma.$disconnect()
     }

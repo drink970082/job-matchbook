@@ -157,7 +157,7 @@ add a broken row; write the failure report instead (see below).
 ## Step 4 — add it (the watchlist is a DB, not a file)
 
 The watchlist lives in the DB table `watched_companies`, which the web **Sources tab**
-shows (read-only) and the MCP `add_source`/`remove_source` tools write. `config.yaml` `companies:` is ONLY a one-time seed — editing it after the
+shows and the Sources tab (add by careers URL, remove) and MCP `add_source`/`remove_source` tools write; a custom/browser recipe row is only added here. `config.yaml` `companies:` is ONLY a one-time seed — editing it after the
 first run does nothing and never reaches the UI. So add the board straight to the DB with the
 bundled helper (deduped on `(source, slug)`):
 

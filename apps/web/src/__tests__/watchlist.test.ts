@@ -29,7 +29,7 @@ describe('Watchlist actions', () => {
 
       const result = await getWatchedCompanies()
 
-      expect(result).toEqual({ data: [{ ...rows[0], postings_30d: 4 }], total: 1 })
+      expect(result).toEqual({ data: [{ ...rows[0], postings_30d: 4, pending: false }], total: 1 })
       expect(mockPrisma.watched_companies.findMany).toHaveBeenCalledWith(
         expect.objectContaining({ orderBy: { name: 'asc' } })
       )
