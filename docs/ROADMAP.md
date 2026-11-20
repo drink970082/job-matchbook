@@ -18,7 +18,7 @@ issues own scope and status.
 | MCP read tools, full-text chunks, write tools (applications, triage override, watchlist, preferences, JEV profile) and workflow prompts | Shipped (writes need `ATS_API_KEY`) | Core; the main channel under #152 |
 | All-jobs inventory with advisory screening | Shipped | Preserve the safe inventory and application-action boundaries |
 | Standalone Luna/medium screening | Shipped, operator-selected | Retain as low-cost assistance |
-| JEV keep/skip filter | Deployed (`--jev`, #139) over the last 7 days of postings; `skip` hidden by default in MCP | Acceptance open (#139); ranking stays gated under #135 |
+| JEV keep/skip filter | Deployed (`--jev`, #139) over the last 7 days of postings; `skip` hidden by default in MCP | Accepted; ranking stays gated under #135 |
 | Loopback write API `/api/v1` | Shipped (#153) | Foundation for MCP writes |
 | Source lifecycle for unscored rows | Bounded refresh supports SmartRecruiters only | Extend only with verified source-specific identity and closure signals |
 | Daily Brief using ATS plus web | Interactive workflow works; unattended acceptance outstanding | Preferred judgment/delivery experience |
@@ -27,7 +27,7 @@ issues own scope and status.
 
 | Order | Deliverable | Dependencies | State |
 |---|---|---|---|
-| 1 | [#152 AI-orchestrated ATS](https://github.com/drink970082/job-matchbook/issues/152): #157 preferences/profile in the DB | #153 (merged) | In flight |
+| 1 | [#223 One candidate profile; evaluate once](https://github.com/drink970082/job-matchbook/issues/223): #224-#227 | #157 (closed) | Spec approved; #224 next |
 | 2 | [#94 Scheduled Daily Brief](https://github.com/drink970082/job-matchbook/issues/94) | Deployed tunnel and account/workspace task access | Unattended acceptance outstanding |
 | 3 | [#135 JEV ranking -> MCP](https://github.com/drink970082/job-matchbook/issues/135) | Keep/skip filter (#139) deployed | Ranking activation gated |
 | Parallel | [#181 Repo and docs cleanup](https://github.com/drink970082/job-matchbook/issues/181) | None | Only the onboarding discussion [#203](https://github.com/drink970082/job-matchbook/issues/203) is open |
