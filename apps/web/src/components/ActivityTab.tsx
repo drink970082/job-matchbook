@@ -20,30 +20,39 @@ function Stat({ label, value, warn }: { label: string; value: string; warn?: boo
     return (
         <div className="rounded-md border px-3 py-2">
             <div className="text-xs text-muted-foreground">{label}</div>
-            <div className={`text-sm font-medium ${warn ? 'text-amber-600' : ''}`}>{value}</div>
+            {/* Relative times use the clock; the server and browser render a moment apart. */}
+            <div className={`text-sm font-medium ${warn ? 'text-amber-600' : ''}`} suppressHydrationWarning>{value}</div>
         </div>
     )
 }
 
+type Page = { items: ActivityItem[]; hasMore: boolean; nextOffset: number; capped: boolean }
+
 interface Props {
     status: ActivityStatus
-    initial: { items: ActivityItem[]; hasMore: boolean }
-    loadMore: (offset: number) => Promise<{ items: ActivityItem[]; hasMore: boolean }>
+    initial: Page
+    loadMore: (offset: number) => Promise<Page>
 }
 
 // Activity (#210): is the system running, what did it cost, and what changed.
 export function ActivityTab({ status, initial, loadMore }: Props) {
     const [items, setItems] = useState(initial.items)
     const [hasMore, setHasMore] = useState(initial.hasMore)
+    const [capped, setCapped] = useState(initial.capped)
+    // The server's offset, not items.length: writes made while the page is open shift
+    // the merge, and the dedupe below would otherwise stall Load more on the same page.
+    const [offset, setOffset] = useState(initial.nextOffset)
     const [loading, setLoading] = useState(false)
     const stale = !status.lastFetchedAt || Date.now() - Date.parse(status.lastFetchedAt) > 86_400_000
 
     const more = async () => {
         setLoading(true)
         try {
-            const next = await loadMore(items.length)
+            const next = await loadMore(offset)
             setItems([...items, ...next.items.filter((n) => !items.some((i) => i.key === n.key))])
             setHasMore(next.hasMore)
+            setCapped(next.capped)
+            setOffset(next.nextOffset)
         } finally {
             setLoading(false)
         }
@@ -59,7 +68,7 @@ export function ActivityTab({ status, initial, loadMore }: Props) {
                         <Stat label="New postings, 24h" value={String(status.new24h)} />
                         <Stat label="New postings, 7d" value={String(status.new7d)} />
                         <Stat label="JEV assessed, 24h" value={String(status.assessed24h)} />
-                        <Stat label="JEV spend, 7d" value={`USD ${status.spend7dUsd.toFixed(2)}`} />
+                        <Stat label="JEV cost, 7d" value={`USD ${status.spend7dUsd.toFixed(status.spend7dUsd < 0.01 ? 4 : 2)}`} />
                         <Stat label="JEV failures, 24h" value={String(status.failures24h)} warn={status.failures24h > 0} />
                     </div>
                     {stale && (
@@ -82,6 +91,7 @@ export function ActivityTab({ status, initial, loadMore }: Props) {
                             ))}
                         </ul>
                     )}
+                    {capped && <p className="mt-3 text-xs text-muted-foreground">Older activity is not shown here; MCP reads the full audit log.</p>}
                     {hasMore && (
                         <Button variant="outline" size="sm" className="mt-4" onClick={more} disabled={loading}>Load more</Button>
                     )}

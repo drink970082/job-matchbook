@@ -117,14 +117,15 @@ test('overlapping inventory requests never show stale rows under newer filters',
 })
 
 test('the Activity view: status strip, one timeline marking only MCP, Load more', async () => {
-    const status = { lastFetchedAt: '2020-01-01T00:00:00Z', new24h: 3, new7d: 40, assessed24h: 12, failures24h: 1, spend7dUsd: 0.0123 }
+    const status = { lastFetchedAt: '2020-01-01T00:00:00Z', new24h: 3, new7d: 40, assessed24h: 12, failures24h: 1, spend7dUsd: 0.0042 }
     const initial = { items: [
         { key: 'c9', at: '2026-11-19T00:00:00Z', actor: 'web', text: 'Updated the JEV profile' },
         { key: 'a5', at: '2026-11-18', actor: 'mcp', text: 'Applied to Acme - Engineer' },
-    ], hasMore: true }
-    const loadMore = jest.fn().mockResolvedValue({ items: [{ key: 'h1', at: '2026-11-01', actor: 'web', text: 'Acme - Engineer -> Interviewing' }], hasMore: false })
+    ], hasMore: true, nextOffset: 2, capped: false }
+    const loadMore = jest.fn().mockResolvedValue({ items: [{ key: 'h1', at: '2026-11-01', actor: 'web', text: 'Acme - Engineer -> Interviewing' }],
+        hasMore: false, nextOffset: 3, capped: false })
     render(<ActivityTab status={status} initial={initial} loadMore={loadMore} />)
-    expect(screen.getByText('USD 0.01')).toBeInTheDocument()
+    expect(screen.getByText('USD 0.0042')).toBeInTheDocument()
     expect(screen.getByText(/worker may be stopped/)).toBeInTheDocument()
     expect(screen.getAllByText('via MCP')).toHaveLength(1)
     fireEvent.click(screen.getByRole('button', { name: 'Load more' }))

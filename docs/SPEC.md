@@ -1517,14 +1517,16 @@ worker modules are pure and dependency-injected; real services are wired only in
     read through MCP only.
   - *Activity* (`lib/activity-actions.ts`, #210): `getActivityStatus` (newest
     `job_postings.created_at`, new postings 24h / 7d, JEV assessments and
-    `provider_error` failures in the last 24h by `last_attempted_at`, JEV spend 7d as the
-    sum of `cost_usd`; no run table exists, so a failing pass shows only through these)
+    `provider_error` failures in the last 24h by `last_attempted_at`, JEV cost 7d as the
+    sum of `cost_usd` (the latest assessment per posting: a re-assessment overwrites its
+    row, so this is not every dollar spent); no run table exists, so a failing pass shows only through these)
     and `getActivityTimeline(offset, limit=30)` — applications (by `date_applied`; they
     carry no creation stamp), `status_history` rows other than the initial `Applied`, and
     `audit_log` rows merged newest first into one plain-English line each ("Applied to
     Acme - Engineer", "Acme - Engineer -> Interviewing", "Added board Stripe", "Hid Acme -
     Data Engineer", "Updated hard requirements"), each with its `actor`; offset paging
-    over the merge, capped at 500 rows deep.
+    over the merge (ties by source, then id desc; the client pages by the returned
+    `nextOffset`), capped at 500 rows deep with a note that older activity is not shown.
   - *CSV:* `exportApplicationsCSV`, `importApplicationsCSV` (hand-rolled RFC-4180
     parser; validates status against `STATUSES`; keeps category free-form; dedups).
 - **`lib/db.ts`** — process-singleton Prisma client (avoids dev hot-reload

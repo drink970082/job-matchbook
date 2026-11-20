@@ -28,6 +28,7 @@ export async function getActivityStatus() {
 }
 
 export interface ActivityItem { key: string; at: string; text: string; actor: string }
+type Sortable = ActivityItem & { rank: number; id: number }
 
 const MAX_TAKE = 500
 
@@ -52,14 +53,21 @@ export async function getActivityTimeline(offset = 0, limit = 30) {
     const jobs = new Map((jobIds.length ? await prisma.job_postings.findMany({ where: { id: { in: jobIds } },
         select: { id: true, company_name: true, job_title: true } }) : []).map((j) => [j.id, `${j.company_name} - ${j.job_title}`]))
 
-    const items: ActivityItem[] = [
-        ...applications.map((a) => ({ key: `a${a.id}`, at: a.date_applied, actor: a.actor,
+    // Ties (same-day applications) break by source, then id desc: the order each query
+    // fetched in, so a row cut off one source's `take` can never sort into the page.
+    const items: Sortable[] = [
+        ...applications.map((a) => ({ key: `a${a.id}`, rank: 0, id: a.id, at: a.date_applied, actor: a.actor,
             text: `Applied to ${a.company_name} - ${a.job_title}` })),
-        ...statusChanges.map((h) => ({ key: `h${h.id}`, at: h.timestamp, actor: h.actor,
+        ...statusChanges.map((h) => ({ key: `h${h.id}`, rank: 1, id: h.id, at: h.timestamp, actor: h.actor,
             text: `${h.applications.company_name} - ${h.applications.job_title} -> ${h.status}` })),
-        ...audits.map((c) => ({ key: `c${c.id}`, at: c.at, actor: c.actor, text: auditText(c, jobs) })),
-    ].sort((x, y) => (x.at < y.at ? 1 : x.at > y.at ? -1 : y.key.localeCompare(x.key)))
-    return { items: items.slice(off, off + lim), hasMore: items.length > off + lim && off + lim < MAX_TAKE }
+        ...audits.map((c) => ({ key: `c${c.id}`, rank: 2, id: c.id, at: c.at, actor: c.actor, text: auditText(c, jobs) })),
+    ].sort((x, y) => (x.at < y.at ? 1 : x.at > y.at ? -1 : x.rank - y.rank || y.id - x.id))
+    // Never page past MAX_TAKE: each source supplies at most that many rows, so deeper
+    // positions could be missing rows. `capped` tells the UI older activity is not shown.
+    const end = Math.min(off + lim, MAX_TAKE)
+    const page = items.slice(off, end).map(({ rank: _r, id: _i, ...item }) => item)
+    return { items: page, nextOffset: off + page.length,
+        hasMore: items.length > end && end < MAX_TAKE, capped: end >= MAX_TAKE && items.length > end }
 }
 
 // One plain-English line per audit row; the payload is the row as written (or {before, after}).

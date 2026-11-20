@@ -25,7 +25,21 @@ test('one timeline: applications, status changes and audited changes, newest fir
     ])
     expect(hasMore).toBe(false)
     const page = await getActivityTimeline(2, 3)
-    expect([page.items.map((i) => i.text), page.hasMore]).toEqual([['Hid Acme - Data Engineer', 'Added board Stripe', 'Applied to New - Eng'], true])
+    expect([page.items.map((i) => i.text), page.hasMore, page.nextOffset]).toEqual([['Hid Acme - Data Engineer', 'Added board Stripe', 'Applied to New - Eng'], true, 5])
+})
+
+test('same-day applications page without repeats or gaps (ids of different digit counts)', async () => {
+    for (let i = 1; i <= 12; i++) await prisma.applications.create({ data: makeApplication({ company_name: `C${i}`, date_applied: '2026-11-01' }) })
+    const seen: string[] = []
+    let offset = 0
+    for (;;) {
+        const p = await getActivityTimeline(offset, 5)
+        seen.push(...p.items.map((i) => i.key))
+        offset = p.nextOffset
+        if (!p.hasMore) break
+    }
+    expect(seen).toHaveLength(12)
+    expect(new Set(seen).size).toBe(12)
 })
 
 test('the status strip counts postings, JEV work, failures and spend', async () => {
