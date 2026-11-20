@@ -97,15 +97,21 @@ leaves.
 - *Smell:* `pip install` as the first move; a heavy dep imported at module top-level
   of core pipeline code; a dep that outlives its feature.
 
-**8. Official APIs only; don't fight bot walls.** A wall or ToS risk means record and
-defer, not circumvent.
+**8. Company-owned sources only; present as a browser, never break a wall.** Fetch a
+company's own board API or careers pages. A browser recipe may look like an ordinary
+browser (realistic UA, stealth patching) so a passive JS interstitial clears. A wall
+that demands more — a CAPTCHA, a login, rate-limit evasion — means record and defer,
+not circumvent.
 - *Why:* anti-scraping arms races produce fragile code and legal exposure — both
-  worse than a smaller feed.
-- *In this repo:* only official board APIs (LinkedIn/Indeed scraping is a §4
-  non-goal); iCIMS deferred after recon proved a bot wall; ByteDance deferred (JD only
-  in fragile flight data); greenhouse embed-token *dropped* with the reason recorded.
-- *Smell:* user-agent spoofing, CAPTCHA workarounds, "just parse the internal
-  Next.js payload" for a walled source.
+  worse than a smaller feed. A passive challenge on a public careers page is not an
+  access control, though, and refusing it loses boards whose jobs are public.
+- *In this repo:* official board APIs first (LinkedIn/Indeed scraping is a §4
+  non-goal); `fetch/browser.py` presents as a browser via playwright-stealth, which
+  clears Citadel's Cloudflare interstitial; iCIMS deferred after recon proved a bot
+  wall; ByteDance deferred (JD only in fragile flight data); greenhouse embed-token
+  *dropped* with the reason recorded.
+- *Smell:* CAPTCHA solving, logging in, proxies or IP rotation, retry loops against a
+  403/429, "just parse the internal Next.js payload" for a walled source.
 
 **9. Prisma owns the schema; the worker issues no DDL.** Destructive schema changes
 need a DB backup first.
