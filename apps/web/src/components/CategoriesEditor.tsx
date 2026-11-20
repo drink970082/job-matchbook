@@ -37,7 +37,7 @@ export function CategoriesEditor({ initial }: { initial: string[] }) {
 
     return (
         <section className="space-y-3">
-            <h3 className="font-semibold">Application categories</h3>
+            <h3 className="text-lg font-semibold">Application categories</h3>
             <p className="text-sm text-muted-foreground">
                 Labels for your applications and the category chart. Just labels - edit them anytime.
             </p>

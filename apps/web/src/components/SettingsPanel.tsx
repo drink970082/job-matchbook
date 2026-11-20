@@ -97,7 +97,7 @@ export function SettingsPanel() {
                 ) : (
                     <div className="space-y-8">
                         <section className="space-y-3">
-                            <h3 className="font-semibold">Hard requirements</h3>
+                            <h3 className="text-lg font-semibold">Hard requirements</h3>
                             <p className="text-sm text-muted-foreground">
                                 A posting failing any of these is discarded, free, before any paid model reads it.
                                 Blank means &quot;do not screen on it&quot; - nothing is assumed about you.
@@ -153,8 +153,8 @@ export function SettingsPanel() {
                             </div>
                         </section>
 
-                        <section className="space-y-3">
-                            <h3 className="font-semibold">JEV profile</h3>
+                        <section className="space-y-3 border-t pt-8">
+                            <h3 className="text-lg font-semibold">JEV profile</h3>
                             {!settings.jev ? (
                                 <p className="text-sm text-muted-foreground">
                                     No JEV profile yet. The worker seeds it from <code>jev_dir</code> when run with

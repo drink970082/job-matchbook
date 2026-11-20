@@ -109,9 +109,45 @@ describe('SettingsPanel', () => {
         confirm.mockRestore()
     })
 
-    it('a free-text profile opens under Advanced with a note', async () => {
+    it('a profile the form did not write is edited field by field as its JSON', async () => {
+        const profile_text = '{"profile":{"background":[{"id":"edu","text":"MS"}],"as_of":"2026-11"}}'
+        jest.mocked(getSettings).mockResolvedValue({ ...SETTINGS, jev: { ...SETTINGS.jev, profile_text } } as any)
+        const confirm = jest.spyOn(window, 'confirm').mockReturnValue(true)
         render(<SettingsPanel />)
-        expect(await screen.findByText(/written as free text/)).toBeInTheDocument()
-        expect(screen.getByLabelText('Profile (JSON)')).toHaveValue('{"profile":{}}')
+        // Unedited: no change, and the raw view under Advanced is the same JSON indented.
+        fireEvent.click(await screen.findByRole('button', { name: 'Save JEV profile' }))
+        expect(setJevProfile).not.toHaveBeenCalled()
+        expect(screen.getByLabelText('Profile (JSON)')).toHaveValue(JSON.stringify(JSON.parse(profile_text), null, 2))
+        fireEvent.click(screen.getByRole('button', { name: 'Save raw text' }))
+        expect(setJevProfile).not.toHaveBeenCalled()  // indenting alone is not a change
+        // Edit a list entry (labelled by its id), add a same-shaped one, remove nothing else.
+        fireEvent.change(screen.getByLabelText('edu text'), { target: { value: 'MEng' } })
+        fireEvent.click(screen.getByRole('button', { name: 'Add to background' }))
+        fireEvent.click(screen.getByRole('button', { name: 'Save JEV profile' }))
+        await waitFor(() => expect(setJevProfile).toHaveBeenCalledWith({
+            profile_text: '{"profile":{"background":[{"id":"edu","text":"MEng"},{"id":"","text":""}],"as_of":"2026-11"}}',
+            yoe_context: 'MS.',
+        }))  // compact in, compact out
+        confirm.mockRestore()
+    })
+
+    it('the structured view and Advanced edit one profile, and a list keeps its last entry', async () => {
+        const profile_text = '{"profile":{"background":[{"id":"edu","text":"MS"}]}}'
+        jest.mocked(getSettings).mockResolvedValue({ ...SETTINGS, jev: { ...SETTINGS.jev, profile_text } } as any)
+        render(<SettingsPanel />)
+        fireEvent.change(await screen.findByLabelText('edu text'), { target: { value: 'MEng' } })
+        expect(JSON.parse((screen.getByLabelText('Profile (JSON)') as HTMLTextAreaElement).value).profile.background[0].text).toBe('MEng')
+        fireEvent.change(screen.getByLabelText('Profile (JSON)'), { target: { value: '{"profile":{"background":[{"id":"edu","text":"PhD"}]}}' } })
+        expect(screen.getByLabelText('edu text')).toHaveValue('PhD')
+        expect(screen.queryByRole('button', { name: 'Remove edu' })).toBeNull()  // the shape Add copies
+        expect(screen.getAllByLabelText('Education and experience')).toHaveLength(1)
+    })
+
+    it('a stored profile that is not a JSON object is edited only under Advanced', async () => {
+        jest.mocked(getSettings).mockResolvedValue({ ...SETTINGS, jev: { ...SETTINGS.jev, profile_text: 'plain text' } } as any)
+        render(<SettingsPanel />)
+        expect(await screen.findByText(/not a JSON object/)).toBeInTheDocument()
+        expect(screen.getByLabelText('Profile (JSON)')).toHaveValue('plain text')
+        expect(screen.getAllByLabelText('Education and experience')).toHaveLength(1)
     })
 })

@@ -22,7 +22,7 @@ const KPI_CONFIG = [
 
 export function KPIGrid({ stats }: KPIGridProps) {
     return (
-        <div className="flex flex-wrap gap-3">
+        <div className="flex flex-wrap gap-2">
             {KPI_CONFIG.map(({ key, label, icon: Icon, color }) => (
                 <div
                     key={key}

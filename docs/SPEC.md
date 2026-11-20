@@ -845,8 +845,14 @@ worker modules are pure and dependency-injected; real services are wired only in
   rows (title, company, years; total = the sum). It renders `profile_text` (a JSON
   document of those fields) and `yoe_context` deterministically, so an unchanged form
   re-saves the same bytes. A stored profile counts as a form only when re-rendering
-  reproduces both texts exactly; otherwise the web opens it in an Advanced raw-text
-  editor, and the first form save replaces it (one paid re-assessment). Measured basis (2026-11, model-proxy, not human truth):
+  reproduces both texts exactly; otherwise (e.g. a `jev_dir` seed) the web edits it as
+  the JSON it is: one input per string/number, nested objects and lists, `{id, text}`
+  entries as one row, list entries added (a copy of the last entry's shape, so a list
+  keeps at least one) or removed; an unchanged save keeps the stored bytes and an edit
+  keeps compact JSON compact (else 2-space indent). Advanced (collapsed) is the same
+  profile as raw text, shown indented; edits in either view update the other. The
+  5-field form appears only for a form-written profile; converting one is MCP
+  `set_jev_profile` with all five form fields. Measured basis (2026-11, model-proxy, not human truth):
   preference skips 57-69% of screened candidates per day with 0 of 7 real applications
   skipped; the experience question agreed with a blind review on 50 of 52; together they
   leave about a quarter of screened candidates. Ranking within `keep` was measured and
@@ -1559,7 +1565,7 @@ worker modules are pure and dependency-injected; real services are wired only in
   `SettingsPanel` (hard requirements as controls: degree and clearance selects with
   `(do not screen)`, locations with an explicit "open to anywhere" blank state and a
   remote checkbox writing the `remote` entry, internship and contract checkboxes) and
-  `JevProfileForm` (the JEV form plus the Advanced raw editor; the save confirms the
+  `JevProfileForm` (the JEV form, or the structured JSON editor for a profile the form did not write, plus the Advanced raw editor; the save confirms the
   paid re-assessment estimate) and `CategoriesEditor` (the category
   vocabulary) make up `/settings`; `ApplicationTable` (inline status edit; job title links to `application_url`; Details opens the history/edit modal; dates show the year outside the current one; Company / Date / Status headers sort server-side via `getApplications` `sort`/`dir`, default date desc), `KPIGrid`,
   `StatusHistoryModal`, `AddApplicationForm`, `DiscoveredJobsTable` (a job-board list of "postings for you", #207: title link,

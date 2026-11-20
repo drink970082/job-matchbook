@@ -8,6 +8,9 @@ behavior. Completed work belongs in CHANGELOG, not this queue.
 
 ## In flight
 
+- **Web polish + structured JEV profile editor — PR on `fix/web-polish`; merge, deploy
+  web from ats-runtime, then delete this entry** `[WEB · S]`.
+
 - **Applications Active KPI window — 60 days is a proposed default awaiting the
   operator's confirmation** (#205; `analytics-actions.getKPIs`). Confirm or change it,
   then delete this entry.
