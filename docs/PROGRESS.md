@@ -8,10 +8,6 @@ behavior. Completed work belongs in CHANGELOG, not this queue.
 
 ## In flight
 
-- **Applications Active KPI window — 60 days is a proposed default awaiting the
-  operator's confirmation** (#205; `analytics-actions.getKPIs`). Confirm or change it,
-  then delete this entry.
-
 - **One candidate profile; evaluate each posting once — spec approved; implementation
   not started** `[WORKER+WEB+MCP · L]` (epic #223; branch `docs/candidate-profile-spec`).
   [Spec](superpowers/specs/2026-11-20-candidate-profile-design.md); #224 is next.
