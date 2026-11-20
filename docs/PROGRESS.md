@@ -20,8 +20,9 @@ behavior. Completed work belongs in CHANGELOG, not this queue.
   older screened postings stay `unassessed` and listed. Rollback = drop `--jev` from the
   worker's flags and restart; the table is additive.
 
-- **Web UX pass — research left: #209 (MCP reads via `/api/v1`)** `[WEB · L]`. Deploy
-  notes for the merged pass: #205 uses the proposed Ghosted -> Rejected mapping and 60-day
+- **Web UX pass — deploy pending; #209 awaits the operator's go/no-go** `[WEB · L]`.
+  #209's design note (issue comment) recommends no full move of MCP reads to `/api/v1`
+  now. Deploy notes for the merged pass: #205 uses the proposed Ghosted -> Rejected mapping and 60-day
   Active window unconfirmed by the operator; its data migration
   (`apps/web/prisma/migrate-statuses-205.mjs`) has not run on the deployed DB, which
   holds no pre-#205 status today. #206 adds `candidate_preferences.exclude_contract`:
