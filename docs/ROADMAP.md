@@ -45,7 +45,7 @@ nothing missed), then the docker-first install, then the rest. Sizes are estimat
 
 | Issue | Question | State |
 |---|---|---|
-| [#209 MCP read path](https://github.com/drink970082/job-matchbook/issues/209) | Can the tunnel front an HTTP MCP server? Then option A or B | Start any time; gates #257 |
+| [#209 MCP read path](https://github.com/drink970082/job-matchbook/issues/209) | Can the tunnel front an HTTP MCP server? Then option A or B | [Note](superpowers/specs/2026-11-20-mcp-read-path-research.md): HTTP yes, recommends A; gates #257 |
 | [#180 Screen as JEV packs](https://github.com/drink970082/job-matchbook/issues/180) (under [#182 provider-neutral epic](https://github.com/drink970082/job-matchbook/issues/182)) | Can typed question packs match the screen's zero-false-disqualification bar? | Needs operator authorization for paid runs |
 | [#222 One criteria model](https://github.com/drink970082/job-matchbook/issues/222) | Is an extension point for new criteria worth a registry? | After #223 |
 | [#203 Cold-start onboarding](https://github.com/drink970082/job-matchbook/issues/203) | Taxonomy from the first fetch; which cold-start option | Q1 and Q4 answered (2026-11-20 comment) |
