@@ -15,6 +15,9 @@ behavior. Completed work belongs in CHANGELOG, not this queue.
   `[WORKER+WEB · M]` (#238, epic #236; branch `feat/238-recipe-json-schema`). An invalid
   stored recipe is logged and skipped per board; recording it as a board-health status is #231.
 
+- **Closure detection: absent from 3 successful board lists = closed** `[WORKER · M]`
+  (#230, branch `feat/230-closure-detection`).
+
 These references reserve unfinished work; they do not claim the branches are currently
 executing or establish merge readiness. Inspect actual refs/worktrees and coordinate
 before changing them. No older research authorization schedules new provider calls.
