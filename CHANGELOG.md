@@ -35,6 +35,14 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 
 ### Changed
 
+- **Application status is the latest history row** (#243): `applications.status` is the
+  status of the latest `status_history` row by timestamp (ties by id) on every write,
+  so a backdated status change no longer becomes current because it was written last.
+  Creating an application (add, Mark Applied, CSV import) writes its initial `Applied`
+  row dated `date_applied`; `getStatusFlow` reads the chain from history alone.
+  `prisma/backfill-applied-history-243.mjs` adds the row to existing applications and
+  recomputes their status (data-only, idempotent; back up `db/` first).
+
 - **Product direction**: Job Matchbook is an elimination filter, not a recommender, for
   new graduates and international students
   ([spec](docs/superpowers/specs/2026-11-20-elimination-filter-positioning.md)). It

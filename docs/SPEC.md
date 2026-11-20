@@ -1473,8 +1473,8 @@ worker modules are pure and dependency-injected; real services are wired only in
     status, category, free-text; `date_applied desc`), `addApplication`,
     `updateApplicationDetails`, `updateApplicationStatus` (validates against
     `STATUSES`, appends to `status_history`), `deleteApplication`,
-    `getApplicationHistory`, `deleteHistoryItem` (recomputes current status from
-    remaining history), `getKPIs`.
+    `getApplicationHistory`, `deleteHistoryItem`, `getKPIs`. Every status write ends in
+    `syncStatusFromHistory` (`action-helpers.ts`, §9 "Status is the latest history row").
   - *Charts:* `getStatusFlow` (Sankey transitions), `getTimelineData` (heatmap),
     `getCategoryData` (donut).
   - *Discovered jobs:* `getJobPostings` defaults to `stage: 'for_you'` (§9 "Postings
@@ -2032,18 +2032,26 @@ Triage evidence with duplicate object members at its root, screen map, or check 
 
 **Application invariants:**
 
+- **Status is the latest history row.** `applications.status` is the status of the
+  application's latest `status_history` row by `timestamp`, ties by `id`, or `Applied`
+  when none remains; every status write recomputes it in the same transaction. A
+  backdated change is recorded but does not become current unless it is the latest.
+- **Creation writes the initial `Applied` row.** `addApplication`, `markJobApplied` and
+  CSV import insert an `Applied` row at the start of `date_applied` (`T00:00:00.000Z`,
+  clamped to now so a same-day change sorts after it); a non-`Applied` creation status
+  adds a second row on the same timestamp. `prisma/backfill-applied-history-243.mjs` is
+  the one-off, idempotent data backfill for applications created before this rule.
 - **Status changes append history.** `updateApplicationStatus` rejects values not
-  in `STATUSES`, rejects a no-op (same status), and in one transaction updates the
-  application and inserts a `status_history` row (timestamp = provided date at
-  `T12:00:00Z`, else now).
+  in `STATUSES`, rejects a no-op (same as the current status), and in one transaction
+  inserts a `status_history` row (timestamp = provided date at `T12:00:00Z`, else now)
+  and recomputes the status.
 - **Dedup on `(company_name, job_title)`** for `addApplication`, `markJobApplied`,
   and CSV import — all three run their existence-check + create in a `$transaction`
   (findFirst-then-throw-to-rollback if a match exists), closing the TOCTOU window
   between the check and the write. There is no DB-level `@@unique` on the pair
   (deferred — see PROGRESS.md); dedup is enforced entirely in application code.
-- **`deleteHistoryItem`** recomputes the application's current status to the most
-  recent remaining history entry, or `Applied` if none remain — the delete +
-  recompute + status update run in one `$transaction`.
+- **`deleteHistoryItem`** deletes the row and recomputes the status by the same rule
+  in one `$transaction`.
 - **KPIs** (`getKPIs`): `total` = every application; `active` = not Offer / Accepted /
   Rejected / Withdrew and the latest status-history date (else `date_applied`) within
   60 days, so a silent application drops out (not `last_updated`, the write stamp); `screening`, `interviewing`, `rejected`; `offer`
@@ -2181,9 +2189,9 @@ automated coverage — those rely on code review or the human in the loop, not a
 | Discovered Jobs and Activity are read-only except Mark Applied and Not interested, Sources writes only board add/remove (no server-action import in their display components; `JobsView` wires only reads plus `markJobApplied` and the triage override set/clear; no discard/reopen/bulk export); Sources `postings_30d`; Activity's status strip and merged plain-English timeline with paging | `web/src/__tests__/readonly-dashboard.test.ts`, `watchlist.int.test.ts`, `activity.int.test.ts`, `web/e2e/discovered.spec.ts`, `web/e2e/sources-activity.spec.ts` |
 | `markJobApplied` atomic create + back-link + dedup | `actions.test.ts`, `actions.int.test.ts` (real-Prisma tx) |
 | `updateApplicationStatus` validates `STATUSES`, appends history | `actions.test.ts`, `actions.int.test.ts` |
-| `deleteHistoryItem` recomputes current status | `actions.int.test.ts` |
+| Status = latest history row (timestamp, ties by id) on write and `deleteHistoryItem`; creation writes the initial `Applied` row; the #243 backfill | `actions.int.test.ts`, `history-backfill.int.test.ts` |
 | KPI aggregation buckets | `actions.test.ts`, `actions.int.test.ts` |
-| Chart-data aggregation (`getStatusFlow`/`getTimelineData`/`getCategoryData`): Sankey chain dedup/collapse + multi-hop, T-split day counts, category counts incl. ties/`null`->Others | `charts.int.test.ts` |
+| Chart-data aggregation (`getStatusFlow`/`getTimelineData`/`getCategoryData`): Sankey chain read from history only, dedup/collapse + multi-hop, T-split day counts, category counts incl. ties/`null`->Others | `charts.int.test.ts` |
 | CSV import/export rules (dedup, enum fallback) | `actions.int.test.ts` |
 | Feed resolve (URL→board incl. workday/smartrecruiters/workable/oracle/jobvite + GH-EU host) + classify-reason | `test_feed_resolve.py` |
 | SmartRecruiters adapter (two-step list+detail) | `test_smartrecruiters.py` |

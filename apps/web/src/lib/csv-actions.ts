@@ -2,7 +2,7 @@
 
 import { prisma } from '@/lib/db'
 import { LEGACY_STATUS_MAP, STATUSES } from '@/lib/constants'
-import { CATEGORY_FALLBACK } from '@/lib/action-helpers'
+import { writeInitialHistory, CATEGORY_FALLBACK } from '@/lib/action-helpers'
 
 const CSV_COLUMNS = [
     'company_name',
@@ -181,7 +181,7 @@ export async function importApplicationsCSV(csvText: string) {
                     // the CSV supplies, defaulting only when blank.
                     const category = (get('category') || '').trim() || CATEGORY_FALLBACK
 
-                    await tx.applications.create({
+                    const created = await tx.applications.create({
                         data: {
                             company_name,
                             job_title,
@@ -193,6 +193,7 @@ export async function importApplicationsCSV(csvText: string) {
                             last_updated: new Date().toISOString(),
                         },
                     })
+                    await writeInitialHistory(tx, created)
                     a++
                 }
 

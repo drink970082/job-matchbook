@@ -3,7 +3,7 @@
 import { prisma } from '@/lib/db'
 import { Prisma } from '@prisma/client'
 import { type Actor, STATUSES } from '@/lib/constants'
-import { checkedActor, searchClause, CATEGORY_FALLBACK } from '@/lib/action-helpers'
+import { checkedActor, searchClause, syncStatusFromHistory, writeInitialHistory, CATEGORY_FALLBACK } from '@/lib/action-helpers'
 
 // Header sort on the Applications table (#205): one column, server-side (paginated).
 export type ApplicationSort = { sort: 'company' | 'date' | 'status'; dir: 'asc' | 'desc' }
@@ -80,7 +80,7 @@ export async function addApplication(data: {
                 )
             }
 
-            return tx.applications.create({
+            const created = await tx.applications.create({
                 data: {
                     company_name: data.company_name,
                     job_title: data.job_title,
@@ -93,6 +93,8 @@ export async function addApplication(data: {
                     actor,
                 },
             })
+            await writeInitialHistory(tx, created)
+            return created
         })
 
         return { success: true, data: newApp }
@@ -154,12 +156,8 @@ export async function updateApplicationStatus(id: number, status: string, date?:
         // Determine timestamp: use provided date (append noon UTC so it doesn't shift days in local timezones) or current time
         const timestamp = date ? new Date(`${date}T12:00:00Z`).toISOString() : new Date().toISOString()
 
+        // A backdated row is recorded but only becomes current if it is the latest.
         await prisma.$transaction(async (tx) => {
-            await tx.applications.update({
-                where: { id },
-                data: { status, last_updated: new Date().toISOString() },
-            })
-
             await tx.status_history.create({
                 data: {
                     application_id: id,
@@ -168,6 +166,8 @@ export async function updateApplicationStatus(id: number, status: string, date?:
                     actor,
                 },
             })
+            await tx.applications.update({ where: { id }, data: { last_updated: new Date().toISOString() } })
+            await syncStatusFromHistory(tx, id)
         })
 
         return { success: true }
@@ -191,7 +191,7 @@ export async function getApplicationHistory(id: number) {
     try {
         const history = await prisma.status_history.findMany({
             where: { application_id: id },
-            orderBy: { timestamp: 'desc' },
+            orderBy: [{ timestamp: 'desc' }, { id: 'desc' }],
         })
         return { success: true, data: history }
     } catch (error: any) {
@@ -215,19 +215,7 @@ export async function deleteHistoryItem(id: number) {
             await tx.status_history.delete({
                 where: { id },
             })
-
-            // Find the most recent history item after deletion
-            const latestHistory = await tx.status_history.findFirst({
-                where: { application_id: item.application_id },
-                orderBy: { timestamp: 'desc' }
-            })
-
-            // Update application status to the most recent history, or 'Applied' if empty
-            const newStatus = latestHistory ? latestHistory.status : 'Applied'
-            await tx.applications.update({
-                where: { id: item.application_id },
-                data: { status: newStatus }
-            })
+            await syncStatusFromHistory(tx, item.application_id)
         })
 
         return { success: true }
