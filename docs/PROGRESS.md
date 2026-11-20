@@ -8,6 +8,10 @@ behavior. Completed work belongs in CHANGELOG, not this queue.
 
 ## In flight
 
+- **Applications Active KPI window — 60 days is a proposed default awaiting the
+  operator's confirmation** (#205; `analytics-actions.getKPIs`). Confirm or change it,
+  then delete this entry.
+
 - **JEV profile in the DB — deployed; acceptance: tonight's JEV pass re-queues nothing
   for a policy change (hash verified equal at deploy); then delete this entry**
   `[WORKER+WEB · M]` (#157).
@@ -19,16 +23,6 @@ behavior. Completed work belongs in CHANGELOG, not this queue.
   assesses only the last 7 days of postings, so there is no backlog to drain; the ~5,900
   older screened postings stay `unassessed` and listed. Rollback = drop `--jev` from the
   worker's flags and restart; the table is additive.
-
-- **Web UX pass — deploy pending; #209 awaits the operator's go/no-go** `[WEB · L]`.
-  #209's design note (issue comment) recommends no full move of MCP reads to `/api/v1`
-  now, and two cheap steps instead: shared fixtures for drifting rules, and a TS MCP
-  server if a fourth rule drifts. Deploy notes for the merged pass: #205 uses the
-  proposed Ghosted -> Rejected mapping and 60-day Active window, unconfirmed by the
-  operator; its data migration (`apps/web/prisma/migrate-statuses-205.mjs`) has not run
-  on the deployed DB, which holds no pre-#205 status today. #206 adds
-  `candidate_preferences.exclude_contract`: the deployed DB needs `make db-push` (back up
-  `db/` first) before the new web or worker runs against it.
 
 These references reserve unfinished work; they do not claim the branches are currently
 executing or establish merge readiness. Inspect actual refs/worktrees and coordinate
