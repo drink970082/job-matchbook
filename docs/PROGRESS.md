@@ -8,6 +8,10 @@ behavior. Completed work belongs in CHANGELOG, not this queue.
 
 ## In flight
 
+- **Applications Active KPI window — 60 days is a proposed default awaiting the
+  operator's confirmation** (#205; `analytics-actions.getKPIs`). Confirm or change it,
+  then delete this entry.
+
 - **JEV profile in the DB — deployed; acceptance: tonight's JEV pass re-queues nothing
   for a policy change (hash verified equal at deploy); then delete this entry**
   `[WORKER+WEB · M]` (#157).
