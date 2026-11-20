@@ -11,6 +11,8 @@ behavior. Completed work belongs in CHANGELOG, not this queue.
 - **One candidate profile; evaluate each posting once — spec approved; implementation
   not started** `[WORKER+WEB+MCP · L]` (epic #223; no implementation branch yet).
   [Spec](superpowers/specs/2026-11-20-candidate-profile-design.md); #224 is next.
+- **MCP read path research — in progress** `[DOCS · S]` (#209, branch
+  `docs/209-mcp-read-path-research`). Research note only; no code.
 
 These references reserve unfinished work; they do not claim the branches are currently
 executing or establish merge readiness. Inspect actual refs/worktrees and coordinate
