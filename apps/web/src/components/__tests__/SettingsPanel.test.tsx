@@ -130,4 +130,16 @@ describe('SettingsPanel', () => {
         }))  // compact in, compact out
         confirm.mockRestore()
     })
+
+    it('the structured view and Advanced edit one profile, and a list keeps its last entry', async () => {
+        const profile_text = '{"profile":{"background":[{"id":"edu","text":"MS"}]}}'
+        jest.mocked(getSettings).mockResolvedValue({ ...SETTINGS, jev: { ...SETTINGS.jev, profile_text } } as any)
+        render(<SettingsPanel />)
+        fireEvent.change(await screen.findByLabelText('edu text'), { target: { value: 'MEng' } })
+        expect(JSON.parse((screen.getByLabelText('Profile (JSON)') as HTMLTextAreaElement).value).profile.background[0].text).toBe('MEng')
+        fireEvent.change(screen.getByLabelText('Profile (JSON)'), { target: { value: '{"profile":{"background":[{"id":"edu","text":"PhD"}]}}' } })
+        expect(screen.getByLabelText('edu text')).toHaveValue('PhD')
+        expect(screen.queryByRole('button', { name: 'Remove edu' })).toBeNull()  // the shape Add copies
+        expect(screen.getAllByLabelText('Education and experience')).toHaveLength(1)
+    })
 })

@@ -88,7 +88,7 @@ function JsonField({ name, value, path, onSet, onRemove }: {
     if (typeof value === 'number') return (
         <div className="space-y-1">
             <Label htmlFor={id}>{name}</Label>
-            <Input id={id} type="number" value={value} onChange={(e) => onSet(path, Number(e.target.value) || 0)} />
+            <Input id={id} type="number" value={value} onChange={(e) => { const n = Number(e.target.value); if (e.target.value.trim() && Number.isFinite(n)) onSet(path, n) }} />
         </div>
     )
     if (typeof value === 'boolean') return (
@@ -114,8 +114,9 @@ function JsonField({ name, value, path, onSet, onRemove }: {
         return !list ? field : (
             <div key={k} className="flex items-start gap-2">
                 <div className="flex-1">{field}</div>
-                <Button type="button" variant="ghost" size="icon" aria-label={`Remove ${label}`}
-                    onClick={() => onRemove(path, Number(k))}><X className="h-4 w-4" /></Button>
+                {/* The last entry stays: it is the shape Add copies. */}
+                {value.length > 1 && <Button type="button" variant="ghost" size="icon" aria-label={`Remove ${label}`}
+                    onClick={() => onRemove(path, Number(k))}><X className="h-4 w-4" /></Button>}
             </div>
         )
     })
@@ -150,6 +151,8 @@ export function JevProfileForm({ stored, reassessOnChange, saving, save }: Props
     const [yoe, setYoe] = useState(stored.yoe_context)
     const original = parseObject(stored.profile_text)
     const [doc, setDoc] = useState<Json | null>(original)
+    // The structured editor and Advanced are two views of one profile: each edit updates both.
+    const editDoc = (v: Json) => { setDoc(v); setProfile(JSON.stringify(v, null, 2)) }
     const set = <K extends keyof JevForm>(k: K, v: JevForm[K]) => setForm({ ...form, [k]: v })
 
     const confirmCost = () => {
@@ -192,8 +195,8 @@ export function JevProfileForm({ stored, reassessOnChange, saving, save }: Props
         <div className="space-y-4">
             {!parsed && doc && (
                 <div className="space-y-4">
-                    <JsonField name="" value={doc} path={[]} onRemove={(p, i) => setDoc(removeAt(doc, p, i))}
-                        onSet={(p, v) => setDoc(setAt(doc, p, v))} />
+                    <JsonField name="" value={doc} path={[]} onRemove={(p, i) => editDoc(removeAt(doc, p, i))}
+                        onSet={(p, v) => editDoc(setAt(doc, p, v))} />
                     <div className="space-y-1">
                         <Label htmlFor="j-yoe">Education and experience</Label>
                         <Textarea id="j-yoe" rows={3} value={yoe} onChange={(e) => setYoe(e.target.value)} />
@@ -266,12 +269,12 @@ export function JevProfileForm({ stored, reassessOnChange, saving, save }: Props
                     <div className="space-y-1">
                         <Label htmlFor="s-profile">Profile (JSON)</Label>
                         <Textarea id="s-profile" rows={20} className="font-mono text-xs" value={profile}
-                            onChange={(e) => setProfile(e.target.value)} />
+                            onChange={(e) => { setProfile(e.target.value); const v = parseObject(e.target.value); if (v && doc) setDoc(v) }} />
                     </div>
-                    <div className="space-y-1">
+                    {(parsed || !doc) && <div className="space-y-1">
                         <Label htmlFor="s-yoe">Education and experience</Label>
                         <Textarea id="s-yoe" rows={3} value={yoe} onChange={(e) => setYoe(e.target.value)} />
-                    </div>
+                    </div>}
                     <Button variant="outline" onClick={saveRaw} disabled={saving}>Save raw text</Button>
                 </div>
             </details>

@@ -847,9 +847,12 @@ worker modules are pure and dependency-injected; real services are wired only in
   re-saves the same bytes. A stored profile counts as a form only when re-rendering
   reproduces both texts exactly; otherwise (e.g. a `jev_dir` seed) the web edits it as
   the JSON it is: one input per string/number, nested objects and lists, `{id, text}`
-  entries as one row, list entries added (same shape) or removed; an unchanged save keeps
-  the stored bytes and an edit keeps the stored layout (compact or indented). Advanced
-  (collapsed) edits the raw text, shown indented. Measured basis (2026-11, model-proxy, not human truth):
+  entries as one row, list entries added (a copy of the last entry's shape, so a list
+  keeps at least one) or removed; an unchanged save keeps the stored bytes and an edit
+  keeps compact JSON compact (else 2-space indent). Advanced (collapsed) is the same
+  profile as raw text, shown indented; edits in either view update the other. The
+  5-field form appears only for a form-written profile; converting one is MCP
+  `set_jev_profile` with all five form fields. Measured basis (2026-11, model-proxy, not human truth):
   preference skips 57-69% of screened candidates per day with 0 of 7 real applications
   skipped; the experience question agreed with a blind review on 50 of 52; together they
   leave about a quarter of screened candidates. Ranking within `keep` was measured and
