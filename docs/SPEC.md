@@ -1499,8 +1499,11 @@ worker modules are pure and dependency-injected; real services are wired only in
   - *Watchlist:* `getWatchedCompanies` (name asc, each row with `postings_30d`: postings
     with that `source` + `company_slug` created in the last 30 days, the MCP
     `list_sources` figure, and `pending` for a board that never produced a posting and
-    was added in the last 48h, the worker recording no per-board fetch); `addWatchedCompany`
-    (takes a careers/job `url`, resolved by `lib/board-url.ts` — a site it cannot resolve
+    was added in the last 48h — a heuristic, the worker recording no per-board fetch: a
+    worker stopped for 48h shows a new board as "No postings in 30 days", and a bad slug
+    reads pending for its first 48h); `addWatchedCompany`
+    (takes a careers/job `url`, resolved by `lib/board-url.ts`; Ashby/SmartRecruiters slugs
+    may hold single inner spaces, as those boards are named by company — a site it cannot resolve
     gets the onboard-board recipe message — or `source` + `slug`, not both; validates
     `source ∈ VALID_SOURCES`, dedups `(source, slug)`, and rejects a `slug` outside
     `[A-Za-z0-9._/-]` or containing `..`/leading-trailing-doubled `/` — the slug is

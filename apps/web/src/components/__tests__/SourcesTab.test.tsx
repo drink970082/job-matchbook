@@ -44,9 +44,15 @@ test('adds a board from a pasted URL, with the name prefilled and editable', asy
     fireEvent.change(screen.getByLabelText('Careers or job URL'), { target: { value: 'https://jobs.lever.co/acme-robotics' } })
     expect(screen.getByText('lever board "acme-robotics"')).toBeInTheDocument()
     expect(screen.getByLabelText('Company name')).toHaveValue('Acme Robotics')
+    fireEvent.change(screen.getByLabelText('Company name'), { target: { value: 'Typo' } })
+    fireEvent.change(screen.getByLabelText('Careers or job URL'), { target: { value: 'https://jobs.lever.co/globex' } })
+    expect(screen.getByLabelText('Company name')).toHaveValue('Globex')        // a new board resets the name
+    fireEvent.change(screen.getByLabelText('Careers or job URL'), { target: { value: 'https://jobs.lever.co/acme-robotics' } })
     fireEvent.change(screen.getByLabelText('Company name'), { target: { value: 'Acme' } })
+    fireEvent.change(screen.getByLabelText('Careers or job URL'), { target: { value: 'https://jobs.lever.co/acme-robotics/123' } })
+    expect(screen.getByLabelText('Company name')).toHaveValue('Acme')          // same board keeps the edit
     fireEvent.click(screen.getByRole('button', { name: 'Add board' }))
-    await waitFor(() => expect(addWatchedCompany).toHaveBeenCalledWith({ url: 'https://jobs.lever.co/acme-robotics', name: 'Acme' }))
+    await waitFor(() => expect(addWatchedCompany).toHaveBeenCalledWith({ url: 'https://jobs.lever.co/acme-robotics/123', name: 'Acme' }))
     await waitFor(() => expect(refresh).toHaveBeenCalled())
 })
 

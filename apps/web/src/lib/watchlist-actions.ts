@@ -71,7 +71,7 @@ export async function addWatchedCompany(input: {
         // (e.g. https://{slug}.icims.com). Allow alnum . _ - and single '/'-joined
         // segments (workday "tenant/dc/site", phenom "host/domain"); block host-injection
         // metacharacters (@ : ? # % \ whitespace) and path traversal.
-        if (!SLUG_OK(slug)) {
+        if (!SLUG_OK(slug, source)) {
             return { success: false, error: 'slug contains invalid characters' }
         }
         if (!(VALID_SOURCES as readonly string[]).includes(source)) {

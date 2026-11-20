@@ -37,7 +37,12 @@ function AddBoard({ onAdded }: { onAdded: () => void }) {
     const change = (v: string) => {
         setUrl(v)
         const r = resolveBoardUrl(v)
-        if (!nameEdited) setName(r ? nameFromSlug(r.slug) : '')
+        // A different board (or none) discards the name typed for the previous one.
+        const changed = `${r?.source}/${r?.slug}` !== `${resolved?.source}/${resolved?.slug}`
+        if (!nameEdited || changed) {
+            setName(r ? nameFromSlug(r.slug) : '')
+            setNameEdited(false)
+        }
     }
     const add = async (e: React.FormEvent) => {
         e.preventDefault()

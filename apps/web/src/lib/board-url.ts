@@ -17,12 +17,18 @@ const SLUG_FIRST_HOSTS: Record<string, string> = {
 // Boards addressed by a subdomain: {slug}.pinpointhq.com, {slug}.icims.com.
 const SUBDOMAIN_HOSTS: Record<string, string> = { 'pinpointhq.com': 'pinpoint', 'icims.com': 'icims' }
 const LOCALE = /^[a-z]{2}(-[A-Za-z]{2})?$/
-// The watchlist's slug rule (addWatchedCompany): a resolved slug outside it, e.g. an
-// Ashby "Initech%20Inc", is not offered as resolvable.
-export const SLUG_OK = (slug: string) => /^[A-Za-z0-9._/-]+$/.test(slug) && !slug.includes('..')
-    && !slug.startsWith('/') && !slug.endsWith('/') && !slug.includes('//')
-// First path segments that are a route on the host, not a company slug.
-const NOT_A_SLUG = new Set(['j', 'embed', 'oneclick-ui', 'wday', 'api', 'jobs'])
+// The watchlist's slug rule (addWatchedCompany). Ashby and SmartRecruiters name boards
+// by company name ("Rose Rocket"), which the worker puts in an API path, so single inner
+// spaces are allowed there only; no source allows a space at a host position.
+const SPACED_SOURCES = new Set(['ashby', 'smartrecruiters'])
+export const SLUG_OK = (slug: string, source = '') =>
+    (SPACED_SOURCES.has(source) ? /^[A-Za-z0-9._/-]+( [A-Za-z0-9._/-]+)*$/ : /^[A-Za-z0-9._/-]+$/).test(slug)
+    && !slug.includes('..') && !slug.startsWith('/') && !slug.endsWith('/') && !slug.includes('//')
+// A first path segment that is a route on that host, not a company slug.
+const ROUTE_SEGMENT: Record<string, string> = {
+    'boards.greenhouse.io': 'embed', 'job-boards.greenhouse.io': 'embed', 'job-boards.eu.greenhouse.io': 'embed',
+    'apply.workable.com': 'j', 'jobs.smartrecruiters.com': 'oneclick-ui',
+}
 
 function decode(s: string): string | null {
     try { return decodeURIComponent(s) } catch { return null }
@@ -40,7 +46,8 @@ export function resolveBoardUrl(raw: string | null | undefined): ResolvedBoard |
     const parts = u.pathname.split('/').filter(Boolean)
     // Single-segment slugs never contain '/' (a decoded %2F); workday's is built below.
     const board = (source: string, slug: string | null | undefined, multi = false) =>
-        (slug && SLUG_OK(slug) && (multi || !slug.includes('/')) && !NOT_A_SLUG.has(slug) ? { source, slug } : null)
+        (slug && SLUG_OK(slug, source) && (multi || !slug.includes('/'))
+            && slug.toLowerCase() !== ROUTE_SEGMENT[host] ? { source, slug } : null)
 
     if (GREENHOUSE_HOSTS.has(host)) {
         // boards.greenhouse.io/embed/job_board?for=acme names the board in a query param.
@@ -63,7 +70,7 @@ export function resolveBoardUrl(raw: string | null | undefined): ResolvedBoard |
         if (labels.length < 4 || !labels[0] || !labels[1]) return null
         const job = parts.indexOf('job')
         const site = job > 0 ? parts[job - 1] : parts.find((p) => !LOCALE.test(p))
-        return site && !LOCALE.test(site) && !NOT_A_SLUG.has(site) && !site.includes('/')
+        return site && !LOCALE.test(site) && site.toLowerCase() !== 'wday' && !site.includes('/')
             ? board('workday', `${labels[0]}/${labels[1]}/${site}`, true) : null
     }
     return null

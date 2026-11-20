@@ -125,8 +125,8 @@
     },
     {
       "url": "https://jobs.ashbyhq.com/Initech%20Inc",
-      "source": null,
-      "slug": null
+      "source": "ashby",
+      "slug": "Initech Inc"
     },
     {
       "url": "https://apply.workable.com/j/AB12CD34EF",
@@ -145,6 +145,22 @@
     },
     {
       "url": "https://boards.greenhouse.io/a%2Fb",
+      "source": null,
+      "slug": null
+    },
+    {
+      "url": "https://jobs.ashbyhq.com/Rose%20Rocket/5f0e1d2c-0000-1111-2222-333344445555",
+      "source": "ashby",
+      "slug": "Rose Rocket",
+      "job": true
+    },
+    {
+      "url": "https://boards.greenhouse.io/jobs",
+      "source": "greenhouse",
+      "slug": "jobs"
+    },
+    {
+      "url": "https://jobs.lever.co/a%20b",
       "source": null,
       "slug": null
     }
