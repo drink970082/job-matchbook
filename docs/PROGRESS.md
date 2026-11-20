@@ -24,8 +24,8 @@ behavior. Completed work belongs in CHANGELOG, not this queue.
   older screened postings stay `unassessed` and listed. Rollback = drop `--jev` from the
   worker's flags and restart; the table is additive.
 
-- **One candidate profile; evaluate each posting once — spec draft awaiting operator
-  approval** `[WORKER+WEB+MCP · L]` (epic #223; branch `docs/candidate-profile-spec`).
+- **One candidate profile; evaluate each posting once — spec approved; implementation
+  not started** `[WORKER+WEB+MCP · L]` (epic #223; branch `docs/candidate-profile-spec`).
   [Spec](superpowers/specs/2026-11-20-candidate-profile-design.md); slices #224-#227
   start after #157 closes.
 
@@ -38,7 +38,7 @@ before changing them. No older research authorization schedules new provider cal
 1. [#152 AI-orchestrated ATS](https://github.com/drink970082/job-matchbook/issues/152):
    its last open slice, #157 (preferences and profile in the DB), is in flight above.
 2. [#223 One candidate profile](https://github.com/drink970082/job-matchbook/issues/223):
-   approve the spec, then #224 -> #225 -> #226, with #227 after #224. Blocked on #157.
+   #224 -> #225 -> #226, with #227 after #224. Blocked on #157.
 3. [#94 Scheduled Daily Brief](https://github.com/drink970082/job-matchbook/issues/94):
    one observed unattended run ([DAILY_BRIEF](DAILY_BRIEF.md) checklist).
 4. [#135 JEV ranking → MCP](https://github.com/drink970082/job-matchbook/issues/135),

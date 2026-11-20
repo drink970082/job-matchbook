@@ -1,6 +1,6 @@
 # One candidate profile; evaluate each posting once
 
-**Status:** draft - awaiting operator approval. Epic #223; slices #224-#227.
+**Status:** approved 2026-11-20. Epic #223; slices #224-#227.
 
 ## Problem
 
@@ -41,6 +41,9 @@ Readers add a sixth problem. The web (`lib/job-actions.ts`) and MCP
 - Packs become system-owned defaults.
 - Also in scope: an override that rescues a requirements discard, a confirmation gate
   before paid stages, and one stored verdict for all readers.
+- The final verdict is a stored column (`job_postings.verdict`), not a shared
+  derivation function.
+- Model stages wait until the profile is confirmed; there is no capped calibration pass.
 
 ## Design
 
@@ -172,6 +175,9 @@ closed.
   exception that would keep revision logic alive in both stages and both readers.
 - **Manual re-evaluate tool.** An exception to look-forward; the override covers the
   real need, which is rescuing a wrong discard.
+- **Capped calibration pass instead of the confirmation gate.** It still buys judgment
+  before the operator has reviewed the intake, and a bad first pass becomes permanent
+  under look-forward.
 - **Share the status SQL through #209 (MCP reads via `/api/v1`).** That fixes the
   duplication but leaves a 100-line derivation in place. A stored verdict is possible
   because look-forward makes the verdict immutable, and it deletes the derivation.
@@ -180,10 +186,3 @@ closed.
   visibility (PRINCIPLES 5).
 - **One results table / criteria registry:** #222. **One LLM call for both stages:**
   #180; it varies rubric and model together and voids both measured bases.
-
-## Open questions for approval
-
-1. Stored `job_postings.verdict` (recommended) vs. a shared derivation function. The
-   stored column is the larger schema change but deletes the most code.
-2. Confirmation-gate semantics: model stages wait until confirmation (recommended) vs.
-   only a small capped calibration pass.
