@@ -20,7 +20,7 @@ behavior. Completed work belongs in CHANGELOG, not this queue.
   older screened postings stay `unassessed` and listed. Rollback = drop `--jev` from the
   worker's flags and restart; the table is additive.
 
-- **Web UX pass — one PR per issue, remaining: #208 Sources -> #210 Activity; #209 (MCP reads via `/api/v1`) is
+- **Web UX pass — one PR per issue, remaining: #210 Activity; #209 (MCP reads via `/api/v1`) is
   research after those land** `[WEB · L]`. Branches `feat/<issue>-*`; each issue body is
   the agreed spec. #205 shipped the proposed Ghosted -> Rejected mapping and 60-day Active
   window unconfirmed by the operator; its data migration

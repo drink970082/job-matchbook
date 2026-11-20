@@ -26,11 +26,10 @@ describe('Watchlist actions', () => {
       mockPrisma.watched_companies.findMany.mockResolvedValue(rows as any)
       mockPrisma.watched_companies.count.mockResolvedValue(1)
       ;(mockPrisma.job_postings.groupBy as any).mockResolvedValue([{ source: 'greenhouse', company_slug: 'acme', _count: 4 }])
-      ;(mockPrisma.job_postings.aggregate as any).mockResolvedValue({ _max: { source_last_seen_at: null } })
 
       const result = await getWatchedCompanies()
 
-      expect(result).toEqual({ data: [{ ...rows[0], postings_30d: 4, pending: true }], total: 1 })
+      expect(result).toEqual({ data: [{ ...rows[0], postings_30d: 4, pending: false }], total: 1 })
       expect(mockPrisma.watched_companies.findMany).toHaveBeenCalledWith(
         expect.objectContaining({ orderBy: { name: 'asc' } })
       )

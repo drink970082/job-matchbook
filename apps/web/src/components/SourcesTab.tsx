@@ -30,15 +30,18 @@ type Sort = { key: 'name' | 'postings_30d'; dir: 'asc' | 'desc' }
 function AddBoard({ onAdded }: { onAdded: () => void }) {
     const [url, setUrl] = useState('')
     const [name, setName] = useState('')
+    const [nameEdited, setNameEdited] = useState(false)
     const [saving, setSaving] = useState(false)
     const resolved = url.trim() ? resolveBoardUrl(url) : null
 
     const change = (v: string) => {
         setUrl(v)
         const r = resolveBoardUrl(v)
-        setName(r ? nameFromSlug(r.slug) : '')
+        if (!nameEdited) setName(r ? nameFromSlug(r.slug) : '')
     }
-    const add = async () => {
+    const add = async (e: React.FormEvent) => {
+        e.preventDefault()
+        if (!resolved || !name.trim() || saving) return
         setSaving(true)
         try {
             const result = await addWatchedCompany({ url, name })
@@ -46,20 +49,23 @@ function AddBoard({ onAdded }: { onAdded: () => void }) {
             toast.success(`Added ${name}: fetched on the next worker pass`)
             setUrl('')
             setName('')
+            setNameEdited(false)
             onAdded()
+        } catch (err: any) {
+            toast.error(err?.message ?? 'Could not add the board')
         } finally {
             setSaving(false)
         }
     }
 
     return (
-        <div className="space-y-2">
+        <form className="space-y-2" onSubmit={add}>
             <div className="flex flex-wrap gap-2">
                 <Input aria-label="Careers or job URL" placeholder="Paste a careers or job URL, e.g. https://boards.greenhouse.io/acme"
                     value={url} onChange={(e) => change(e.target.value)} className="flex-[2] min-w-[18rem]" />
                 <Input aria-label="Company name" placeholder="Company name" value={name}
-                    onChange={(e) => setName(e.target.value)} disabled={!resolved} className="flex-1 min-w-[10rem]" />
-                <Button onClick={add} disabled={!resolved || !name.trim() || saving}>Add board</Button>
+                    onChange={(e) => { setName(e.target.value); setNameEdited(true) }} disabled={!resolved} className="flex-1 min-w-[10rem]" />
+                <Button type="submit" disabled={!resolved || !name.trim() || saving}>Add board</Button>
             </div>
             {url.trim() && (
                 <p className="text-xs text-muted-foreground">
@@ -68,7 +74,7 @@ function AddBoard({ onAdded }: { onAdded: () => void }) {
                         : 'This site needs a custom recipe - set it up from your AI client with the onboard-board skill.'}
                 </p>
             )}
-        </div>
+        </form>
     )
 }
 
@@ -98,7 +104,8 @@ export function SourcesTab({ sources }: { sources: WatchedSource[] }) {
 
     const remove = async (s: WatchedSource) => {
         if (!window.confirm(`Stop fetching ${s.name} (${s.source})? Postings already fetched stay.`)) return
-        const result = await removeWatchedCompany(s.id)
+        let result: Awaited<ReturnType<typeof removeWatchedCompany>>
+        try { result = await removeWatchedCompany(s.id) } catch (err: any) { return toast.error(err?.message ?? 'Could not remove the board') }
         if (!result.success) return toast.error(result.error)
         toast.success(`Removed ${s.name}`)
         router.refresh()

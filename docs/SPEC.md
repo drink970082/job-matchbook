@@ -1498,8 +1498,8 @@ worker modules are pure and dependency-injected; real services are wired only in
     unchanged; candidates are not presented as qualified.
   - *Watchlist:* `getWatchedCompanies` (name asc, each row with `postings_30d`: postings
     with that `source` + `company_slug` created in the last 30 days, the MCP
-    `list_sources` figure, and `pending` while the board was added after the newest
-    `source_last_seen_at`, i.e. before any worker pass fetched it); `addWatchedCompany`
+    `list_sources` figure, and `pending` for a board that never produced a posting and
+    was added in the last 48h, the worker recording no per-board fetch); `addWatchedCompany`
     (takes a careers/job `url`, resolved by `lib/board-url.ts` — a site it cannot resolve
     gets the onboard-board recipe message — or `source` + `slug`, not both; validates
     `source ∈ VALID_SOURCES`, dedups `(source, slug)`, and rejects a `slug` outside

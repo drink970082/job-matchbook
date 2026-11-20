@@ -17,6 +17,12 @@ const SLUG_FIRST_HOSTS: Record<string, string> = {
 // Boards addressed by a subdomain: {slug}.pinpointhq.com, {slug}.icims.com.
 const SUBDOMAIN_HOSTS: Record<string, string> = { 'pinpointhq.com': 'pinpoint', 'icims.com': 'icims' }
 const LOCALE = /^[a-z]{2}(-[A-Za-z]{2})?$/
+// The watchlist's slug rule (addWatchedCompany): a resolved slug outside it, e.g. an
+// Ashby "Initech%20Inc", is not offered as resolvable.
+export const SLUG_OK = (slug: string) => /^[A-Za-z0-9._/-]+$/.test(slug) && !slug.includes('..')
+    && !slug.startsWith('/') && !slug.endsWith('/') && !slug.includes('//')
+// First path segments that are a route on the host, not a company slug.
+const NOT_A_SLUG = new Set(['j', 'embed', 'oneclick-ui', 'wday', 'api', 'jobs'])
 
 function decode(s: string): string | null {
     try { return decodeURIComponent(s) } catch { return null }
@@ -32,7 +38,9 @@ export function resolveBoardUrl(raw: string | null | undefined): ResolvedBoard |
     if (u.protocol !== 'https:' && u.protocol !== 'http:') return null
     const host = u.hostname.toLowerCase()
     const parts = u.pathname.split('/').filter(Boolean)
-    const board = (source: string, slug: string | null | undefined) => (slug ? { source, slug } : null)
+    // Single-segment slugs never contain '/' (a decoded %2F); workday's is built below.
+    const board = (source: string, slug: string | null | undefined, multi = false) =>
+        (slug && SLUG_OK(slug) && (multi || !slug.includes('/')) && !NOT_A_SLUG.has(slug) ? { source, slug } : null)
 
     if (GREENHOUSE_HOSTS.has(host)) {
         // boards.greenhouse.io/embed/job_board?for=acme names the board in a query param.
@@ -55,7 +63,8 @@ export function resolveBoardUrl(raw: string | null | undefined): ResolvedBoard |
         if (labels.length < 4 || !labels[0] || !labels[1]) return null
         const job = parts.indexOf('job')
         const site = job > 0 ? parts[job - 1] : parts.find((p) => !LOCALE.test(p))
-        return site && !LOCALE.test(site) ? board('workday', `${labels[0]}/${labels[1]}/${site}`) : null
+        return site && !LOCALE.test(site) && !NOT_A_SLUG.has(site) && !site.includes('/')
+            ? board('workday', `${labels[0]}/${labels[1]}/${site}`, true) : null
     }
     return null
 }

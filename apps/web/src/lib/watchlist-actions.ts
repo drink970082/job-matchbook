@@ -3,7 +3,7 @@
 import { prisma } from '@/lib/db'
 import { type Actor, VALID_SOURCES, RECIPE_SOURCES } from '@/lib/constants'
 import { checkedActor } from '@/lib/action-helpers'
-import { resolveBoardUrl } from '@/lib/board-url'
+import { resolveBoardUrl, SLUG_OK } from '@/lib/board-url'
 
 // --- Watchlist (DB-backed; the worker fetches these companies in full) ------
 // The watchlist moved out of the worker's config.yaml into the DB. The Sources tab and
@@ -25,19 +25,21 @@ function watchlistAudit(actor: Actor, action: 'add' | 'remove', row: WatchedRow)
 // created_at as canonical UTC `...T..:..:..sssZ`; a hand-made non-UTC value could differ.
 export async function getWatchedCompanies() {
     const cutoff = new Date(Date.now() - 30 * 86_400_000).toISOString()
-    const [rows, total, counts, seen] = await Promise.all([
+    const [rows, total, counts, ever] = await Promise.all([
         prisma.watched_companies.findMany({ orderBy: { name: 'asc' } }),
         prisma.watched_companies.count(),
         prisma.job_postings.groupBy({ by: ['source', 'company_slug'], where: { created_at: { gte: cutoff } }, _count: true }),
-        prisma.job_postings.aggregate({ _max: { source_last_seen_at: true } }),
+        prisma.job_postings.groupBy({ by: ['source', 'company_slug'], _count: true }),
     ])
     const n = new Map(counts.map((c) => [`${c.source}/${c.company_slug}`, c._count]))
-    // The latest listing the worker saw stands in for its last pass: a board added after
-    // it has not been fetched yet ("pending first fetch", not "no postings").
-    const lastPass = seen._max.source_last_seen_at
+    // ponytail: the worker records no per-board fetch, so "pending first fetch" is a board
+    // that never produced a posting and was added in the last 48h (a daily worker has had
+    // a pass by then); a per-board last-fetched stamp would make it exact.
+    const all = new Set(ever.map((c) => `${c.source}/${c.company_slug}`))
+    const recent = new Date(Date.now() - 2 * 86_400_000).toISOString()
     return { data: rows.map((r) => ({
         ...r, postings_30d: n.get(`${r.source}/${r.slug}`) ?? 0,
-        pending: !lastPass || r.created_at > lastPass,
+        pending: !all.has(`${r.source}/${r.slug}`) && r.created_at > recent,
     })), total }
 }
 
@@ -69,8 +71,7 @@ export async function addWatchedCompany(input: {
         // (e.g. https://{slug}.icims.com). Allow alnum . _ - and single '/'-joined
         // segments (workday "tenant/dc/site", phenom "host/domain"); block host-injection
         // metacharacters (@ : ? # % \ whitespace) and path traversal.
-        if (!/^[A-Za-z0-9._/-]+$/.test(slug) || slug.includes('..') ||
-            slug.startsWith('/') || slug.endsWith('/') || slug.includes('//')) {
+        if (!SLUG_OK(slug)) {
             return { success: false, error: 'slug contains invalid characters' }
         }
         if (!(VALID_SOURCES as readonly string[]).includes(source)) {

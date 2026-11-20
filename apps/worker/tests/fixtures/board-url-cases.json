@@ -1,28 +1,152 @@
 {
-  "_doc": "URL -> watchlist (source, slug), or null when the site needs a custom recipe (#208). The web resolver (apps/web/src/lib/board-url.ts) runs every case; the worker's feed/resolve.py runs the `job: true` ones (a URL carrying a job id) and must agree on source and slug.",
+  "_doc": "URL -> watchlist (source, slug), or null when the web cannot add it from the URL (a custom/browser recipe site, a feed-only source such as oracle, or a slug the watchlist rejects) (#208). The web resolver (apps/web/src/lib/board-url.ts) runs every case. The worker's feed/resolve.py handles job URLs only, so it runs the `job: true` cases and must agree on source and slug; board URLs and null cases are web-only.",
   "cases": [
-    {"url": "https://boards.greenhouse.io/acme/jobs/4012345", "source": "greenhouse", "slug": "acme", "job": true},
-    {"url": "https://job-boards.greenhouse.io/acme", "source": "greenhouse", "slug": "acme"},
-    {"url": "https://job-boards.eu.greenhouse.io/acme/jobs/77", "source": "greenhouse", "slug": "acme", "job": true},
-    {"url": "https://boards.greenhouse.io/embed/job_board?for=acme", "source": "greenhouse", "slug": "acme"},
-    {"url": "https://jobs.lever.co/globex/0c1d2e3f-aaaa-bbbb-cccc-1234567890ab", "source": "lever", "slug": "globex", "job": true},
-    {"url": "https://jobs.lever.co/globex", "source": "lever", "slug": "globex"},
-    {"url": "https://jobs.ashbyhq.com/Initech%20Inc/5f0e1d2c-0000-1111-2222-333344445555", "source": "ashby", "slug": "Initech Inc", "job": true},
-    {"url": "https://jobs.ashbyhq.com/initech", "source": "ashby", "slug": "initech"},
-    {"url": "https://jobs.smartrecruiters.com/Hooli/744000012345678-backend-engineer", "source": "smartrecruiters", "slug": "Hooli", "job": true},
-    {"url": "https://careers.smartrecruiters.com/Hooli", "source": "smartrecruiters", "slug": "Hooli"},
-    {"url": "https://apply.workable.com/umbrella/j/AB12CD34EF/", "source": "workable", "slug": "umbrella", "job": true},
-    {"url": "https://relx.wd3.myworkdayjobs.com/en-US/relx/job/UK---London/Software-Engineer-I_R100158-2", "source": "workday", "slug": "relx/wd3/relx", "job": true},
-    {"url": "https://nvidia.wd5.myworkdayjobs.com/NVIDIAExternalCareerSite", "source": "workday", "slug": "nvidia/wd5/NVIDIAExternalCareerSite"},
-    {"url": "https://nvidia.wd5.myworkdayjobs.com/en-US/NVIDIAExternalCareerSite?q=ml", "source": "workday", "slug": "nvidia/wd5/NVIDIAExternalCareerSite"},
-    {"url": "https://acme.pinpointhq.com/postings/1234", "source": "pinpoint", "slug": "acme"},
-    {"url": "https://careers-acme.icims.com/jobs/search", "source": "icims", "slug": "careers-acme"},
-    {"url": "https://www.acme.com/careers", "source": null, "slug": null},
-    {"url": "https://careers.acme.com/job/1?gh_jid=4012345", "source": null, "slug": null},
-    {"url": "https://jpmc.fa.oraclecloud.com/hcmUI/CandidateExperience/en/sites/CX_1001/job/210706680", "source": null, "slug": null},
-    {"url": "https://boards.greenhouse.io/embed/job_app?token=123", "source": null, "slug": null},
-    {"url": "https://acme.wd1.myworkdayjobs.com/en-US", "source": null, "slug": null},
-    {"url": "javascript:alert(1)", "source": null, "slug": null},
-    {"url": "not a url", "source": null, "slug": null}
+    {
+      "url": "https://boards.greenhouse.io/acme/jobs/4012345",
+      "source": "greenhouse",
+      "slug": "acme",
+      "job": true
+    },
+    {
+      "url": "https://job-boards.greenhouse.io/acme",
+      "source": "greenhouse",
+      "slug": "acme"
+    },
+    {
+      "url": "https://job-boards.eu.greenhouse.io/acme/jobs/77",
+      "source": "greenhouse",
+      "slug": "acme",
+      "job": true
+    },
+    {
+      "url": "https://boards.greenhouse.io/embed/job_board?for=acme",
+      "source": "greenhouse",
+      "slug": "acme"
+    },
+    {
+      "url": "https://jobs.lever.co/globex/0c1d2e3f-aaaa-bbbb-cccc-1234567890ab",
+      "source": "lever",
+      "slug": "globex",
+      "job": true
+    },
+    {
+      "url": "https://jobs.lever.co/globex",
+      "source": "lever",
+      "slug": "globex"
+    },
+    {
+      "url": "https://jobs.ashbyhq.com/initech-inc/5f0e1d2c-0000-1111-2222-333344445555",
+      "source": "ashby",
+      "slug": "initech-inc",
+      "job": true
+    },
+    {
+      "url": "https://jobs.ashbyhq.com/initech",
+      "source": "ashby",
+      "slug": "initech"
+    },
+    {
+      "url": "https://jobs.smartrecruiters.com/Hooli/744000012345678-backend-engineer",
+      "source": "smartrecruiters",
+      "slug": "Hooli",
+      "job": true
+    },
+    {
+      "url": "https://careers.smartrecruiters.com/Hooli",
+      "source": "smartrecruiters",
+      "slug": "Hooli"
+    },
+    {
+      "url": "https://apply.workable.com/umbrella/j/AB12CD34EF/",
+      "source": "workable",
+      "slug": "umbrella",
+      "job": true
+    },
+    {
+      "url": "https://relx.wd3.myworkdayjobs.com/en-US/relx/job/UK---London/Software-Engineer-I_R100158-2",
+      "source": "workday",
+      "slug": "relx/wd3/relx",
+      "job": true
+    },
+    {
+      "url": "https://nvidia.wd5.myworkdayjobs.com/NVIDIAExternalCareerSite",
+      "source": "workday",
+      "slug": "nvidia/wd5/NVIDIAExternalCareerSite"
+    },
+    {
+      "url": "https://nvidia.wd5.myworkdayjobs.com/en-US/NVIDIAExternalCareerSite?q=ml",
+      "source": "workday",
+      "slug": "nvidia/wd5/NVIDIAExternalCareerSite"
+    },
+    {
+      "url": "https://acme.pinpointhq.com/postings/1234",
+      "source": "pinpoint",
+      "slug": "acme"
+    },
+    {
+      "url": "https://careers-acme.icims.com/jobs/search",
+      "source": "icims",
+      "slug": "careers-acme"
+    },
+    {
+      "url": "https://www.acme.com/careers",
+      "source": null,
+      "slug": null
+    },
+    {
+      "url": "https://careers.acme.com/job/1?gh_jid=4012345",
+      "source": null,
+      "slug": null
+    },
+    {
+      "url": "https://jpmc.fa.oraclecloud.com/hcmUI/CandidateExperience/en/sites/CX_1001/job/210706680",
+      "source": null,
+      "slug": null
+    },
+    {
+      "url": "https://boards.greenhouse.io/embed/job_app?token=123",
+      "source": null,
+      "slug": null
+    },
+    {
+      "url": "https://acme.wd1.myworkdayjobs.com/en-US",
+      "source": null,
+      "slug": null
+    },
+    {
+      "url": "javascript:alert(1)",
+      "source": null,
+      "slug": null
+    },
+    {
+      "url": "not a url",
+      "source": null,
+      "slug": null
+    },
+    {
+      "url": "https://jobs.ashbyhq.com/Initech%20Inc",
+      "source": null,
+      "slug": null
+    },
+    {
+      "url": "https://apply.workable.com/j/AB12CD34EF",
+      "source": null,
+      "slug": null
+    },
+    {
+      "url": "https://jobs.smartrecruiters.com/oneclick-ui/company/Hooli/publication/1",
+      "source": null,
+      "slug": null
+    },
+    {
+      "url": "https://acme.wd5.myworkdayjobs.com/wday/cxs/acme/site/jobs",
+      "source": null,
+      "slug": null
+    },
+    {
+      "url": "https://boards.greenhouse.io/a%2Fb",
+      "source": null,
+      "slug": null
+    }
   ]
 }
