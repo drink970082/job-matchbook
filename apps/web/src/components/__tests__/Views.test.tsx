@@ -19,6 +19,7 @@ jest.mock('@/lib/job-actions')
 jest.mock('@/lib/preference-actions')
 jest.mock('@/lib/category-actions')
 jest.mock('@/lib/activity-actions')
+jest.mock('@/components/QuotaBar', () => ({ QuotaBar: () => <div data-testid="quota" /> }))
 jest.mock('@/components/SankeyChart', () => ({ SankeyChart: () => <div data-testid="sankey" /> }))
 jest.mock('@/components/TimelineHeatmap', () => ({ TimelineHeatmap: () => <div data-testid="heatmap" /> }))
 jest.mock('@/components/CategoryDonut', () => ({ CategoryDonut: () => <div data-testid="donut" /> }))
@@ -32,11 +33,6 @@ beforeEach(() => {
     ;(watchlistActions.getWatchedCompanies as jest.Mock).mockResolvedValue({ data: [
         { id: 1, source: 'greenhouse', slug: 'acme', name: 'Acme', postings_30d: 12 },
     ], total: 1 })
-    ;(activityActions.getRecentActivity as jest.Mock).mockResolvedValue({
-        applications: [{ id: 5, company_name: 'Acme', job_title: 'Engineer', date_applied: '2026-11-18', actor: 'mcp' }],
-        statusChanges: [],
-        changes: [{ id: 9, at: '2026-11-19T00:00:00Z', actor: 'web', action: 'update', entity: 'jev_profile', entity_id: 1, label: 'JEV profile v2' }],
-    })
 })
 
 const appProps = {
@@ -120,11 +116,22 @@ test('overlapping inventory requests never show stale rows under newer filters',
     expect(screen.queryByText('Old page row')).not.toBeInTheDocument()
 })
 
-test('the Activity view marks MCP writes', async () => {
-    render(<ActivityTab activity={await activityActions.getRecentActivity()} />)
-    expect(screen.getByText('Acme - Engineer')).toBeInTheDocument()
-    expect(screen.getByText('via MCP')).toBeInTheDocument()
-    expect(screen.getByText('update JEV profile v2')).toBeInTheDocument()
+test('the Activity view: status strip, one timeline marking only MCP, Load more', async () => {
+    const status = { lastFetchedAt: '2020-01-01T00:00:00Z', new24h: 3, new7d: 40, assessed24h: 12, failures24h: 1, spend7dUsd: 0.0042 }
+    const initial = { items: [
+        { key: 'c9', at: '2026-11-19T00:00:00Z', actor: 'web', text: 'Updated the JEV profile' },
+        { key: 'a5', at: '2026-11-18', actor: 'mcp', text: 'Applied to Acme - Engineer' },
+    ], hasMore: true, nextOffset: 2, capped: false }
+    const loadMore = jest.fn().mockResolvedValue({ items: [{ key: 'h1', at: '2026-11-01', actor: 'web', text: 'Acme - Engineer -> Interviewing' }],
+        hasMore: false, nextOffset: 3, capped: false })
+    render(<ActivityTab status={status} initial={initial} loadMore={loadMore} />)
+    expect(screen.getByText('USD 0.0042')).toBeInTheDocument()
+    expect(screen.getByText(/worker may be stopped/)).toBeInTheDocument()
+    expect(screen.getAllByText('via MCP')).toHaveLength(1)
+    fireEvent.click(screen.getByRole('button', { name: 'Load more' }))
+    await waitFor(() => expect(screen.getByText('Acme - Engineer -> Interviewing')).toBeInTheDocument())
+    expect(loadMore).toHaveBeenCalledWith(2)
+    expect(screen.queryByRole('button', { name: 'Load more' })).toBeNull()
 })
 
 const TEMPLATES = Object.fromEntries(['claude-code.txt', 'claude-desktop.json', 'codex.txt', 'chatgpt.txt',

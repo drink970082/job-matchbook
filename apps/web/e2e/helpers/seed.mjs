@@ -87,6 +87,7 @@ function client(url) {
 
 async function clear(prisma) {
     await prisma.status_history.deleteMany()
+    await prisma.audit_log.deleteMany()
     await prisma.job_postings.deleteMany()
     await prisma.applications.deleteMany()
     await prisma.watched_companies.deleteMany()

@@ -31,7 +31,7 @@ test('job-actions exports no pipeline-status mutation besides markJobApplied', a
 test('the Sources and Activity pages read only; Sources writes only board add/remove', () => {
     const pages = src('app/sources/page.tsx') + src('app/activity/page.tsx')
     expect(pages.match(/^import \{([^}]*)\} from '@\/lib\/watchlist-actions'/m)?.[1].trim()).toBe('getWatchedCompanies')
-    expect(pages.match(/^import \{([^}]*)\} from '@\/lib\/activity-actions'/m)?.[1].trim()).toBe('getRecentActivity')
+    expect(pages.match(/^import \{([^}]*)\} from '@\/lib\/activity-actions'/m)?.[1].trim()).toBe('getActivityStatus, getActivityTimeline')
     expect(valueImportsFromActions(src('components/SourcesTab.tsx'))).toEqual(['addWatchedCompany, removeWatchedCompany'])
     expect(pages + src('components/SourcesTab.tsx')).not.toMatch(/promotion-actions/)
 })
