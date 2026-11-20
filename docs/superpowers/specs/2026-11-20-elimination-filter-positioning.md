@@ -17,7 +17,7 @@ can't**.
 The promise is about **recall with safe elimination**, not about precision at the top of
 a list. Match scores are not a product goal. In this repo, fit scores were measured as
 rubric-band noise, and ranking within `keep` tied publication-time order (SCORING.md,
-SPEC §7.1).
+SPEC section 7.1).
 
 **Audience:** new graduates and international students. These are high-volume applicants
 for whom hard requirements decide most outcomes: work authorization and sponsorship,
