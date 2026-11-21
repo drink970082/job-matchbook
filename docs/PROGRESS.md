@@ -14,6 +14,8 @@ behavior. Completed work belongs in CHANGELOG, not this queue.
 - **Recipe JSON Schema, validated at every entry point — PR open, awaiting review**
   `[WORKER+WEB · M]` (#238, epic #236; branch `feat/238-recipe-json-schema`). An invalid
   stored recipe is logged and skipped per board; recording it as a board-health status is #231.
+- **Closed postings leave every Discovered Jobs stage — in progress** `[WEB+MCP · S]`
+  (#265, epic #229; branch `feat/265-closed-leaves-stages`).
 
 These references reserve unfinished work; they do not claim the branches are currently
 executing or establish merge readiness. Inspect actual refs/worktrees and coordinate
