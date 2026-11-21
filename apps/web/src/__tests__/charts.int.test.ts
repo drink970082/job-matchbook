@@ -41,10 +41,11 @@ test('getStatusFlow: no history + Applied collapses to Applied -> No Response', 
     expect(res.data).toEqual([{ from: 'Applied', to: 'No Response', value: 1 }])
 })
 
-test('getStatusFlow: no history + non-Applied status flows Applied -> status', async () => {
-    await prisma.applications.create({ data: makeApplication({ status: 'Interview' }) })
+test('getStatusFlow reads the history chain only; a status outside history adds no edge', async () => {
+    // Every application starts with an Applied row (#243), so status is the history tail.
+    await appWithHistory('Interview', ['Applied'])
     const res = await getStatusFlow()
-    expect(res.data).toEqual([{ from: 'Applied', to: 'Interview', value: 1 }])
+    expect(res.data).toEqual([{ from: 'Applied', to: 'No Response', value: 1 }])
 })
 
 test('getStatusFlow: a history chain becomes consecutive transitions (dedup)', async () => {
@@ -71,10 +72,9 @@ test('getStatusFlow: identical transitions across apps are counted', async () =>
 })
 
 test('getStatusFlow: a multi-hop chain (>=3 distinct statuses) emits every consecutive edge once', async () => {
-    // 4 distinct statuses via 3 history rows + a final status that differs from the
-    // tail: Applied -> OA -> Interviewing -> Rejected. No edge should be skipped or
+    // Applied -> OA -> Interviewing -> Rejected. No edge should be skipped or
     // duplicated (no phantom Applied->Interviewing or Applied->Rejected edges).
-    await appWithHistory('Rejected', ['Applied', 'OA', 'Interviewing'])
+    await appWithHistory('Rejected', ['Applied', 'OA', 'Interviewing', 'Rejected'])
     const res = await getStatusFlow()
     expect(res.data).toEqual([
         { from: 'Applied', to: 'OA', value: 1 },

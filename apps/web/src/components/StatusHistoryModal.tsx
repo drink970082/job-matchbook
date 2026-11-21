@@ -225,6 +225,7 @@ export function StatusHistoryModal({
                                     id="date"
                                     type="date"
                                     value={newDate}
+                                    max={todayISO()}
                                     onChange={(e) => setNewDate(e.target.value)}
                                     required
                                 />

@@ -35,6 +35,16 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 
 ### Changed
 
+- **Application status is the latest history row** (#243): `applications.status` is the
+  status of the latest `status_history` row by timestamp (ties by id) on every write,
+  so a backdated status change no longer becomes current because it was written last.
+  Creating an application (add, Mark Applied, CSV import) writes its initial `Applied`
+  row dated `date_applied`; `getStatusFlow` reads the chain from history alone.
+  `prisma/backfill-applied-history-243.mjs` adds the row to existing applications and
+  recomputes their status (data-only, idempotent; back up `db/` first). A status change
+  dated today is stamped now, not noon, and no change is stamped later than now. `updateApplicationStatus`, `/api/v1` and MCP
+  `update_application_status` return the current status and the recorded one, and the
+  UI says when a backdated change did not become current.
 - **`run_expire` writes `source_state='closed'`** (#230) on a 404/410 instead of
   `pipeline_status='expired'`; lifecycle and `updated_at` stay untouched. `expired` is a
   legacy status nothing writes; `prisma/migrate-expired-230.mjs` turns stored `expired`

@@ -83,6 +83,14 @@ test('status update appends history with actor=mcp', async () => {
     expect(hist[0].timestamp).toBe('2026-11-17T12:00:00.000Z')
 })
 
+test('status update returns the current status, which a backdated change does not move', async () => {
+    const app = await prisma.applications.create({ data: makeApplication() })
+    await postStatus(req({ status: 'Interviewing', date: '2026-11-10' }, RW), params(app.id))
+    const res = await postStatus(req({ status: 'Rejected', date: '2026-11-01' }, RW), params(app.id))
+    expect(res.status).toBe(200)
+    expect((await res.json()).data).toEqual({ status: 'Interviewing', recorded: 'Rejected' })
+})
+
 test('status validation is the UI function: same error through both paths', async () => {
     const app = await prisma.applications.create({ data: makeApplication() })
     const ui = await updateApplicationStatus(app.id, 'Nonsense')

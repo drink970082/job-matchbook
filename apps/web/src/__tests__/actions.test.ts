@@ -177,10 +177,13 @@ describe('Backend Actions', () => {
       // $transaction is overloaded (batch array + interactive callback); only `any`
       // satisfies both overloads for mockImplementation. Explicit, not implicit.
       mockPrisma.$transaction.mockImplementation(async (callback: any) => await callback(mockPrisma))
+      // Status is read back from the latest history row (#243).
+      mockPrisma.status_history.findFirst.mockResolvedValue({ status: newStatus } as any)
+      mockPrisma.applications.update.mockResolvedValue({ id: appId, status: newStatus } as any)
 
       const result = await updateApplicationStatus(appId, newStatus)
 
-      expect(result.success).toBe(true)
+      expect(result).toEqual({ success: true, data: { status: newStatus, recorded: newStatus } })
       expect(mockPrisma.applications.update).toHaveBeenCalledWith(expect.objectContaining({
         where: { id: appId },
         data: expect.objectContaining({ status: newStatus })
@@ -231,12 +234,15 @@ describe('Backend Actions', () => {
       // markJobApplied wraps create + backfill in a $transaction
       mockPrisma.$transaction.mockImplementation(async (cb: any) => cb(mockPrisma))
       mockPrisma.applications.findFirst.mockResolvedValue(null)
-      mockPrisma.applications.create.mockResolvedValue({ id: 42, company_name: 'Acme', job_title: 'Backend Engineer' } as any)
+      mockPrisma.applications.create.mockResolvedValue({ id: 42, company_name: 'Acme', job_title: 'Backend Engineer',
+        date_applied: '2026-01-05', status: 'Applied', actor: 'web' } as any)
       mockPrisma.job_postings.updateMany.mockResolvedValue({ count: 1 } as any)
 
       const result = await markJobApplied(7, undefined, { stage: 'all' })
 
       expect(result.success).toBe(true)
+      expect(mockPrisma.status_history.create).toHaveBeenCalledWith({ data: {
+        application_id: 42, status: 'Applied', timestamp: '2026-01-05T00:00:00.000Z', actor: 'web' } })
       expect(mockPrisma.$transaction).toHaveBeenCalled()
       expect(mockPrisma.applications.create).toHaveBeenCalledWith(
         expect.objectContaining({
