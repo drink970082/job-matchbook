@@ -74,6 +74,35 @@ test('each posting lands in exactly one funnel stage', async () => {
     expect((await ids('all')).sort()).toEqual(['applied', 'keep', 'screen', 'skip', 'unassessed'])
 })
 
+// #265: a posting closed at its source leaves every stage for `closed`; MCP list_jobs
+// reads the same fixture (worker/tests/test_jev_status_parity.py).
+type ClosedCase = { name: string; pipeline_status: string; source_state: string; screen: 'pass' | 'reject' | null;
+    verdict: 'keep' | 'skip' | null; stage: string }
+const CLOSED_CASES: ClosedCase[] = JSON.parse(readFileSync(
+    path.join(__dirname, '../../../worker/tests/fixtures/closed-stage-cases.json'), 'utf8')).cases
+const SCREENS = { pass: PASSED_SCREEN, reject: '{"disqualified":true,"screen":{"degree":{"pass":false,"note":"PhD"}}}' }
+
+test('closed postings are in no stage but closed, per the shared cases', async () => {
+    for (const c of CLOSED_CASES) {
+        const p = await posting({ external_id: c.name, pipeline_status: c.pipeline_status, source_state: c.source_state,
+            source_content_revision: 1 }, c.screen ? SCREENS[c.screen] : null)
+        if (c.verdict) {
+            await prisma.job_jev_assessments.create({ data: { job_posting_id: p.id, state: 'complete', verdict: c.verdict,
+                reasons_json: '[]', policy_sha256: 'p', source_content_revision: 1, last_attempted_at: 'x', created_at: 'x' } })
+        }
+    }
+    const { JOB_STAGES } = await import('@/lib/job-stages')
+    expect(JOB_STAGES).toContain('closed')
+    for (const stage of JOB_STAGES) {
+        const { data, total } = await getJobPostings({ stage, size: 100 })
+        const expected = CLOSED_CASES.filter((c) => c.stage === stage).map((c) => c.name).sort()
+        expect([stage, data.map((j: any) => j.external_id).sort()]).toEqual([stage, expected])
+        expect(total).toBe(expected.length)
+        for (const row of data) expect(row.stage).toBe(stage)
+    }
+    expect((await getJobPostings({ stage: 'all', size: 100 })).total).toBe(CLOSED_CASES.length)
+})
+
 test('mark applied is limited to the view that offered it', async () => {
     const p = await posting({ external_id: 'unassessed' })
     expect(await markJobApplied(p.id, 'SWE', { stage: 'keep' })).toEqual({ success: false, error: 'Job is outside the requested view and filters' })

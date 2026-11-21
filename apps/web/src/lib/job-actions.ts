@@ -261,12 +261,12 @@ const JEV_JOIN_SQL = `LEFT JOIN job_jev_assessments j ON j.job_posting_id=p.id
 // parts, and the searched form would evaluate each twice per row.
 const STAGE_AFTER_TRIAGE_SQL = `CASE WHEN p.pipeline_status<>'new' THEN 'other'
     ELSE CASE (${JEV_STATUS_SQL}) WHEN 'keep' THEN 'keep' WHEN 'skip' THEN 'jev_skip' ELSE 'unassessed' END END`
-const STAGE_SQL = `CASE (${TRIAGE_STATUS_SQL})
+const STAGE_SQL = `CASE WHEN p.source_state='closed' THEN 'closed' ELSE CASE (${TRIAGE_STATUS_SQL})
     WHEN 'rule_disqualified' THEN 'rule_rejected'
     WHEN 'screen_disqualified' THEN 'screen_rejected'
     WHEN 'needs_review' THEN CASE WHEN p.pipeline_status='discarded' THEN 'screen_rejected'
         ELSE ${STAGE_AFTER_TRIAGE_SQL} END
-    ELSE ${STAGE_AFTER_TRIAGE_SQL} END`
+    ELSE ${STAGE_AFTER_TRIAGE_SQL} END END`
 
 // "Postings for you" (#207): not applied, not closed at the source, not marked not
 // interested; then JEV keep when JEV is configured (a profile and at least one

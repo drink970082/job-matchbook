@@ -202,6 +202,10 @@ def create_server(repository: ReadOnlyATSRepository | None = None,
                          "configured one: 3+ years or the candidate's own years) and reports "
                          "hidden_skip_count; unassessed postings are always shown. skip "
                          "lists only those; all disables the filter."))] = "keep",
+        closed: Annotated[Literal["exclude", "only", "all"], Field(
+            description=("Postings closed at their source (source_state=closed: absent from 3 "
+                         "board lists, or a 404/410). exclude (default) hides them, only lists "
+                         "just those, all lists both."))] = "exclude",
         limit: Annotated[int, Field(
             ge=1, le=MAX_PAGE_SIZE, description="Page size, at most 100.")] = DEFAULT_PAGE_SIZE,
         cursor: Annotated[str | None, Field(max_length=MAX_CURSOR_CHARS,
@@ -225,7 +229,8 @@ def create_server(repository: ReadOnlyATSRepository | None = None,
             posted_from=posted_from, posted_to=posted_to,
             screening_updated_from=screening_updated_from,
             screening_updated_to=screening_updated_to,
-            application_id=application_id, jev=jev, limit=limit, cursor=cursor,
+            application_id=application_id, jev=jev, closed=closed, limit=limit,
+            cursor=cursor,
         )
 
     @server.tool(annotations=_READ_ONLY)
