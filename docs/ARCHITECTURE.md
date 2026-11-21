@@ -13,7 +13,7 @@ remaining set over MCP.
 | Discovery | Scheduled board/feed collection, official URLs, full JD storage | Supplemental web discovery outside the watchlist |
 | Evidence | Posting identity, source text, timestamps, availability and data quality | Read evidence; verify official pages before recommending |
 | Elimination | Hard-requirements screen and keep/skip triage; every removal carries its reason and can be overridden | Optional analysis and prioritization of the remaining set |
-| Personal context | Hard requirements (`candidate_preferences`) and the JEV profile (`jev_profile`) in the DB; one candidate profile under #223 | Résumé, background, preferences and recommendation rubric |
+| Personal context | One candidate profile (`candidate_profile`) in the DB: search scope, hard requirements, background, preferences | Résumé and recommendation rubric |
 | Delivery | None from the worker; service health stays local | Daily recommendation and notification workflow |
 | Tracking | Applications, status history, watchlist, backups | Consult application history |
 
@@ -37,8 +37,8 @@ flowchart LR
 ## Current implementation
 
 - Next.js/Prisma web app and native Python worker share SQLite with WAL. Prisma owns DDL.
-- A worker pass is fetch -> screen, plus the JEV keep/skip filter when `--jev` is set
-  (`jev_dir` packs; metered OpenRouter calls capped by `--jev-limit` / `--jev-max-usd`
+- A worker pass is fetch -> screen, plus triage (the JEV keep/skip stage) when `--jev`
+  is set (the candidate profile with the default or custom packs; metered OpenRouter calls capped by `--jev-limit` / `--jev-max-usd`
   by default, or `--jev-backend extract` through the screen backend). There is no fit scorer and no Telegram stage.
 - `job_screenings` and `job_jev_assessments` are separate from `pipeline_status`. A
   `new` posting can carry a completed disqualification or a JEV verdict. Missing facts and

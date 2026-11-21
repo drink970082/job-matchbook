@@ -15,12 +15,12 @@ test('one timeline: applications, status changes and audited changes, newest fir
         at, actor: 'web', action, entity, entity_id, payload: typeof payload === 'string' ? payload : JSON.stringify(payload) } })
     await audit('2026-11-19T01:00:00Z', 'watched_companies', 'add', 1, { name: 'Stripe', source: 'greenhouse', slug: 'stripe' })
     await audit('2026-11-19T02:00:00Z', 'job_triage_overrides', 'add', job.id, { job_posting_id: job.id, decision: 'skip' })
-    await audit('2026-11-19T03:00:00Z', 'candidate_preferences', 'update', 1, { before: {}, after: { version: 3 } })
+    await audit('2026-11-19T03:00:00Z', 'candidate_profile', 'update', 1, { before: {}, after: { version: 3 } })
     await audit('2026-11-19T04:00:00Z', 'odd', 'add', 1, 'not json')
 
     const { items, hasMore } = await getActivityTimeline()
     expect(items.map((i) => i.text)).toEqual([
-        'add odd', 'Updated hard requirements', 'Hid Acme - Data Engineer', 'Added board Stripe',
+        'add odd', 'Updated the candidate profile', 'Hid Acme - Data Engineer', 'Added board Stripe',
         'Applied to New - Eng', 'Old - Eng -> Interviewing', 'Applied to Old - Eng',
     ])
     expect(hasMore).toBe(false)

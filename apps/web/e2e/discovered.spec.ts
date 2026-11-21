@@ -7,7 +7,7 @@ test.beforeEach(async () => {
 
 test('Discovered Jobs lists only postings for you, as job-board rows', async ({ page }) => {
     await page.goto('/jobs')
-    await expect(page.getByText(/JEV assesses postings from the last 7 days only/)).toBeVisible()
+    await expect(page.getByText(/Triage assesses postings from the last 7 days only/)).toBeVisible()
     const acme = page.locator('tr', { hasText: 'Acme Robotics' })
     await expect(acme).toBeVisible()
     await expect(acme.getByRole('link', { name: 'Apply: Backend Engineer' })).toHaveAttribute('href', 'https://acme.example/jobs/1')

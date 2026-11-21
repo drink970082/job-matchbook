@@ -117,6 +117,32 @@ def test_the_recorded_config_is_the_effective_one_and_never_a_secret(
     assert row["jev_enabled"] == 1 and row["counts"]["triage"] == {"skipped": "no_profile"}
 
 
+def test_the_recorded_max_age_days_is_the_profile_not_the_config_seed(monkeypatch, tmp_path, offline):
+    dbfile = bootstrap_db(tmp_path / "a.db")
+    conn = db.connect(dbfile)
+    conn.execute("INSERT INTO candidate_profile (id, max_age_days, actor, updated_at) "
+                 "VALUES (1, 3, 'web', '2026-11-20T00:00:00Z')")
+    conn.commit()
+    conn.close()
+    cfg = cfgmod.load_config(CFG + "max_age_days: 14\n")
+    run.run_once(cfg, db_path=dbfile, env={}, fetch_only=True)
+    [row] = _runs(dbfile)
+    assert row["config"]["max_age_days"] == 3
+
+
+def test_triage_skip_reasons_follow_the_profile(monkeypatch):
+    from ats_worker import profile
+    assert run._run_jev_extract(None, None, extract=None, limit=1, model="m", now="x") == {
+        "skipped": "no_profile"}
+    no_role = profile.CandidateProfile()
+    assert run._run_jev(None, no_role, env={"OPENROUTER_API_KEY": "k"}, limit=1,
+                        max_usd=Decimal("1"), now="x") == {"skipped": "no_profile"}
+    bad = profile.CandidateProfile(target_roles=("SWE",),
+                                   custom_packs={"preference_pack": "{}", "yoe_pack": "{}"})
+    assert run._run_jev_extract(None, bad, extract=None, limit=1, model="m", now="x") == {
+        "skipped": "invalid_packs"}
+
+
 def test_start_pass_abandons_only_running_rows(tmp_path):
     conn = db.connect(bootstrap_db(tmp_path / "a.db"))
     first = db.start_pass(conn, now=NOW, fetch_only=False, jev_enabled=False, config={})

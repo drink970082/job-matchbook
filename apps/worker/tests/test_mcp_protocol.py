@@ -60,7 +60,7 @@ async def test_in_memory_protocol_lists_read_only_tools_and_returns_structured_d
             "get_ats_overview", "list_jobs", "get_job", "get_job_description",
             "list_applications", "get_application", "get_application_notes",
             "list_application_history", "list_ats_records", "get_ats_record", "list_sources",
-            "get_setup_status", "get_preferences", "get_jev_profile",
+            "get_setup_status", "get_candidate_profile",
         }
         for tool in listing.tools:
             annotations = tool.model_dump(by_alias=True)["annotations"]

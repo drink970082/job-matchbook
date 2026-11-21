@@ -53,12 +53,12 @@ export function Onboarding({ steps, templates }: { steps: Steps; templates: Temp
                             </div>
                         </details>
                     </Step>
-                    <Step done={steps.requirements} title={<>Set your hard requirements in <Link className="underline" href="/settings">Settings</Link></>}>
-                        Postings that fail one are discarded for free, before any paid model reads them.
+                    <Step done={steps.requirements} title={<>Fill in your candidate profile in <Link className="underline" href="/settings">Settings</Link></>}>
+                        Postings that fail a hard requirement are discarded for free, before any paid model reads them.
                     </Step>
                     <Step done={steps.sources} title={<>Add at least one company board in <Link className="underline" href="/sources">Sources</Link></>} />
-                    <Step done={steps.jev} title={<>Optional: set up JEV in <Link className="underline" href="/settings">Settings</Link></>}>
-                        A paid model (metered) reads each new posting against your profile and marks it keep or skip.
+                    <Step done={steps.triage} title={<>Optional: set up triage in <Link className="underline" href="/settings">Settings</Link></>}>
+                        Add target roles to your profile; a paid model (JEV, metered) then reads each new posting against them and marks it keep or skip.
                     </Step>
                     <Step done={steps.firstFetch} title="Wait for the first fetch">
                         The worker fetches your boards on its next pass; postings then show under Jobs.
