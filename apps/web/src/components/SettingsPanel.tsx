@@ -88,10 +88,14 @@ export function SettingsPanel() {
 
     const stored = loaded?.profile ?? null
     const placeList = lines(d.places)
+    // Unedited locations go back as stored (order and case), so a no-edit save is a no-op.
+    const storedLocs = stored?.locations ?? []
+    const locsUnchanged = placeList.join('\n') === storedLocs.filter((l) => !isRemote(l)).map((l) => l.trim()).join('\n')
+        && d.remote === storedLocs.some(isRemote)
     const patch = () => ({
         title_include: lines(d.titleInclude), title_exclude: lines(d.titleExclude),
         max_age_days: Number(d.maxAge),
-        locations: [...placeList, ...(d.remote ? ['remote'] : [])],
+        locations: locsUnchanged ? storedLocs : [...placeList, ...(d.remote ? ['remote'] : [])],
         work_authorization: d.auth, security_clearance: d.clearance,
         exclude_internships: d.noInterns, exclude_contract: d.noContract,
         education: d.education, experience: d.experience,
@@ -103,7 +107,7 @@ export function SettingsPanel() {
 
     const save = async () => {
         let clean: ReturnType<typeof validateProfilePatch>
-        try { clean = validateProfilePatch(patch()) } catch (e: any) { return toast.error(e.message) }
+        try { clean = validateProfilePatch(patch(), stored?.custom_triage_context?.profile_text) } catch (e: any) { return toast.error(e.message) }
         // A change to what triage reads re-assesses recent postings (paid): confirm first.
         const before = stored as Record<string, unknown> | null
         const triageChanged = TRIAGE_FIELDS.some((k) => k in clean && (k === 'custom_packs'
@@ -216,8 +220,8 @@ export function SettingsPanel() {
             <section className="space-y-3 border-t pt-8">
                 <h3 className="text-lg font-semibold">Background</h3>
                 <p className="text-sm text-muted-foreground">Entered once; the screen and triage both read it.</p>
-                <div className="space-y-2">
-                    <Label>Education</Label>
+                <fieldset className="space-y-2">
+                    <legend className="text-sm font-medium">Education</legend>
                     {d.education.map((e, i) => (
                         <div key={i} className={row}>
                             <select aria-label={`Degree ${i + 1}`} value={e.degree}
@@ -237,9 +241,9 @@ export function SettingsPanel() {
                         Highest degree: {degree ? DEGREE_LABELS[degree as Education['degree']] : '(none listed: degree is not screened)'}.
                         {degree && ' Postings requiring a higher degree are discarded.'}
                     </Help>
-                </div>
-                <div className="space-y-2">
-                    <Label>Experience</Label>
+                </fieldset>
+                <fieldset className="space-y-2">
+                    <legend className="text-sm font-medium">Experience</legend>
                     {d.experience.map((e, i) => (
                         <div key={i} className="grid grid-cols-[1fr_1fr_6rem_auto] gap-2">
                             <Input aria-label={`Title ${i + 1}`} value={e.title} placeholder="e.g. Software Engineer"
@@ -255,7 +259,7 @@ export function SettingsPanel() {
                     <Button type="button" variant="outline" size="sm"
                         onClick={() => set('experience', [...d.experience, { title: '', company: '', years: 0 }])}>Add experience</Button>
                     <Help>Total years of experience: {totalYears(d.experience)} (the sum of the rows). Triage compares it with a posting&apos;s required years.</Help>
-                </div>
+                </fieldset>
             </section>
 
             <section className="space-y-3 border-t pt-8">

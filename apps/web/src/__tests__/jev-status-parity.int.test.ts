@@ -136,9 +136,16 @@ test('postings for you: hard-requirement passes without JEV, JEV keep with it', 
     expect(await getNewJobsCount()).toBe(1)
     expect((await getJobPostings({ postedSince: new Date(Date.now() - 7 * 86_400_000).toISOString().slice(0, 10) })).data.map((j: any) => j.external_id)).toEqual(['passed'])
 
-    await prisma.candidate_profile.create({ data: { id: 1, target_roles: '["Engineer"]', actor: 'config', updated_at: 'x' } })
+    // Old assessments but triage no longer configured (no target role, no custom context):
+    // new postings will never be assessed, so the screen mode stays.
+    await prisma.candidate_profile.create({ data: { id: 1, actor: 'config', updated_at: 'x' } })
     await prisma.job_jev_assessments.create({ data: { job_posting_id: passed.id, state: 'complete', verdict: 'skip',
         reasons_json: '[]', policy_sha256: 'p', source_content_revision: 1, last_attempted_at: 'x', created_at: 'x' } })
+    expect(await getJobsMode()).toBe('screen')
+    expect(await forYou()).toEqual(['old-passed', 'passed'])
+    await prisma.candidate_profile.update({ where: { id: 1 }, data: { custom_triage_context: '{"profile_text":"{}","yoe_context":""}' } })
+    expect(await getJobsMode()).toBe('jev')
+    await prisma.candidate_profile.update({ where: { id: 1 }, data: { custom_triage_context: null, target_roles: '["Engineer"]' } })
     expect(await getJobsMode()).toBe('jev')
     expect(await forYou()).toEqual([])
     await prisma.job_jev_assessments.update({ where: { job_posting_id: passed.id }, data: { verdict: 'keep' } })

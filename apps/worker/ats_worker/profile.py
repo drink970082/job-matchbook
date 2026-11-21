@@ -187,6 +187,13 @@ def _json(raw, name: str):
         raise ProfileError(f"candidate_profile.{name} is not valid JSON") from None
 
 
+def _only_keys(entry: dict, field: str, keys: tuple[str, ...]) -> None:
+    extra = sorted(set(entry) - set(keys))
+    if extra:
+        raise ProfileError(f"candidate_profile.{field}: an entry takes only {', '.join(keys)} "
+                           f"(got {', '.join(extra)})")
+
+
 def from_row(row: dict) -> CandidateProfile:
     """Parse and validate a stored row (a sqlite3.Row as dict). Raises ProfileError on a
     malformed or off-vocabulary value: the screen reads work authorization by substring
@@ -194,12 +201,14 @@ def from_row(row: dict) -> CandidateProfile:
     lists = {k: _str_list(_json(row.get(k, "[]"), k), k) for k in LIST_FIELDS}
     education = []
     for e in _rows(_json(row.get("education", "[]"), "education"), "education"):
+        _only_keys(e, "education", ("degree", "field"))
         if e.get("degree") not in DEGREES:
             raise ProfileError(f"candidate_profile.education degree {e.get('degree')!r} is not "
                                f"one of {DEGREES}")
         education.append({"degree": e["degree"], "field": str(e.get("field") or "")})
     experience = []
     for e in _rows(_json(row.get("experience", "[]"), "experience"), "experience"):
+        _only_keys(e, "experience", ("title", "company", "years"))
         years = e.get("years", 0)
         if isinstance(years, bool) or not isinstance(years, (int, float)) or not 0 <= years <= 60:
             raise ProfileError("candidate_profile.experience years must be a number from 0 to 60")

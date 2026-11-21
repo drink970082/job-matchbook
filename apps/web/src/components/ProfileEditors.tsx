@@ -37,7 +37,8 @@ export function ListEditor({ id, label, help, placeholder, items, onChange }: {
             </div>
             <div className="flex gap-2">
                 <Input id={id} value={draft} placeholder={placeholder} onChange={(e) => setDraft(e.target.value)}
-                    onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); add() } }} />
+                    onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); add() } }}
+                    onBlur={add} /* typed but not added: leaving the box (e.g. for Save) adds it */ />
                 <Button type="button" variant="outline" onClick={add} aria-label={`Add to ${label}`}><Plus className="h-4 w-4" /></Button>
             </div>
             <Help>{help}</Help>
@@ -157,7 +158,7 @@ export function CustomContextEditor({ stored, onChange }: {
             {doc
                 ? <JsonField name="" value={doc} path={[]} onRemove={(p, i) => editDoc(removeAt(doc, p, i))}
                     onSet={(p, v) => editDoc(setAt(doc, p, v))} />
-                : <p className="text-sm">The stored context is not a JSON object, so it can only be edited as raw text below.</p>}
+                : <p className="text-sm">The stored context is not a JSON object: it is kept as written. Edit the experience text below, or rewrite the profile as a JSON object under Advanced.</p>}
             <div className="space-y-1">
                 <Label htmlFor="c-yoe">Education and experience (sent as written)</Label>
                 <Textarea id="c-yoe" rows={3} value={yoe} onChange={(e) => { setYoe(e.target.value); emit(raw, e.target.value) }} />

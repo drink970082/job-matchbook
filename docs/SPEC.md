@@ -851,7 +851,10 @@ worker modules are pure and dependency-injected; real services are wired only in
   from the fields only when that reproduces the stored bytes, else carried verbatim; packs
   equal to the defaults are dropped, others carried. The migration refuses (writes
   nothing) unless the new row screens the same and keeps the JEV policy hash, replaces
-  only an untouched config seed, and reports "already migrated" on a rerun.
+  only an untouched config seed, and reports "already migrated" on a rerun; it also
+  refuses a `--legacy-db` without either legacy table, and needs `--config`. `backup` opens
+  the source read-only and deletes a copy lacking `job_postings` or both legacy tables (a
+  mistyped path or an already-pushed DB). The worker stays stopped from backup to migrate.
 
   **JEV keep/skip filter** (`jev.py`, `pipeline.run_jev`, opt-in `--jev`). User-facing
   this is **triage**, the keep/skip stage; JEV is its one provider. After the
@@ -1982,7 +1985,7 @@ to other adapters.
 
 - **Postings for you** (`stage` `for_you`, the default; #207). Not applied (`new`),
   not `source_state` `closed`, no applying `skip` override; then funnel stage `keep` when
-  JEV is configured (a `candidate_profile` row and at least one assessment), else triage
+  triage is configured (a target role or a custom triage context) and at least one assessment exists, else triage
   `candidate` (passed the hard requirements), so an install without JEV does not see an
   empty list. `getJobsMode` reports which; the Jobs nav badge counts this view's rows
   first fetched in the last 24h. `postedSince` (a `YYYY-MM-DD` cutoff the UI computes in the viewer's local days for 1 / 7 / 30, matching the row's "3d ago") bounds `posted_at`; the only

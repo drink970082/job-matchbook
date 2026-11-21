@@ -14,7 +14,7 @@ row exists). It refuses unless the new row screens and triages exactly as the le
 inputs did: the same requirements at the same degree rank, and the same JEV policy hash.
 No stored verdict is touched. Idempotent: a second run reports "already migrated". An
 untouched config seed (the worker ran before the migration) is replaced; a row edited
-since is never overwritten.
+since is never overwritten. Keep the worker stopped from the backup until `migrate` is done.
 """
 from __future__ import annotations
 
@@ -37,14 +37,36 @@ def _now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="milliseconds").replace("+00:00", "Z")
 
 
+class MigrationError(Exception):
+    """A step that must stop the operator before the destructive schema push."""
+
+
+def _tables(conn) -> set[str]:
+    return {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+
+
 def backup(db_path: str, *, stamp: str | None = None) -> Path:
-    """A consistent single-file copy (the SQLite backup API also captures the WAL)."""
+    """A consistent single-file copy (the SQLite backup API also captures the WAL).
+
+    The source is opened read-only, so a mistyped path fails instead of creating an
+    empty DB, and the copy must hold the legacy rows the migration will need."""
     stamp = stamp or datetime.now().strftime("%Y%m%d-%H%M%S")
     target = Path(f"{db_path}.backup-{stamp}-pre-candidate-profile")
     if target.exists():
         raise FileExistsError(f"{target} already exists")
-    with closing(sqlite3.connect(db_path)) as src, closing(sqlite3.connect(target)) as dst:
-        src.backup(dst)
+    uri = f"file:{Path(db_path).resolve()}?mode=ro"
+    try:
+        with closing(sqlite3.connect(uri, uri=True)) as src, closing(sqlite3.connect(target)) as dst:
+            src.backup(dst)
+            tables = _tables(dst)
+    except sqlite3.OperationalError as exc:
+        target.unlink(missing_ok=True)
+        raise MigrationError(f"cannot read {db_path}: {exc}") from exc
+    if "job_postings" not in tables or not tables & {"candidate_preferences", "jev_profile"}:
+        target.unlink(missing_ok=True)
+        raise MigrationError(f"{db_path} has no job_postings or no candidate_preferences / "
+                             "jev_profile table: wrong path, or the schema push already ran; "
+                             "no backup written")
     return target
 
 
@@ -52,7 +74,10 @@ def _legacy_rows(legacy_db: str) -> tuple[dict | None, dict | None]:
     uri = f"file:{Path(legacy_db).resolve()}?mode=ro"
     with closing(sqlite3.connect(uri, uri=True)) as conn:
         conn.row_factory = sqlite3.Row
-        tables = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+        tables = _tables(conn)
+        if not tables & {"candidate_preferences", "jev_profile"}:
+            raise MigrationError(f"{legacy_db} has no candidate_preferences or jev_profile "
+                                 "table: pass the backup taken before the schema push")
 
         def one(table):
             if table not in tables:
@@ -87,7 +112,11 @@ def _policy(texts: dict | None) -> str | None:
 
 def migrate(db_path: str, legacy_db: str, cfg, *, now: str, out=print) -> int:
     """0 = migrated or already migrated, 2 = refused (nothing written)."""
-    preferences, jev_row = _legacy_rows(legacy_db)
+    try:
+        preferences, jev_row = _legacy_rows(legacy_db)
+    except (MigrationError, sqlite3.OperationalError) as exc:
+        out(f"refused: {exc}")
+        return 2
     jev_texts = ({k: jev_row[k] for k in jev.INPUT_TEXTS} if jev_row is not None
                  else jev.read_files(cfg.jev_dir) if cfg.jev_dir else None)
     values = profile.seed_values(cfg, preferences=preferences, jev_texts=jev_texts)
@@ -128,9 +157,11 @@ def migrate(db_path: str, legacy_db: str, cfg, *, now: str, out=print) -> int:
         + (" (replaced an untouched config seed)" if existing is not None else ""))
     out(f"  search scope: {len(p.title_include)} include, {len(p.title_exclude)} exclude, "
         f"max_age_days {p.max_age_days}")
-    out(f"  requirements: screen unchanged; highest degree {p.highest_degree or '(not screened)'}")
+    out("  requirements: " + ("screen unchanged; " if preferences is not None else
+                              "no legacy requirements, seeded from config.yaml; ")
+        + f"highest degree {p.highest_degree or '(not screened)'}")
     out("  triage: " + ("not configured" if p.triage_context() is None else
-                        "policy hash unchanged; "
+                        ("policy hash unchanged; " if jev_texts is not None else "")
                         + ("custom context (verbatim)" if p.custom_triage_context else "rendered context")
                         + ", " + ("custom packs" if p.custom_packs else "default packs")))
     out("The legacy tables are gone from the live DB; the backup keeps them.")
@@ -147,13 +178,17 @@ def main(argv=None) -> int:
     m.add_argument("--db", required=True)
     m.add_argument("--legacy-db", required=True,
                    help="the backup holding candidate_preferences / jev_profile")
-    m.add_argument("--config", help="config.yaml (title filters, max_age_days, jev_dir)")
+    m.add_argument("--config", required=True,
+                   help="config.yaml (title filters, max_age_days, jev_dir)")
     args = parser.parse_args(argv)
     if args.cmd == "backup":
-        print(f"backed up to {backup(args.db)}")
+        try:
+            print(f"backed up to {backup(args.db)}")
+        except MigrationError as exc:
+            print(f"refused: {exc}", file=sys.stderr)
+            return 2
         return 0
-    cfg = config_mod.load_config(args.config) if args.config else config_mod.Config()
-    return migrate(args.db, args.legacy_db, cfg, now=_now())
+    return migrate(args.db, args.legacy_db, config_mod.load_config(args.config), now=_now())
 
 
 if __name__ == "__main__":  # pragma: no cover

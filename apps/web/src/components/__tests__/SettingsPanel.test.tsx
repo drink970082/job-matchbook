@@ -21,7 +21,7 @@ const PROFILE = {
 }
 const LOADED = { profile: PROFILE, reassessOnChange: 400 }
 const FIELDS = {
-    title_include: ['engineer'], title_exclude: [], max_age_days: 0, locations: ['Boston', 'remote'],
+    title_include: ['engineer'], title_exclude: [], max_age_days: 0, locations: ['remote', 'Boston'],
     work_authorization: 'citizen', security_clearance: '', exclude_internships: true, exclude_contract: false,
     education: [{ degree: "master's", field: 'CS' }], experience: [{ title: 'SWE', company: 'Acme', years: 2 }],
     target_roles: ['Backend'], open_to: [], not_interested: [],
@@ -35,6 +35,7 @@ beforeEach(() => {
     jest.mocked(getCandidateProfile).mockResolvedValue(LOADED as any)
     jest.mocked(setCandidateProfile).mockResolvedValue({ success: true, data: { unchanged: false } } as any)
 })
+afterEach(() => jest.restoreAllMocks())  // the window.confirm spies
 
 describe('SettingsPanel (the one candidate profile form)', () => {
     it('loads every section and saves them in one write; a requirements change costs nothing', async () => {
@@ -56,6 +57,40 @@ describe('SettingsPanel (the one candidate profile form)', () => {
         }))
         expect(confirm).not.toHaveBeenCalled()
         confirm.mockRestore()
+    })
+
+    it('a no-edit save restates the stored locations as stored (order and case)', async () => {
+        jest.mocked(getCandidateProfile).mockResolvedValue({ ...LOADED, profile: { ...PROFILE, locations: ['Remote', 'USA'] } } as any)
+        render(<SettingsPanel />)
+        expect(await screen.findByLabelText('Locations (one per line)')).toHaveValue('USA')
+        save()
+        await waitFor(() => expect(setCandidateProfile).toHaveBeenCalledWith({ ...FIELDS, locations: ['Remote', 'USA'] }))
+    })
+
+    it('text typed into a list but not added is added when the box is left for Save', async () => {
+        render(<SettingsPanel />)
+        jest.spyOn(window, 'confirm').mockReturnValue(true)
+        const box = await screen.findByLabelText('Open to')
+        fireEvent.change(box, { target: { value: 'Data' } })
+        fireEvent.blur(box)
+        save()
+        await waitFor(() => expect(setCandidateProfile).toHaveBeenCalledWith({ ...FIELDS, open_to: ['Data'] }))
+    })
+
+    it('education and experience are labelled groups', async () => {
+        render(<SettingsPanel />)
+        expect(await screen.findByRole('group', { name: 'Education' })).toBeInTheDocument()
+        expect(screen.getByRole('group', { name: 'Experience' })).toBeInTheDocument()
+    })
+
+    it('a non-JSON stored context still saves a yoe_context-only edit', async () => {
+        jest.mocked(getCandidateProfile).mockResolvedValue(withContext('free text, not JSON') as any)
+        jest.spyOn(window, 'confirm').mockReturnValue(true)
+        render(<SettingsPanel />)
+        fireEvent.change(await screen.findByLabelText('Education and experience (sent as written)'), { target: { value: 'MS, 2 years.' } })
+        save()
+        await waitFor(() => expect(setCandidateProfile).toHaveBeenCalledWith({ ...FIELDS,
+            custom_triage_context: { profile_text: 'free text, not JSON', yoe_context: 'MS, 2 years.' } }))
     })
 
     it('blank locations read as open to anywhere and the remote box is off', async () => {

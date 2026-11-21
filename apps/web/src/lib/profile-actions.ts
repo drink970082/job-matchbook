@@ -33,7 +33,10 @@ const snapshot = (row: Record<string, unknown>) => ({ ...row, custom_packs: row.
 export async function setCandidateProfile(input: Record<string, unknown>, actor: Actor = 'web') {
     checkedActor(actor)
     try {
-        const patch = validateProfilePatch(input)
+        const current = await prisma.candidate_profile.findUnique({ where: { id: 1 }, select: { custom_triage_context: true } })
+        const storedText = current?.custom_triage_context
+            ? (JSON.parse(current.custom_triage_context) as { profile_text: string }).profile_text : undefined
+        const patch = validateProfilePatch(input, storedText)
         const columns = Object.fromEntries(Object.entries(patch).map(([k, v]) => [k, toColumn(k as ProfileField, v)]))
         const data = await prisma.$transaction(async (tx) => {
             const before = await tx.candidate_profile.findUnique({ where: { id: 1 } })

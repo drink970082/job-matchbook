@@ -48,7 +48,9 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
   stage is named **triage** in the UI and MCP; JEV is its provider. Existing installs
   migrate once with `python3 -m ats_worker.migrate_profile` (backup, schema push, then
   migrate from the backup); the migration refuses unless the screen and the JEV policy
-  hash are unchanged.: `source_state='closed'`
+  hash are unchanged. Triage mode for "postings for you" now requires triage to be
+  configured (a target role or a custom context), not just a past assessment.
+- **Closed postings leave every Discovered Jobs stage** (#265): `source_state='closed'`
   files a posting under a new `closed` funnel stage, ahead of every other stage, so a
   closed `keep` no longer sits in `keep`. MCP `list_jobs` takes `closed`
   (`exclude` default, `only`, `all`) and the overview's `jev_filter_counts` leave closed

@@ -62,9 +62,15 @@ const obj = (v: unknown, what: string) => {
     return v as Record<string, unknown>
 }
 
+const onlyKeys = (e: Record<string, unknown>, what: string, keys: readonly string[]) => {
+    const extra = Object.keys(e).filter((k) => !keys.includes(k))
+    if (extra.length) throw new Error(`${what} takes only ${keys.join(', ')} (got ${extra.join(', ')})`)
+    return e
+}
+
 function education(v: unknown): Education[] {
     return list(v, 'education', MAX_ROWS).map((r) => {
-        const e = obj(r, 'education entry')
+        const e = onlyKeys(obj(r, 'education entry'), 'an education entry', ['degree', 'field'])
         const degree = text(e.degree ?? '', 'degree', MAX_TEXT).toLowerCase()
         const field = text(e.field ?? '', 'field', MAX_TEXT)
         return { degree, field }
@@ -76,7 +82,7 @@ function education(v: unknown): Education[] {
 
 function experience(v: unknown): Experience[] {
     return list(v, 'experience', MAX_ROWS).map((r) => {
-        const e = obj(r, 'experience entry')
+        const e = onlyKeys(obj(r, 'experience entry'), 'an experience entry', ['title', 'company', 'years'])
         const years = e.years ?? 0
         if (typeof years !== 'number' || !Number.isFinite(years) || years < 0 || years > 60) {
             throw new Error('years must be a number from 0 to 60')
@@ -85,16 +91,21 @@ function experience(v: unknown): Experience[] {
     }).filter((e) => e.title || e.company || e.years)
 }
 
-function triageContext(v: unknown): TriageContext | null {
+// `storedProfileText`: the stored context's profile text. Restating it unchanged is
+// allowed even when it is not a JSON object (a legacy free-text profile), so a
+// yoe_context-only edit can be saved.
+function triageContext(v: unknown, storedProfileText?: string): TriageContext | null {
     if (v === null) return null
     const c = obj(v, 'custom_triage_context')
     const extra = Object.keys(c).filter((k) => k !== 'profile_text' && k !== 'yoe_context')
     if (extra.length) throw new Error(`custom_triage_context takes only profile_text and yoe_context (got ${extra.join(', ')})`)
     if (typeof c.profile_text !== 'string') throw new Error('profile_text must be a string')
     if (c.profile_text.length > MAX_PROFILE_TEXT) throw new Error(`profile_text is over ${MAX_PROFILE_TEXT} characters`)
-    let parsed: unknown
-    try { parsed = JSON.parse(c.profile_text) } catch { throw new Error('profile_text must be a JSON object') }
-    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error('profile_text must be a JSON object')
+    if (c.profile_text !== storedProfileText) {
+        let parsed: unknown
+        try { parsed = JSON.parse(c.profile_text) } catch { throw new Error('profile_text must be a JSON object') }
+        if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error('profile_text must be a JSON object')
+    }
     const yoe = text(c.yoe_context ?? '', 'yoe_context', MAX_YOE_CONTEXT)
     if (!yoe) throw new Error('yoe_context must not be empty')
     // profile_text verbatim: the JEV policy hash covers these bytes.
@@ -103,7 +114,7 @@ function triageContext(v: unknown): TriageContext | null {
 
 // Throws on a malformed patch; returns only the given fields, normalized (trimmed,
 // blank entries dropped). The same rules the worker applies to the stored row.
-export function validateProfilePatch(input: unknown): Partial<ProfileFields> {
+export function validateProfilePatch(input: unknown, storedProfileText?: string): Partial<ProfileFields> {
     const o = obj(input, 'profile')
     const unknown = Object.keys(o).filter((k) => !(PROFILE_FIELDS as readonly string[]).includes(k))
     if (unknown.length) throw new Error(`Unknown profile field(s): ${unknown.join(', ')}`)
@@ -136,7 +147,7 @@ export function validateProfilePatch(input: unknown): Partial<ProfileFields> {
     }
     if (o.education !== undefined) out.education = education(o.education)
     if (o.experience !== undefined) out.experience = experience(o.experience)
-    if (o.custom_triage_context !== undefined) out.custom_triage_context = triageContext(o.custom_triage_context)
+    if (o.custom_triage_context !== undefined) out.custom_triage_context = triageContext(o.custom_triage_context, storedProfileText)
     if (o.custom_packs !== undefined) {
         if (o.custom_packs !== null) throw new Error('custom_packs can only be cleared (null): packs are not set here')
         out.custom_packs = null

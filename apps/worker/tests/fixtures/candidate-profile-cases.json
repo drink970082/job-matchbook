@@ -19,6 +19,10 @@
      "highest_degree": "associate", "total_years": 3}
   ],
   "invalid": [
+    {"name": "unknown key in an education entry", "field": "education",
+     "value": [{"degree": "phd", "field": "CS", "school": "X"}], "error": "takes only"},
+    {"name": "unknown key in an experience entry", "field": "experience",
+     "value": [{"title": "SWE", "years": 1, "level": "senior"}], "error": "takes only"},
     {"name": "degree outside the vocabulary", "field": "education",
      "value": [{"degree": "BS", "field": "CS"}], "error": "degree"},
     {"name": "work authorization outside the vocabulary", "field": "work_authorization",

@@ -269,10 +269,14 @@ const STAGE_SQL = `CASE WHEN p.source_state='closed' THEN 'closed' ELSE CASE (${
     ELSE ${STAGE_AFTER_TRIAGE_SQL} END END`
 
 // "Postings for you" (#207): not applied, not closed at the source, not marked not
-// interested; then JEV keep when JEV is configured (a profile and at least one
-// assessment), else passed the hard requirements, so a fresh install without JEV does
-// not see an empty page. The mode subqueries are uncorrelated, so SQLite runs them once.
-const JEV_MODE_SQL = `(EXISTS (SELECT 1 FROM candidate_profile) AND EXISTS (SELECT 1 FROM job_jev_assessments))`
+// interested; then triage keep when triage is configured (a target role or a custom
+// context, the rule of profileView's triage_configured, so new postings will be assessed)
+// and has run at least once, else passed the hard requirements, so an install without
+// triage does not see an empty page. The mode subqueries are uncorrelated, so SQLite runs
+// them once.
+const JEV_MODE_SQL = `(EXISTS (SELECT 1 FROM candidate_profile WHERE id=1
+        AND (json_array_length(target_roles) > 0 OR custom_triage_context IS NOT NULL))
+    AND EXISTS (SELECT 1 FROM job_jev_assessments))`
 const FOR_YOU_SQL = `(p.pipeline_status='new' AND p.source_state<>'closed'
     AND NOT (${OVERRIDE_APPLIES_SQL} AND o.decision='skip')
     AND CASE WHEN ${JEV_MODE_SQL} THEN (${STAGE_SQL})='keep'

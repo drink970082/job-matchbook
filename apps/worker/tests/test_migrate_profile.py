@@ -185,6 +185,8 @@ def test_refuses_a_seed_that_would_screen_differently(tmp_path, monkeypatch):
 
 def test_cli_backs_up_then_migrates(tmp_path, capsys):
     live, legacy = _live(tmp_path), _legacy(tmp_path)
+    with sqlite3.connect(live) as conn:                     # the pre-push live DB
+        conn.executescript(LEGACY_DDL)
     assert migrate_profile.main(["backup", "--db", live]) == 0
     backup = capsys.readouterr().out.split("backed up to ")[1].strip()
     assert _verdicts(backup) == _verdicts(live)
@@ -195,4 +197,35 @@ def test_cli_backs_up_then_migrates(tmp_path, capsys):
     assert migrate_profile.main(["migrate", "--db", live, "--legacy-db", legacy,
                                  "--config", str(cfg)]) == 0
     assert "migrated the candidate profile" in capsys.readouterr().out
-    assert migrate_profile.main(["migrate", "--db", live, "--legacy-db", legacy]) == 2
+    with pytest.raises(SystemExit):                         # --config is required
+        migrate_profile.main(["migrate", "--db", live, "--legacy-db", legacy])
+
+
+def test_backup_of_a_mistyped_path_fails_and_creates_nothing(tmp_path, capsys):
+    missing = tmp_path / "typo.db"
+    assert migrate_profile.main(["backup", "--db", str(missing)]) == 2
+    assert "refused" in capsys.readouterr().err
+    assert list(tmp_path.iterdir()) == []                   # neither the source nor a backup
+
+
+def test_backup_without_the_legacy_tables_is_refused_and_deleted(tmp_path):
+    live = _live(tmp_path)                                   # post-push: no legacy tables
+    with pytest.raises(migrate_profile.MigrationError, match="no backup written"):
+        migrate_profile.backup(live, stamp="x")
+    assert not (tmp_path / "applications.db.backup-x-pre-candidate-profile").exists()
+
+
+def test_migrate_refuses_a_legacy_db_without_the_legacy_tables(tmp_path):
+    live = _live(tmp_path)
+    lines = []
+    assert migrate_profile.migrate(live, live, CFG, now=NOW, out=lines.append) == 2
+    assert "no candidate_preferences or jev_profile" in lines[0] and _row(live) is None
+
+
+def test_no_legacy_requirements_does_not_claim_an_unchanged_screen(tmp_path):
+    live = _live(tmp_path)
+    lines = []
+    assert migrate_profile.migrate(live, _legacy(tmp_path, prefs=False), CFG, now=NOW,
+                                   out=lines.append) == 0
+    assert not any("screen unchanged" in line for line in lines)
+    assert any("no legacy requirements" in line for line in lines)

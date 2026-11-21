@@ -302,6 +302,21 @@ test('a custom triage context is kept verbatim, restated as a no-op, and can be 
     expect(log[1].payload).not.toContain('questions')
 })
 
+test('a non-JSON stored profile text can be restated with a new yoe_context, not replaced by other non-JSON', async () => {
+    await prisma.candidate_profile.create({ data: { ...MIGRATED,
+        custom_triage_context: JSON.stringify({ profile_text: 'free text', yoe_context: 'MS.' }) } })
+    const put = async (body: unknown) => (await putProfile(req(body, RW, 'PUT'))).json()
+    const ok = await put({ custom_triage_context: { profile_text: 'free text', yoe_context: 'MS, 2 years.' } })
+    expect([ok.data.version, ok.data.custom_triage_context]).toEqual([2, { profile_text: 'free text', yoe_context: 'MS, 2 years.' }])
+    expect((await put({ custom_triage_context: { profile_text: 'other text', yoe_context: 'x' } })).error).toBe('profile_text must be a JSON object')
+})
+
+test('an unknown key inside an education or experience entry is refused', async () => {
+    const put = async (body: unknown) => (await putProfile(req(body, RW, 'PUT'))).json()
+    expect((await put({ education: [{ degree: 'phd', school: 'X' }] })).error).toContain('takes only degree, field')
+    expect((await put({ experience: [{ title: 'SWE', level: 'senior' }] })).error).toContain('takes only title, company, years')
+})
+
 test('watchlist add by careers URL resolves through the shared resolver (#208)', async () => {
     const res = await addWatch(req({ url: 'https://relx.wd3.myworkdayjobs.com/en-US/relx/job/X_R1', name: 'RELX' }, RW))
     expect(res.status).toBe(200)
