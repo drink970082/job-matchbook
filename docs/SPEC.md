@@ -1473,8 +1473,7 @@ worker modules are pure and dependency-injected; real services are wired only in
   `200`), since the worker may not have run a subscription screen pass yet.
 - **`app/api/v1/*`** — the key-scoped loopback write API the MCP server calls, so write
   validation exists once in the `lib/*-actions.ts` Server Actions. Each route is a
-  thin wrapper over one action; creating an application, changing a status and a watchlist add/remove stamp
-  `actor='mcp'` (detail edits carry no actor): `POST applications` (`addApplication`; an
+  thin wrapper over one action; every write stamps `actor='mcp'`: `POST applications` (`addApplication`; an
   unknown `status` is a `400`, where the UI falls back to `Applied`), `PATCH
   applications/{id}` (`updateApplicationDetails`; omitted fields unchanged), `POST
   applications/{id}/status` `{status, date?}` (`updateApplicationStatus`), `POST
@@ -1562,9 +1561,11 @@ worker modules are pure and dependency-injected; real services are wired only in
     row, so this is not every dollar spent); no run table exists, so a failing pass shows only through these)
     and `getActivityTimeline(offset, limit=30)` — applications (by `date_applied`; they
     carry no creation stamp), `status_history` rows other than the initial `Applied`, and
-    `audit_log` rows merged newest first into one plain-English line each ("Applied to
+    `audit_log` rows (minus application `add`/`status`, which the first two sources
+    already show) merged newest first into one plain-English line each ("Applied to
     Acme - Engineer", "Acme - Engineer -> Interviewing", "Added board Stripe", "Hid Acme -
-    Data Engineer", "Updated hard requirements"), each with its `actor`; offset paging
+    Data Engineer", "Updated hard requirements", "Edited / Deleted the application Acme -
+    Engineer"), each with its `actor`; offset paging
     over the merge (ties by source, then id desc; the client pages by the returned
     `nextOffset`), capped at 500 rows deep with a note that older activity is not shown.
   - *CSV:* `exportApplicationsCSV`, `importApplicationsCSV` (hand-rolled RFC-4180
@@ -1779,7 +1780,7 @@ model watched_companies {        // the DB-owned watchlist (web-managed)
   @@unique([source, slug])       // dedup key
 }
 
-model audit_log {                // append-only watchlist add/remove record (web writes)
+model audit_log {                // append-only write record (web writes): watchlist, override, preferences, applications
   id        Int    @id @default(autoincrement())
   at        String
   actor     String // web | mcp
@@ -2082,6 +2083,17 @@ Triage evidence with duplicate object members at its root, screen map, or check 
 - **`deleteHistoryItem`** recomputes the application's current status to the most
   recent remaining history entry, or `Applied` if none remain — the delete +
   recompute + status update run in one `$transaction`.
+- **`deleteApplication` frees its postings.** In one `$transaction` with the cascade
+  (history deleted, `job_postings.application_id` nulled), each linked posting still
+  `applied` goes back to `pipeline_status='new'`, so `markJobApplied` can mark it again;
+  any other status (e.g. `removed`) and `source_state` are left as they are.
+- **Every application write is audited.** Create (`addApplication`, `markJobApplied`, CSV import),
+  detail edit, status change, history-item delete and delete each take an `actor`
+  (`web` | `mcp`) and write one `audit_log` row (`entity='applications'`, `entity_id` =
+  application id) in the same transaction: action `add` (payload: the row), `update` /
+  `status` / `remove_history` (`{before, after}`, plus `history` or `removed` for the
+  history row), `remove` (the row with its `status_history` and `job_posting_ids`). CSV
+  import audits one `add` (actor `web`) per imported row. A rejected write writes none.
 - **KPIs** (`getKPIs`): `total` = every application; `active` = not Offer / Accepted /
   Rejected / Withdrew and the latest status-history date (else `date_applied`) within
   60 days, so a silent application drops out (not `last_updated`, the write stamp); `screening`, `interviewing`, `rejected`; `offer`
@@ -2220,6 +2232,7 @@ automated coverage — those rely on code review or the human in the loop, not a
 | `markJobApplied` atomic create + back-link + dedup | `actions.test.ts`, `actions.int.test.ts` (real-Prisma tx) |
 | `updateApplicationStatus` validates `STATUSES`, appends history | `actions.test.ts`, `actions.int.test.ts` |
 | `deleteHistoryItem` recomputes current status | `actions.int.test.ts` |
+| `deleteApplication` resets linked `applied` postings to `new`; every application write leaves one audit row (web and `/api/v1`) | `application-audit.int.test.ts` |
 | KPI aggregation buckets | `actions.test.ts`, `actions.int.test.ts` |
 | Chart-data aggregation (`getStatusFlow`/`getTimelineData`/`getCategoryData`): Sankey chain dedup/collapse + multi-hop, T-split day counts, category counts incl. ties/`null`->Others | `charts.int.test.ts` |
 | CSV import/export rules (dedup, enum fallback) | `actions.int.test.ts` |
