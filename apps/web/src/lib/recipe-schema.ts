@@ -2,7 +2,7 @@ import { z } from 'zod'
 import schema from './recipe.schema.json'
 
 // The recipe JSON Schema (recipe.schema.json) on the web side: the one check behind the
-// Sources add path, /api/v1/watchlist and so MCP. The worker validates the same file
+// Sources add path and /api/v1/watchlist (MCP add_source sends no recipe until #239). The worker validates the same file
 // (ats_worker/recipe_schema.py); worker/tests/fixtures/recipe-cases.json runs on both.
 
 const VALIDATORS = Object.fromEntries(

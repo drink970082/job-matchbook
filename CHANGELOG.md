@@ -162,8 +162,9 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 
 - **Recipe JSON Schema, validated at every entry point** (#238).
   `apps/web/src/lib/recipe.schema.json` declares every key the `custom` and `browser`
-  executors read, with one example per mode, and rejects any other key. Web add,
-  `POST /api/v1/watchlist` and MCP `add_source` validate with zod's `fromJSONSchema`; the
+  executors read, with one example per mode, and rejects any other key. Web add and
+  `POST /api/v1/watchlist` validate with zod's `fromJSONSchema` (MCP `add_source` carries
+  no recipe until #239); the
   config seed, `add_watched.py` and `fetch_company` validate with `jsonschema` (new worker
   dependency). An invalid stored recipe skips only its board, logged with the offending
   key. All 15 recipe rows on the operator's watchlist validated when this shipped.

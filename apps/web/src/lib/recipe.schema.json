@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "Watchlist recipe",
-  "description": "The `recipe` of a `custom` or `browser` watchlist row. The row's source picks the definition: $defs.custom (fetch/custom.py) or $defs.browser (fetch/browser.py). Every key either executor reads is declared, and no other key is accepted, so a misspelled key is rejected when the row is added and again by the worker before fetch. Validated by apps/web/src/lib/recipe-schema.ts (web add, /api/v1/watchlist, MCP add_source) and apps/worker/ats_worker/fetch/recipe_schema.py (worker, config seed, onboard-board add_watched.py).",
+  "description": "The `recipe` of a `custom` or `browser` watchlist row. The row's source picks the definition: $defs.custom (fetch/custom.py) or $defs.browser (fetch/browser.py). Every key either executor reads is declared, and no other key is accepted, so a misspelled key is rejected when the row is added and again by the worker before fetch. Validated by apps/web/src/lib/recipe-schema.ts (web add, /api/v1/watchlist; MCP add_source carries no recipe until #239) and apps/worker/ats_worker/recipe_schema.py (worker, config seed, onboard-board add_watched.py).",
   "$defs": {
     "custom": {
       "title": "custom recipe (plain HTTP)",

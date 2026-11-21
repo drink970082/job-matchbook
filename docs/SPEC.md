@@ -615,8 +615,8 @@ worker modules are pure and dependency-injected; real services are wired only in
   (`json`, `next-data`, browser), and reject any other key, so a misspelled `item_pth` is refused
   naming the key. A `browser` `fields` map is the one open map (helper fields feed a `url`
   template), so only its value shapes are checked. It is validated at every entry point: the web
-  add path (`addWatchedCompany`, so the Sources tab, `POST /api/v1/watchlist` and MCP
-  `add_source`) via zod's `fromJSONSchema` (`lib/recipe-schema.ts`); the `config.yaml` seed
+  add path (`addWatchedCompany`, so the Sources tab and `POST /api/v1/watchlist`; MCP
+  `add_source` sends no recipe, known-ATS boards only, until #239) via zod's `fromJSONSchema` (`lib/recipe-schema.ts`); the `config.yaml` seed
   (`ConfigError`), onboard-board's `add_watched.py`, and `fetch_company` before any request via
   `jsonschema` (`ats_worker/recipe_schema.py`). An invalid stored recipe therefore fails only its
   own board: `run_fetch` logs `skipped after error: invalid custom recipe: ...` and the pass
