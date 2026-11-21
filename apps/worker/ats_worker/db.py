@@ -727,6 +727,11 @@ def _json(value) -> str:
     return json.dumps(value, sort_keys=True, separators=(",", ":"), default=str)
 
 
+def has_table(conn: sqlite3.Connection, name: str) -> bool:
+    return conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?",
+                        (name,)).fetchone() is not None
+
+
 def start_pass(conn: sqlite3.Connection, *, now: str, fetch_only: bool,
                jev_enabled: bool, config: dict) -> int:
     """Insert this pass's `running` row and return its id. Any row still `running` is

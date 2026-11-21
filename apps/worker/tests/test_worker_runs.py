@@ -156,8 +156,28 @@ def test_run_fetch_counts_every_drop_by_cause(tmp_path):
     assert counts == {
         "boards_attempted": 2, "boards_failed": 1, "listed": 5, "dropped_title": 1,
         "dropped_age": 1, "discarded": 1, "discarded_by_reason": {"location": 1},
-        "bodyless": 1, "closed_by_absence": 0, "inserted": 2,
+        "bodyless": 1, "detail_failed": 0, "closed_by_absence": 0, "inserted": 2,
     }
+
+
+def test_run_fetch_counts_id_less_stubs_and_lost_details(tmp_path):
+    # workday's parse_stub carries no external_id, so `listed` must count gate calls,
+    # and a stub the gate passed whose detail GET failed comes back as nothing.
+    conn = db.connect(bootstrap_db(tmp_path / "a.db"))
+    stubs = [{"job_title": "Software Engineer", "location": "Remote"},
+             {"job_title": "Software Engineer II", "location": "Remote"},
+             {"job_title": "Sales Manager", "location": "Remote"},
+             {"job_title": "Account Executive", "location": "Remote"}]
+
+    def fetch_fn(source, slug, name, *, keep, now):
+        passed = [s for s in stubs if keep(s) != "drop"]
+        return [make_posting("w1")] if passed else []   # the second detail GET failed
+
+    counts: dict = {}
+    pipeline.run_fetch(conn, [{"source": "workday", "slug": "t/d/s", "name": "W"}],
+                       ["engineer"], now=NOW, fetch_fn=fetch_fn, counts=counts)
+    assert (counts["listed"], counts["dropped_title"], counts["detail_failed"],
+            counts["inserted"]) == (4, 2, 1, 1)
 
 
 def test_run_fetch_counts_stub_gate_drops_by_cause(tmp_path):
@@ -179,25 +199,48 @@ def test_run_fetch_counts_stub_gate_drops_by_cause(tmp_path):
 
 def test_run_feed_counts_listings_drops_resolution_and_inserts(tmp_path):
     conn = db.connect(bootstrap_db(tmp_path / "a.db"))
+    db.upsert_postings(conn, [make_posting("7")], now=NOW)
+    gh = "https://boards.greenhouse.io/acme/jobs/"
     listings = [
-        {"url": "https://boards.greenhouse.io/acme/jobs/1", "title": "Software Engineer"},
-        {"url": "https://boards.greenhouse.io/acme/jobs/2", "title": "Sales Lead"},
-        {"url": "https://unknown.example/jobs/3", "title": "Data Engineer"},
-        {"url": "https://boards.greenhouse.io/acme/jobs/4", "title": "Engineer", "gate": "no"},
+        {"url": gh + "1", "title": "Software Engineer"},          # resolved + inserted
+        {"url": gh + "2", "title": "Sales Lead"},                 # title
+        {"url": "https://unknown.example/jobs/3", "title": "Data Engineer"},  # unresolved
+        {"url": gh + "4", "title": "Engineer", "gate": "no"},     # feed's own gate
+        {"url": "", "title": "Engineer"},                         # no url
+        {"url": gh + "1", "title": "Software Engineer"},          # duplicate id
+        {"url": gh + "7", "title": "Engineer"},                   # already stored
+        {"url": gh + "8", "title": "Engineer"},                   # board no longer lists it
+        {"url": "https://jobs.lever.co/x/9", "title": "Engineer"},  # list fetch fails
     ]
+
+    def resolve(url):
+        if "greenhouse" in url:
+            return ("greenhouse", "acme", url.rsplit("/", 1)[1])
+        if "lever" in url:
+            return ("lever", "x", "9")
+        return None
+
+    def fetch_fn(source, slug, name):
+        if source == "lever":
+            raise RuntimeError("board down")
+        return [make_posting("1"), make_posting("7")]
+
     counts: dict = {}
     inserted = pipeline.run_feed(
         conn, now=NOW, feed_fn=lambda: listings, keep_categories=[],
         prefilter_fn=lambda xs, _c: [x for x in xs if x.get("gate") != "no"],
-        resolve_fn=lambda url: ("greenhouse", "acme", url.rsplit("/", 1)[1])
-            if "greenhouse" in url else None,
-        classify_fn=lambda url: ("unknown.example", "unsupported_host"),
-        fetch_fn=lambda s, sl, n: [make_posting("1")],
-        title_filter=["engineer"], counts=counts)
+        resolve_fn=resolve, classify_fn=lambda url: ("unknown.example", "unsupported_host"),
+        fetch_fn=fetch_fn, title_filter=["engineer"], counts=counts)
     assert inserted == 1
-    assert counts == {"listings": 4, "prefilter_dropped": 1, "dropped_title": 1,
-                      "dropped_age": 0, "dropped_age_board": 0, "resolved": 1,
-                      "unresolved_by_reason": {"unsupported_host": 1}, "inserted": 1}
+    assert counts == {
+        "listings": 9, "prefilter_dropped": 1, "dropped_title": 1, "dropped_age": 0,
+        "no_url": 1, "unresolved_by_reason": {"unsupported_host": 1, "list_fetch_failed": 1},
+        "duplicate": 1, "already_stored": 1, "not_on_board": 1, "resolved": 1,
+        "dropped_age_board": 0, "inserted": 1}
+    buckets = ("prefilter_dropped", "dropped_title", "dropped_age", "no_url", "duplicate",
+               "already_stored", "not_on_board", "resolved")
+    assert counts["listings"] == sum(counts[k] for k in buckets) + \
+        sum(counts["unresolved_by_reason"].values())
 
 
 def test_run_expire_counts_checked_and_closed(tmp_path):
@@ -288,7 +331,14 @@ def test_provider_failure_category_follows_the_cause_chain():
     ("401 Unauthorized: token expired", "provider_auth"),
     ("You've hit your usage limit. Try again later.", "quota_exhausted"),
     ("rate limit exceeded", "quota_exhausted"),
+    ("error: unexpected status 429 Too Many Requests", "quota_exhausted"),
+    ("HTTP/1.1 401", "provider_auth"),
     ("segfault", None),
+    # JD text echoed into stderr must not read as a cause.
+    ("Benefits: 401(k) match, sales quota attainment, login to our portal", None),
+    ("We offer a 401k and 429 days of PTO", None),
+    # Only the last lines count: an early echo of the prompt is ignored.
+    ("not logged in\n" + "context\n" * 6 + "segfault", None),
 ])
 def test_cli_failures_are_categorized_from_stderr(stderr, category):
     def runner(cmd, **_):
@@ -313,3 +363,27 @@ def test_a_categorized_screen_failure_is_stored_on_the_screening(tmp_path):
     db.save_screening(conn, pid, state="provider_error", result=None,
                       error_category="provider_auth", backend="api", model="m",
                       effort=None, evaluator_version="v", now=NOW)
+
+
+# --- daemon startup -----------------------------------------------------------
+
+@pytest.mark.parametrize("has_table", [True, False])
+def test_the_daemon_refuses_to_start_on_a_db_without_worker_runs(
+        has_table, monkeypatch, tmp_path):
+    import sqlite3
+    dbfile = bootstrap_db(tmp_path / "a.db")
+    if not has_table:
+        with sqlite3.connect(dbfile) as raw:
+            raw.execute("DROP TABLE worker_runs")    # a DB pushed before #247
+    cfg = tmp_path / "config.yaml"
+    cfg.write_text("companies: []\n")
+    started = []
+    monkeypatch.setattr(run, "_run_scheduler", lambda job, hours: started.append(hours))
+    argv = ["--config", str(cfg), "--db", dbfile, "--env", str(tmp_path / "none.env")]
+    if has_table:
+        run.main(argv)
+        assert started
+    else:
+        with pytest.raises(SystemExit) as info:
+            run.main(argv)
+        assert "make db-push" in str(info.value.code) and started == []

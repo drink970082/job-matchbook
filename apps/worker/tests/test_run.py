@@ -881,6 +881,7 @@ def test_a_scheduled_pass_skips_the_slot_instead_of_dying(monkeypatch, tmp_path,
     monkeypatch.setattr(run, "run_once", lambda cfg, **kw: calls.append(kw))
     monkeypatch.setattr(run, "_candidate_for_pass", lambda conn, cfg, now: None)
     monkeypatch.setattr(run.db, "connect", lambda path: type("C", (), {"close": lambda self: None})())
+    monkeypatch.setattr(run.db, "has_table", lambda conn, name: True)
     real_load_config = cfgmod.load_config
     monkeypatch.setattr(run.config_mod, "load_config",
                         lambda path: real_load_config("companies: []\n"))
@@ -965,6 +966,7 @@ def _daemon_harness(monkeypatch, schedule_hours=4):
     monkeypatch.setattr(run, "run_once", fake_run_once)
     # The startup preference seed; a no-op here (no real DB behind the daemon stub).
     monkeypatch.setattr(run.db, "connect", lambda path: type("C", (), {"close": lambda self: None})())
+    monkeypatch.setattr(run.db, "has_table", lambda conn, name: True)
     monkeypatch.setattr(run, "_candidate_for_pass", lambda conn, cfg, now: None)
     real_load_config = cfgmod.load_config
     monkeypatch.setattr(run.config_mod, "load_config",

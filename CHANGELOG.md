@@ -16,7 +16,7 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
   Screen provider failures now carry the closed categories `provider_auth`,
   `quota_exhausted` and `provider_unreachable` where the cause is known. **Operator
   step:** run `make db-push` (back up `db/` first) before starting the new worker;
-  without the table every pass fails at start.
+  without the table the daemon refuses to start and a `--once` pass fails.
 
 ### Removed
 

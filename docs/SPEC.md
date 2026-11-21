@@ -470,15 +470,21 @@ worker modules are pure and dependency-injected; real services are wired only in
   `screen`, `triage`), so a pass that raises stays `running` with the stages it
   finished; the end of the pass sets `ok` and `finished_at`. Stage failures that the
   pass survives (a dead screen backend, a skipped triage) are counted, not a `failed`
-  pass. Tallies: fetch `boards_attempted`/`boards_failed`, `listed`, `dropped_title`,
-  `dropped_age`, `discarded` + `discarded_by_reason` (failed check names), `bodyless`,
-  `closed_by_absence`, `inserted`; feed `listings`, `prefilter_dropped` (the feed's own
-  gate), `dropped_title`, `dropped_age` (feed date), `dropped_age_board`, `resolved`,
-  `unresolved_by_reason`, `inserted`; expire `checked`, `closed`, `inconclusive`;
+  pass. Tallies: fetch `boards_attempted`/`boards_failed`, `listed` (for a stub-gate
+  board, the number of stubs the gate judged, since workday stubs carry no id),
+  `dropped_title`, `dropped_age`, `discarded` + `discarded_by_reason` (failed check
+  names), `bodyless`, `detail_failed` (a stub the gate passed that came back as
+  nothing), `closed_by_absence`, `inserted`; feed, in non-overlapping buckets that sum
+  to `listings`: `prefilter_dropped` (the feed's own gate), `dropped_title`,
+  `dropped_age` (feed date), `no_url`, `unresolved_by_reason` (resolver and list/detail
+  failures), `duplicate` (same board id twice), `already_stored`, `not_on_board`,
+  `resolved` (postings fetched from the board), which splits into `dropped_age_board` +
+  `inserted`; expire `checked`, `closed`, `inconclusive`;
   screen the `run_screen` tally plus `disqualified_by_reason` and `errors_by_category`;
   triage the `run_jev` tally plus `errors_by_category` and the resolved `model`, or
-  `{"skipped": no_api_key | no_profile | <provider category>}`. Fetch and feed
-  counts are per listing per pass, including listings already stored.
+  `{"skipped": no_api_key | no_profile | <provider category>}`. Watchlist fetch counts
+  are per listing per pass, including listings already stored. The daemon refuses to
+  start (non-zero exit naming `make db-push`) on a DB with no `worker_runs` table.
 - **`config.py` — load/validate `config.yaml`.** Validates `source ∈ VALID_SOURCES`
   (the watchlist-capable boards: {greenhouse, lever, ashby, workday, pinpoint,
   smartrecruiters, workable, icims, phenom, custom, browser} — feed-only sources oracle/jobvite
@@ -1026,8 +1032,10 @@ worker modules are pure and dependency-injected; real services are wired only in
   `quota_exhausted` (HTTP 429, or a CLI usage/rate-limit message), `provider_unreachable`
   (connection refused, e.g. a stopped Ollama), `timeout`, `executable_missing`, else
   `provider_error`/`screen_error`. Only exception types, status codes and CLI stderr
-  markers are read, never stored; the CLI markers are unverified against every CLI
-  version.
+  markers are read, never stored. The CLI markers are phrases matched against the last
+  five stderr lines, and a bare 401/429 counts only next to an HTTP/status/error word, so
+  echoed JD text ("401(k)", "sales quota") does not match. They are unverified against
+  every CLI version.
 
   **The retrieval vocabulary is `sponsor` alone, and the cost is stated rather than
   hidden.** Every false positive ever recorded on this path came from a word that is not
@@ -2267,7 +2275,8 @@ guarantee:
   The human sees both under Screen rejected (kept `disqualification_reason`); there is no
   override path.
 
-**Pass record** (`worker_runs`, §7.1 run.py): every pass leaves exactly one row. A pass
+**Pass record** (`worker_runs`, §7.1 run.py): every pass except a `--refresh-unscored`
+run leaves exactly one row. A pass
 whose screen backend fails on every call still finishes `ok`, with the failures counted
 by closed category; a pass that raises stays `running` and the next pass marks it
 `failed` / `abandoned`. The recorded config never contains a secret.

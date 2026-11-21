@@ -58,7 +58,8 @@ def run_fetch(conn, companies, title_filter, *, now, fetch_fn=None,
     tally = counts if counts is not None else {}
     tally.update({"boards_attempted": 0, "boards_failed": 0, "listed": 0,
                   "dropped_title": 0, "dropped_age": 0, "discarded": 0,
-                  "discarded_by_reason": {}, "bodyless": 0, "closed_by_absence": 0,
+                  "discarded_by_reason": {}, "bodyless": 0, "detail_failed": 0,
+                  "closed_by_absence": 0,
                   "inserted": 0})
 
     def _coarse(postings):
@@ -94,11 +95,17 @@ def run_fetch(conn, companies, title_filter, *, now, fetch_fn=None,
             # (and every non-recipe adapter) is called exactly as before.
             kw = {"recipe": c["recipe"]} if c.get("recipe") is not None else {}
             gated: set[str] = set()   # ids the stub gate saw, including dropped ones
+            # Stub-gate verdicts, counted per call rather than per id: a workday stub
+            # carries no external_id, so `gated` cannot count what was listed.
+            verdicts = {"calls": 0, "drop": 0}
             if c["source"] in STUB_GATE_SOURCES:
-                def _observed_keep(stub, _gated=gated):
+                def _observed_keep(stub, _gated=gated, _v=verdicts):
                     if stub.get("external_id"):
                         _gated.add(str(stub["external_id"]))
-                    return _keep(stub)
+                    verdict = _keep(stub)
+                    _v["calls"] += 1
+                    _v["drop"] += verdict == "drop"
+                    return verdict
                 kw["keep"] = _observed_keep
                 if c["source"] in STUB_GATE_NOW_SOURCES:
                     # Relative-prose stub dates need the injected clock to become a
@@ -108,7 +115,14 @@ def run_fetch(conn, companies, title_filter, *, now, fetch_fn=None,
                     kw["now"] = now
             postings = fetch_fn(c["source"], c["slug"], c["name"], **kw)
             returned = {str(p.get("external_id") or "") for p in postings}
-            tally["listed"] += len(postings) + len(gated - returned)
+            if verdicts["calls"]:
+                # Every stub the gate passed should come back; one that did not lost its
+                # detail call (workday returns None on a failed detail GET).
+                tally["listed"] += verdicts["calls"]
+                tally["detail_failed"] += max(
+                    0, verdicts["calls"] - verdicts["drop"] - len(postings))
+            else:
+                tally["listed"] += len(postings)
             closed = db.record_board_listing(
                 conn, c["source"], c["slug"], gated | returned, now=now,
                 count_absence=c["source"] in ABSENCE_CLOSURE_SOURCES)
@@ -329,14 +343,18 @@ def run_feed(conn, *, now, feed_fn, keep_categories, feed_name="simplify",
     than `max_age_days` whenever the two dates disagreed (evergreen greenhouse reqs
     Simplify re-lists as fresh); with it, both paths make the same guarantee.
 
-    `counts`, when given, is filled with the pass-record tallies: listings, the feed
-    gate's drops, title/age drops, resolved, unresolved by reason, inserted.
+    `counts`, when given, is filled with the pass-record tallies. The buckets do not
+    overlap: listings = prefilter_dropped + dropped_title + dropped_age + no_url +
+    sum(unresolved_by_reason) + duplicate + already_stored + not_on_board + resolved,
+    where `resolved` counts postings actually fetched from their board (a list or
+    detail failure is under unresolved_by_reason instead), and resolved =
+    dropped_age_board + inserted (+ any the upsert finds already stored).
     """
     tally = counts if counts is not None else {}
     tally.update({"listings": 0, "prefilter_dropped": 0, "dropped_title": 0,
-                  "dropped_age": 0, "resolved": 0, "unresolved_by_reason": {},
-                  "dropped_age_board": 0,
-                  "inserted": 0})
+                  "dropped_age": 0, "no_url": 0, "unresolved_by_reason": {},
+                  "duplicate": 0, "already_stored": 0, "not_on_board": 0,
+                  "resolved": 0, "dropped_age_board": 0, "inserted": 0})
     unresolved = tally["unresolved_by_reason"]
     # The feed is I/O-bound: hundreds of board/listing fetches dominate the runtime.
     # So network work is run CONCURRENTLY (ThreadPoolExecutor) while every DB call
@@ -351,7 +369,7 @@ def run_feed(conn, *, now, feed_fn, keep_categories, feed_name="simplify",
     def _stash(r, url, listing):
         source, slug, external_id = r
         group = wanted.setdefault((source, slug), {})
-        tally["resolved"] += external_id not in group
+        tally["duplicate"] += external_id in group
         group.setdefault(external_id, {
             "url": url,
             "company_name": listing.get("company_name") or "",
@@ -389,6 +407,7 @@ def run_feed(conn, *, now, feed_fn, keep_categories, feed_name="simplify",
             continue
         url = x.get("url")
         if not url:
+            tally["no_url"] += 1
             continue
         r = resolve_fn(url)
         if r is not None:
@@ -425,6 +444,7 @@ def run_feed(conn, *, now, feed_fn, keep_categories, feed_name="simplify",
         # but that's now ONE cheap per-job CXS call, not the whole board, and upsert
         # dedups the row).
         missing = ids - db.existing_external_ids(conn, source, ids)
+        tally["already_stored"] += len(ids) - len(missing)
         if missing:
             name = next(iter(meta.values()))["company_name"] or slug
             work.append((source, slug, name, missing, meta))
@@ -437,6 +457,9 @@ def run_feed(conn, *, now, feed_fn, keep_categories, feed_name="simplify",
             work))
 
     for (source, slug, name, missing, meta), (keep, failed) in zip(work, fetched):
+        tally["resolved"] += len(keep)
+        # A board list that answered but no longer carries a surfaced id records nothing.
+        tally["not_on_board"] += max(0, len(missing) - len(keep) - len(failed))
         for fid, reason in failed:
             m = meta[fid]
             unresolved[reason] = unresolved.get(reason, 0) + 1

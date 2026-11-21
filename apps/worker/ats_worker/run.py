@@ -905,6 +905,11 @@ def main(argv=None) -> None:
     # exists MCP reports it missing, and a set_preferences would pre-empt the seed.
     conn = db.connect(args.db)
     try:
+        # Every pass writes worker_runs; a DB pushed before #247 would fail each slot
+        # while the daemon looked alive. Refuse to start instead.
+        if not db.has_table(conn, "worker_runs"):
+            raise SystemExit(f"{args.db} has no worker_runs table: the schema is older "
+                             "than this worker. Run `make db-push`, then restart.")
         _candidate_for_pass(conn, cfg, now=_now())
         if args.jev:
             _jev_inputs(conn, cfg, now=_now())
