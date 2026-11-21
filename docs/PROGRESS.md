@@ -22,7 +22,7 @@ before changing them. No older research authorization schedules new provider cal
    [#246 epic](https://github.com/drink970082/job-matchbook/issues/246)) alongside #231.
 2. [#223 One candidate profile](https://github.com/drink970082/job-matchbook/issues/223): #224 -> #225 -> #226, with #227 after #224.
 3. [#251 Runtime settings in the web](https://github.com/drink970082/job-matchbook/issues/251), then [#256 MCP as the downstream contract](https://github.com/drink970082/job-matchbook/issues/256)
-   (its #209 research can start any time).
+   (#209 decided: option A, [note](superpowers/specs/2026-11-20-mcp-read-path-research.md); next a hosted tunnel check, then #257).
 4. [#240 Applications](https://github.com/drink970082/job-matchbook/issues/240), then [#236 source extensibility](https://github.com/drink970082/job-matchbook/issues/236).
 5. [#94 Scheduled Daily Brief](https://github.com/drink970082/job-matchbook/issues/94): one observed unattended run.
 
