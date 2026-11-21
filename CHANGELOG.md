@@ -179,9 +179,10 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
   filter, including stubs the `keep` gate dropped. A stored posting absent from 3
   consecutive successful, non-empty lists of its board becomes `source_state='closed'`
   (new `job_postings.source_absent_count`); a failed or empty fetch never counts and a
-  relisting reopens it. Only `fetch.ABSENCE_CLOSURE_SOURCES` count absence: workday
-  (stubs carry `jobReqId`, not the stored GUID), smartrecruiters, phenom and browser can
-  return a short list without raising and are excluded. Closed postings leave the
+  relisting reopens it. Only `fetch.ABSENCE_CLOSURE_SOURCES` (greenhouse, lever, ashby,
+  pinpoint, workable) count absence: workday (stubs carry `jobReqId`, not the stored
+  GUID), smartrecruiters, phenom, browser, icims and custom can return a short list
+  without raising and are excluded. Closed postings leave the
   screen, JEV and recheck queues. Deploy: back up `db/`, `make db-push` (additive
   column), then `node apps/web/prisma/migrate-expired-230.mjs <DATABASE_URL>`.
 

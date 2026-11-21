@@ -44,10 +44,11 @@ owns active branch claims. Documentation plans do not launch agents or deploy se
 
 - Fetch applies candidate/title gates before the agent sees the data. Existing dedup
   ignores repeated source/external IDs rather than generally refreshing their JDs.
-- Board absence closes postings only for sources whose list accounts for every id
-  (SPEC §7.1 `run_fetch`). phenom and browser boards are never closed (their lists can
-  be truncated without raising), nor feed-ingested postings of boards off the watchlist,
-  nor legacy rows with no `company_slug`.
+- Board absence closes postings only for greenhouse, lever, ashby, pinpoint and
+  workable (SPEC §7.1 `run_fetch`). phenom, browser, icims and custom boards are never
+  closed by absence (their lists can be truncated without raising; a recipe-level
+  complete-list opt-in is a possible follow-up for custom), nor feed-ingested postings
+  of boards off the watchlist, nor legacy rows with no `company_slug`.
 - Imported/manual applications may have no posting link. Deduplicate against the
   applications table, not only `application_id`.
 - No persistent Brief delivery ledger. Cross-day deduplication is

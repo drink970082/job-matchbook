@@ -61,10 +61,14 @@ DETAIL_SOURCES = frozenset(s for s, m in ADAPTERS.items() if hasattr(m, "fetch_o
 #   smartrecruiters a failed or inactive detail drops the row
 #   phenom          a throttled board is salvaged as its first pages
 #   browser         pagination ends on a render that timed out or was walled
+#   icims           pagination ends on the first page with no parsed cards (a 200
+#                   interstitial reads as the end of the board)
+#   custom          a recipe may fetch one capped page (`limit=100`, page none) or page
+#                   wrongly; a recipe-level "complete list" opt-in could re-admit it
 # workday and smartrecruiters are per-listing sources, so run_expire's per-id check
 # still closes them.
 ABSENCE_CLOSURE_SOURCES = frozenset(
-    {"greenhouse", "lever", "ashby", "pinpoint", "workable", "icims", "custom"})
+    {"greenhouse", "lever", "ashby", "pinpoint", "workable"})
 
 
 def filter_postings(postings: list[dict], title_filter: list[str] | None) -> list[dict]:

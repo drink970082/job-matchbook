@@ -131,12 +131,14 @@ def test_stub_gate_dropped_stub_is_still_listed(db_path):
     assert (row["source_state"], row["source_last_seen_at"]) == ("available", PASS_TIMES[2])
 
 
-@pytest.mark.parametrize("source", ["workday", "smartrecruiters", "phenom", "browser"])
+@pytest.mark.parametrize("source", ["workday", "smartrecruiters", "phenom", "browser",
+                                    "icims", "custom"])
 def test_sources_without_a_complete_id_list_never_close_by_absence(db_path, source):
     # workday stubs carry no stored id (jobReqId, not the GUID) and its detail failure
     # drops the row; smartrecruiters also drops on detail failure; phenom salvages a
     # throttled board as a short list; browser pagination ends on a render that timed
-    # out. None of those lists proves absence. workday/smartrecruiters stay covered by
+    # out; icims ends on the first page with no parsed cards; a custom recipe may fetch
+    # one capped page. None of those lists proves absence. workday/smartrecruiters stay covered by
     # run_expire's per-id check.
     assert source not in ABSENCE_CLOSURE_SOURCES
     conn = db.connect(db_path)
@@ -150,7 +152,21 @@ def test_sources_without_a_complete_id_list_never_close_by_absence(db_path, sour
 
 def test_absence_closure_sources_are_complete_list_boards():
     assert ABSENCE_CLOSURE_SOURCES == {"greenhouse", "lever", "ashby", "pinpoint",
-                                       "workable", "icims", "custom"}
+                                       "workable"}
+
+
+def test_listing_scope_is_the_board_for_both_stamp_and_count(db_path):
+    # Board "other" listing an id stored under board "acme" must not stamp or reset
+    # acme's row; only acme's own lists decide it.
+    conn = db.connect(db_path)
+    _seed(conn, ["kept", "shared"])
+    _passes(conn, _lister([["kept"]] * 2), 2)
+    db.record_board_listing(conn, "greenhouse", "other", ["shared"], now=PASS_TIMES[2],
+                            count_absence=True)
+    row = _row(conn, "shared")
+    assert (row["source_absent_count"], row["source_last_seen_at"]) == (2, NOW)
+    _passes(conn, _lister([["kept"]]), 1)
+    assert _row(conn, "shared")["source_state"] == "closed"
 
 
 def test_closed_rows_leave_the_screen_and_jev_queues(db_path):

@@ -91,8 +91,9 @@ def upsert_postings(conn: sqlite3.Connection, postings, *, now: str) -> int:
             # content remains immutable here; refresh owns content replacement.
             conn.execute(
                 "UPDATE job_postings SET source_state='available',source_last_seen_at=?,"
-                "source_absent_count=0 WHERE source=? AND external_id=?",
-                (now, p["source"], p["external_id"]),
+                "source_absent_count=CASE WHEN company_slug IS ? THEN 0 "
+                "ELSE source_absent_count END WHERE source=? AND external_id=?",
+                (now, p.get("company_slug"), p["source"], p["external_id"]),
             )
     conn.commit()
     return inserted
@@ -107,8 +108,10 @@ def record_board_listing(conn: sqlite3.Connection, source: str, slug: str, liste
                          *, now: str, count_absence: bool) -> int:
     """Apply one successful board list to the stored rows of `(source, slug)`.
 
-    Every listed id that is stored for `source` is a positive observation: available,
-    seen now, absence count reset. With `count_absence` and a non-empty list, every other open
+    Both halves are scoped to the board `(source, company_slug)`, so a second board that
+    lists the same id (overlapping custom boards) neither stamps nor resets the first
+    board's row. Every listed id stored under this board is a positive observation:
+    available, seen now, absence count reset. With `count_absence` and a non-empty list, every other open
     row of the board counts one absence and closes at ABSENT_LISTS_TO_CLOSE. An empty
     list proves nothing and only stamps. Returns the rows closed by this call.
     """
@@ -118,8 +121,8 @@ def record_board_listing(conn: sqlite3.Connection, source: str, slug: str, liste
     listed = json.dumps(ids)   # one bound parameter, however long the board is
     conn.execute(
         "UPDATE job_postings SET source_state='available',source_last_seen_at=?,"
-        "source_absent_count=0 WHERE source=? "
-        "AND external_id IN (SELECT value FROM json_each(?))", (now, source, listed))
+        "source_absent_count=0 WHERE source=? AND company_slug=? "
+        "AND external_id IN (SELECT value FROM json_each(?))", (now, source, slug, listed))
     closed = 0
     if count_absence:
         absent = ("source=? AND company_slug=? AND source_state<>'closed' "

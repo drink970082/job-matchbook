@@ -1220,17 +1220,19 @@ worker modules are pure and dependency-injected; real services are wired only in
   `run_fetch` → (`run_feed`) → `run_expire` → `run_screen`. Every stage wraps each item
   in try/except: one bad posting/company is logged or recorded and the batch continues. `run_fetch` runs the watchlist path: fetch
   each company and, **before any filter**, record the board's listing
-  (`db.record_board_listing`): every listed id — returned, or seen only by the `keep`
-  stub gate (a title/age-dropped stub is still listed) — is stamped `source_last_seen_at`.
-  For a source in `fetch.ABSENCE_CLOSURE_SOURCES` (greenhouse, lever, ashby, pinpoint,
-  workable, icims, custom: lists that account for every id or raise) a stored posting of
-  that `(source, company_slug)` missing from **3 consecutive successful, non-empty**
-  lists becomes `source_state='closed'`; a raising fetch records nothing and an empty
-  list counts nothing (PRINCIPLES 3). Excluded, because their list can be short without
-  raising: workday (stubs carry `jobReqId`, not the stored GUID, and a failed detail
-  drops the row), smartrecruiters (a failed or inactive detail drops the row), phenom (a
-  throttled board is salvaged as its first pages), browser (pagination ends on a timed
-  out render). workday and smartrecruiters are still closed per id by `run_expire`.
+  (`db.record_board_listing`, scoped to the board `(source, company_slug)`): every
+  listed id — returned, or seen only by the `keep` stub gate (a title/age-dropped stub
+  is still listed) — is stamped `source_last_seen_at`. For a source in
+  `fetch.ABSENCE_CLOSURE_SOURCES` (greenhouse, lever, ashby, pinpoint, workable: one
+  call that returns the whole board or raises) a stored posting of that board missing
+  from **3 consecutive successful, non-empty** lists becomes `source_state='closed'`; a
+  raising fetch records nothing and an empty list counts nothing (PRINCIPLES 3).
+  Excluded, because their list can be short without raising: workday (stubs carry
+  `jobReqId`, not the stored GUID, and a failed detail drops the row), smartrecruiters
+  (a failed or inactive detail drops the row), phenom (a throttled board is salvaged as
+  its first pages), browser (pagination ends on a timed out render), icims (pagination
+  ends on the first page with no parsed cards), custom (a recipe may fetch one capped
+  page or page wrongly; a recipe-level complete-list opt-in could re-admit it). workday and smartrecruiters are still closed per id by `run_expire`.
   Feed-ingested postings of a board not on the watchlist are never closed by absence.
   Then apply `fetch.prefilter_postings` (title keep/exclude + max-age), then
   — when a `candidate` is configured — run the **same** deterministic intern/location
@@ -1698,7 +1700,7 @@ model job_postings {
   posted_at       String?       // board posting date YYYY-MM-DD; scrape-date fallback for dateless boards; null on legacy pre-backfill rows
   source_state                    String  @default("unknown") // unknown|available|closed
   source_last_seen_at             String? // latest exact identity in a list or detail response
-source_absent_count             Int     @default(0) // consecutive successful non-empty board lists without it; 3 closes
+  source_absent_count             Int     @default(0) // consecutive successful non-empty board lists without it; 3 closes
   source_last_check_attempted_at  String? // latest detail refresh attempt, including errors
   source_last_checked_at          String? // latest conclusive detail refresh
   source_last_check_outcome        String  @default("not_checked") // not_checked|found|confirmed_closed|inconclusive
@@ -2267,7 +2269,7 @@ automated coverage — those rely on code review or the human in the loop, not a
 | Synthetic browser flow: newest unscored job, full JD, all-text search, second page, retained Matched details and All-jobs application workflow | `web/e2e/discovered.spec.ts`, `apply-loop.spec.ts` |
 | Integration-harness self-check (real Prisma round-trip on the temp DB) | `web/src/__tests__/harness.int.test.ts` |
 | Dead-link sweep: 404/410 → `source_state='closed'` (lifecycle untouched), every other error leaves the row live, queue rotation, closed rows not rechecked | `test_pipeline.py` (`run_expire`) |
-| Board absence closes: 3rd consecutive successful non-empty list without the id closes it, a failed or empty fetch never counts, relisting reopens; filter- and stub-gate-dropped ids still stamped seen; workday/smartrecruiters/phenom/browser never close by absence; closed rows leave the screen and JEV queues | `test_closure.py` |
+| Board absence closes: 3rd consecutive successful non-empty list without the id closes it, a failed or empty fetch never counts, relisting reopens; filter- and stub-gate-dropped ids still stamped seen; board-scoped stamp and count; workday/smartrecruiters/phenom/browser/icims/custom never close by absence; closed rows leave the screen and JEV queues | `test_closure.py` |
 | Explicit one-shot source refresh stays within 1–25 SmartRecruiters requests without following redirects, selects only unscored/unlinked rows without fit assessment, validates identity and visible core JD content, preserves state on inconclusive/closed results, reopens source availability without relabeling detail-check time, and skips concurrent eligibility changes | `test_source_lifecycle.py`, `test_run.py::test_run_once_unscored_refresh_runs_as_an_isolated_source_only_mode`, `test_smartrecruiters.py` |
 | Explicitly inactive SmartRecruiters details cannot insert or reopen a source observation on normal feed/watchlist ingestion; missing `active` remains compatible and normal ingest never records closure | `test_smartrecruiters.py` (`test_fetch_one_rejects_an_explicitly_inactive_detail`, `test_fetch_skips_explicitly_inactive_detail_but_keeps_missing_active_compatibility`), `test_feed_pipeline.py` (`test_run_feed_does_not_insert_smartrecruiters_explicitly_inactive_detail`, `test_run_fetch_does_not_reopen_closed_smartrecruiters_row_from_inactive_detail`), `test_source_lifecycle.py` |
 | Complete source content is hashed/revisioned; duplicate listings only advance seen time; completed fit and standalone assessments capture the source revision; changed content makes old screen evidence stale without a provider rerun | `test_source_lifecycle.py`, `test_db.py`, `test_screen_pipeline.py` |
