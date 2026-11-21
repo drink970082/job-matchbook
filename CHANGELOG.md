@@ -182,6 +182,11 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 
 ### Fixed
 
+- **Concurrent web integration runs no longer collide.** The integration DB URL went
+  through one fixed `/tmp/ats-integration-db.json`, so two checkouts running
+  `test:integration` at once pointed at each other's DB. globalSetup now hands the URL
+  to the workers through `process.env`.
+
 - **Workday postings never closed, and the dead-link sweep was stuck** (#266).
   `run_expire` handed workday's `fetch_one` the stored GUID, which built
   `.../cxs/<tenant>/<site><guid>`: an HTML career page with a 200, never a 404. Those
