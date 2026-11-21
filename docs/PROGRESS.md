@@ -11,9 +11,9 @@ behavior. Completed work belongs in CHANGELOG, not this queue.
 - **One candidate profile; evaluate each posting once — spec approved; implementation
   not started** `[WORKER+WEB+MCP · L]` (epic #223; no implementation branch yet).
   [Spec](superpowers/specs/2026-11-20-candidate-profile-design.md); #224 is next.
-- **MCP read path research — note written, awaiting the operator's A/B call** `[DOCS · S]`
+- **MCP read path research — option A chosen, PR open** `[DOCS · S]`
   (#209, branch `docs/209-mcp-read-path-research`).
-  [Note](superpowers/specs/2026-11-20-mcp-read-path-research.md): tunnel fronts HTTP; recommends A.
+  [Note](superpowers/specs/2026-11-20-mcp-read-path-research.md): tunnel fronts HTTP; A with a separate MCP port, record tools deferred (section 6 scopes #257).
 
 These references reserve unfinished work; they do not claim the branches are currently
 executing or establish merge readiness. Inspect actual refs/worktrees and coordinate

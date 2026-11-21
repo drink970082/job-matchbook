@@ -156,16 +156,22 @@ host Python and the checkout, so it misses the docker-only goal.
 #256's docker-only goal. #257 should carry the per-scope tool-set test and the
 tunnel-origin mitigation from section 3.
 
-## 6. Open questions for the operator
+## 6. Operator decisions (2026-11-20)
 
-1. Will you run one hosted check? Point a throwaway tunnel profile
-   (`sample_mcp_remote_no_auth`, `--mcp-server-url http://127.0.0.1:<port>/mcp`,
-   `--mcp.extra-headers 'Authorization: file:...'`) at a scratch HTTP server. It needs
-   your Platform tunnel id and runtime key, so it was not run.
-2. Do `list_ats_records` / `get_ats_record` stay? Dropping them saves about 0.5 day and
-   the riskiest port.
-3. Does #258 replace `list_jobs`'s filter set? If yes, port it once in the new shape.
-4. For the tunnel origin: middleware that rejects non-`/mcp` paths through the tunnel,
-   or a separate loopback port for MCP?
-5. Does the deployed read-only tunnel (its launcher sets no `ATS_API_KEY`) get a read
-   key or a read-write key after the switch?
+Option A, scoped for #257:
+
+1. **Hosted check first.** Before #257 starts, the operator runs one hosted tunnel check
+   against a scratch HTTP server (profile `sample_mcp_remote_no_auth`,
+   `--mcp-server-url http://127.0.0.1:<port>/mcp`,
+   `--mcp.extra-headers 'Authorization: file:...'`). It needs the Platform tunnel id and
+   runtime key.
+2. **Record tools deferred.** `list_ats_records` / `get_ats_record` are not ported in
+   #257. They come back only if a consumer is shown to use them.
+3. **`list_jobs` ported once.** It is ported in #258's new shape, not the current
+   five-vocabulary filter set.
+4. **Separate loopback port.** MCP listens on its own loopback port, and the tunnel points
+   only at that port. The web origin and its server actions are never behind the tunnel.
+5. **Read key.** After the switch the tunnel keeps today's read-only reach and gets a
+   read-scope key. A read-write tunnel is a separate decision.
+
+With 2 and 3, A is about 3-3.5 days.
