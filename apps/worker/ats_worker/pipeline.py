@@ -23,6 +23,7 @@ from urllib.parse import urlparse
 
 from . import db, screening
 from .jev import JevError
+from .screening.errors import provider_failure_category
 from .fetch import (ABSENCE_CLOSURE_SOURCES, DETAIL_SOURCES, STUB_GATE_NOW_SOURCES,
                     STUB_GATE_SOURCES, prefilter_postings, recheck_id)
 from .feed import prefilter as _prefilter
@@ -34,7 +35,8 @@ from .source_lifecycle import (assessment_input_hash,
 # --- fetch ----------------------------------------------------------------
 
 def run_fetch(conn, companies, title_filter, *, now, fetch_fn=None,
-              title_exclude=None, max_age_days=0, candidate=None) -> int:
+              title_exclude=None, max_age_days=0, candidate=None,
+              counts: dict | None = None) -> int:
     """Fetch every company, pre-filter (title keep/exclude + max-age), tag any
     deterministic disqualification (intern/location) so it lands 'discarded' WITHOUT
     an Ollama call, then upsert. Returns rows inserted.
@@ -46,10 +48,29 @@ def run_fetch(conn, companies, title_filter, *, now, fetch_fn=None,
     gate — is recorded as observed (`db.record_board_listing`). For a source in
     `ABSENCE_CLOSURE_SOURCES` a stored posting missing from that complete list counts
     one absence; a raising fetch records nothing, and an empty list counts nothing.
+
+    `counts`, when given, is filled with this pass's tallies for the pass record:
+    listings by drop cause, discards by failed check, inserted. Listings are counted
+    every pass, including ones already stored.
     """
     if fetch_fn is None:
         raise ValueError("run_fetch requires an injected fetch_fn (wired in run.py)")
-    inserted = 0
+    tally = counts if counts is not None else {}
+    tally.update({"boards_attempted": 0, "boards_failed": 0, "listed": 0,
+                  "dropped_title": 0, "dropped_age": 0, "discarded": 0,
+                  "discarded_by_reason": {}, "bodyless": 0, "detail_failed": 0,
+                  "closed_by_absence": 0,
+                  "inserted": 0})
+
+    def _coarse(postings):
+        """The title keep/exclude + max-age prefilter, split so each drop is counted
+        under its cause. Same result as one prefilter_postings call."""
+        titled = prefilter_postings(postings, title_filter=title_filter,
+                                    title_exclude=title_exclude, now=now)
+        fresh = prefilter_postings(titled, max_age_days=max_age_days, now=now)
+        tally["dropped_title"] += len(postings) - len(titled)
+        tally["dropped_age"] += len(titled) - len(fresh)
+        return fresh
 
     def _keep(stub):
         """Fetch-cost gate handed to the two-step adapters: decide from the search
@@ -57,9 +78,7 @@ def run_fetch(conn, companies, title_filter, *, now, fetch_fn=None,
         Pure optimization — the loop below still re-runs both filters over whatever
         comes back and owns every status decision, so a wrong verdict here can only
         cost or save HTTP requests."""
-        if not prefilter_postings([stub], title_filter=title_filter,
-                                  title_exclude=title_exclude,
-                                  max_age_days=max_age_days, now=now):
+        if not _coarse([stub]):
             return "drop"
         if candidate:
             verdict = screening.deterministic_screen(
@@ -70,16 +89,23 @@ def run_fetch(conn, companies, title_filter, *, now, fetch_fn=None,
         return "hydrate"
 
     for c in companies:
+        tally["boards_attempted"] += 1
         try:
             # Pass recipe only for recipe-driven rows so a plain 3-arg fetch_fn
             # (and every non-recipe adapter) is called exactly as before.
             kw = {"recipe": c["recipe"]} if c.get("recipe") is not None else {}
             gated: set[str] = set()   # ids the stub gate saw, including dropped ones
+            # Stub-gate verdicts, counted per call rather than per id: a workday stub
+            # carries no external_id, so `gated` cannot count what was listed.
+            verdicts = {"calls": 0, "drop": 0}
             if c["source"] in STUB_GATE_SOURCES:
-                def _observed_keep(stub, _gated=gated):
+                def _observed_keep(stub, _gated=gated, _v=verdicts):
                     if stub.get("external_id"):
                         _gated.add(str(stub["external_id"]))
-                    return _keep(stub)
+                    verdict = _keep(stub)
+                    _v["calls"] += 1
+                    _v["drop"] += verdict == "drop"
+                    return verdict
                 kw["keep"] = _observed_keep
                 if c["source"] in STUB_GATE_NOW_SOURCES:
                     # Relative-prose stub dates need the injected clock to become a
@@ -88,16 +114,23 @@ def run_fetch(conn, companies, title_filter, *, now, fetch_fn=None,
                     # layer's to know, not ours.
                     kw["now"] = now
             postings = fetch_fn(c["source"], c["slug"], c["name"], **kw)
+            returned = {str(p.get("external_id") or "") for p in postings}
+            if verdicts["calls"]:
+                # Every stub the gate passed should come back; one that did not lost its
+                # detail call (workday returns None on a failed detail GET).
+                tally["listed"] += verdicts["calls"]
+                tally["detail_failed"] += max(
+                    0, verdicts["calls"] - verdicts["drop"] - len(postings))
+            else:
+                tally["listed"] += len(postings)
             closed = db.record_board_listing(
-                conn, c["source"], c["slug"],
-                gated | {str(p.get("external_id") or "") for p in postings}, now=now,
+                conn, c["source"], c["slug"], gated | returned, now=now,
                 count_absence=c["source"] in ABSENCE_CLOSURE_SOURCES)
+            tally["closed_by_absence"] += closed
             if closed:
                 print(f"[fetch] {c['source']}/{c['slug']}: closed {closed} posting(s) "
                       f"absent from {db.ABSENT_LISTS_TO_CLOSE} consecutive lists")
-            kept = prefilter_postings(
-                postings, title_filter=title_filter, title_exclude=title_exclude,
-                max_age_days=max_age_days, now=now)
+            kept = _coarse(postings)
             for p in kept:
                 p["company_slug"] = c["slug"]
                 if candidate:
@@ -107,6 +140,8 @@ def run_fetch(conn, companies, title_filter, *, now, fetch_fn=None,
                     if verdict.get("disqualified"):
                         p["pipeline_status"] = "discarded"
                         p["score_detail"] = _score_detail(verdict, disqualified=True)
+                        tally["discarded"] += 1
+                        _count_failed_checks(tally["discarded_by_reason"], verdict)
             # A bodyless row is permanent (upsert is ON CONFLICT DO NOTHING) and would
             # be fit-scored blind on the PAID backend. Drop it instead: a board whose
             # list endpoint carries no JD simply yields nothing this cycle. Dropping
@@ -119,6 +154,7 @@ def run_fetch(conn, companies, title_filter, *, now, fetch_fn=None,
             # returns them deliberately un-hydrated and they never reach the screen.
             bodyless = [p for p in kept
                         if p.get("pipeline_status") != "discarded" and not _valid_posting(p)]
+            tally["bodyless"] += len(bodyless)
             if bodyless:
                 print(f"[fetch] {c['source']}/{c['slug']}: dropped {len(bodyless)} "
                       f"posting(s) with no description")
@@ -135,12 +171,21 @@ def run_fetch(conn, companies, title_filter, *, now, fetch_fn=None,
                 drop_ids = {id(p) for p in bodyless}
                 kept = [p for p in kept if id(p) not in drop_ids]
             added = db.upsert_postings(conn, kept, now=now)
-            inserted += added
+            tally["inserted"] += added
             _log_board_health(c, postings, kept, bodyless, added)
         except Exception as exc:  # noqa: BLE001 — one bad board must not abort the rest
+            tally["boards_failed"] += 1
             print(f"[fetch] {c.get('source')}/{c.get('slug')}: skipped after error: {exc}")
             continue
-    return inserted
+    return tally["inserted"]
+
+
+def _count_failed_checks(by_reason: dict, verdict: dict) -> None:
+    """Count a disqualification under each screen check it failed (the check names
+    are a closed set; the free-text reason is not). One posting can fail several."""
+    for check, result in (verdict.get("screen") or {}).items():
+        if isinstance(result, dict) and result.get("pass") is False:
+            by_reason[check] = by_reason.get(check, 0) + 1
 
 
 # --- feed (discovery) -----------------------------------------------------
@@ -271,7 +316,8 @@ def run_feed(conn, *, now, feed_fn, keep_categories, feed_name="simplify",
              detail_fetch_fn=None, detail_sources=DETAIL_SOURCES,
              record_unresolved_fn=db.record_unresolved,
              resolve_embedded_fn=None, max_workers: int = 12,
-             title_filter=None, title_exclude=None, max_age_days: int = 0) -> int:
+             title_filter=None, title_exclude=None, max_age_days: int = 0,
+             counts: dict | None = None) -> int:
     """Ingest a discovery feed: prefilter cheaply, resolve each apply URL back to
     its board, then REUSE the board adapters to fetch the JD — keeping ONLY the
     feed-surfaced postings. Returns rows inserted.
@@ -296,7 +342,20 @@ def run_feed(conn, *, now, feed_fn, keep_categories, feed_name="simplify",
     actually stored. Without the second pass a feed row could sit in the DB dated older
     than `max_age_days` whenever the two dates disagreed (evergreen greenhouse reqs
     Simplify re-lists as fresh); with it, both paths make the same guarantee.
+
+    `counts`, when given, is filled with the pass-record tallies. The buckets do not
+    overlap: listings = prefilter_dropped + dropped_title + dropped_age + no_url +
+    sum(unresolved_by_reason) + duplicate + already_stored + not_on_board + resolved,
+    where `resolved` counts postings actually fetched from their board (a list or
+    detail failure is under unresolved_by_reason instead), and resolved =
+    dropped_age_board + inserted (+ any the upsert finds already stored).
     """
+    tally = counts if counts is not None else {}
+    tally.update({"listings": 0, "prefilter_dropped": 0, "dropped_title": 0,
+                  "dropped_age": 0, "no_url": 0, "unresolved_by_reason": {},
+                  "duplicate": 0, "already_stored": 0, "not_on_board": 0,
+                  "resolved": 0, "dropped_age_board": 0, "inserted": 0})
+    unresolved = tally["unresolved_by_reason"]
     # The feed is I/O-bound: hundreds of board/listing fetches dominate the runtime.
     # So network work is run CONCURRENTLY (ThreadPoolExecutor) while every DB call
     # stays on this thread — SQLite connections are not safe across threads. Pattern
@@ -309,19 +368,26 @@ def run_feed(conn, *, now, feed_fn, keep_categories, feed_name="simplify",
 
     def _stash(r, url, listing):
         source, slug, external_id = r
-        wanted.setdefault((source, slug), {}).setdefault(external_id, {
+        group = wanted.setdefault((source, slug), {})
+        tally["duplicate"] += external_id in group
+        group.setdefault(external_id, {
             "url": url,
             "company_name": listing.get("company_name") or "",
             "job_title": listing.get("title") or "",
         })
 
     def _record(url, listing, host, reason):
+        unresolved[reason] = unresolved.get(reason, 0) + 1
         record_unresolved_fn(
             conn, feed=feed_name, url=url,
             company_name=listing.get("company_name") or "",
             job_title=listing.get("title") or "", host=host, reason=reason, now=now)
 
-    for x in prefilter_fn(feed_fn(), keep_categories):
+    listings = list(feed_fn())
+    gated = list(prefilter_fn(listings, keep_categories))
+    tally["listings"] = len(listings)
+    tally["prefilter_dropped"] = len(listings) - len(gated)
+    for x in gated:
         # Same one-listing call shape as run_fetch's `_keep` stub gate. Dropping here
         # rather than at the ingest tail is the whole point: past this line the listing
         # costs a resolve, a board detail fetch and a screen call. Be exact about the
@@ -331,12 +397,17 @@ def run_feed(conn, *, now, feed_fn, keep_categories, feed_name="simplify",
         # is the resolve for anything that never lands: an unresolvable URL, a board
         # that stops serving the id. A drop here is not recorded in `feed_unresolved` —
         # the operator's own config refused it, so it is not an unresolved backlog item.
-        if not prefilter_postings([_feed_posting_view(x)], title_filter=title_filter,
-                                  title_exclude=title_exclude,
-                                  max_age_days=max_age_days, now=now):
+        view = [_feed_posting_view(x)]
+        if not prefilter_postings(view, title_filter=title_filter,
+                                  title_exclude=title_exclude, now=now):
+            tally["dropped_title"] += 1
+            continue
+        if not prefilter_postings(view, max_age_days=max_age_days, now=now):
+            tally["dropped_age"] += 1
             continue
         url = x.get("url")
         if not url:
+            tally["no_url"] += 1
             continue
         r = resolve_fn(url)
         if r is not None:
@@ -373,6 +444,7 @@ def run_feed(conn, *, now, feed_fn, keep_categories, feed_name="simplify",
         # but that's now ONE cheap per-job CXS call, not the whole board, and upsert
         # dedups the row).
         missing = ids - db.existing_external_ids(conn, source, ids)
+        tally["already_stored"] += len(ids) - len(missing)
         if missing:
             name = next(iter(meta.values()))["company_name"] or slug
             work.append((source, slug, name, missing, meta))
@@ -384,10 +456,13 @@ def run_feed(conn, *, now, feed_fn, keep_categories, feed_name="simplify",
                                    detail_sources=detail_sources),
             work))
 
-    inserted = 0
     for (source, slug, name, missing, meta), (keep, failed) in zip(work, fetched):
+        tally["resolved"] += len(keep)
+        # A board list that answered but no longer carries a surfaced id records nothing.
+        tally["not_on_board"] += max(0, len(missing) - len(keep) - len(failed))
         for fid, reason in failed:
             m = meta[fid]
+            unresolved[reason] = unresolved.get(reason, 0) + 1
             record_unresolved_fn(
                 conn, feed=feed_name, url=m["url"],
                 company_name=m["company_name"], job_title=m["job_title"],
@@ -413,12 +488,13 @@ def run_feed(conn, *, now, feed_fn, keep_categories, feed_name="simplify",
         # the feed's title, and the collapse check above must see the unfiltered
         # keep (an all-stale board is not a broken scraper).
         fresh = prefilter_postings(keep, max_age_days=max_age_days, now=now)
-        inserted += db.upsert_postings(conn, fresh, now=now)
+        tally["dropped_age_board"] += len(keep) - len(fresh)
+        tally["inserted"] += db.upsert_postings(conn, fresh, now=now)
         for p in keep:  # a URL that once failed now resolves — clear its stale row.
             m = meta.get(p["external_id"])
             if m:
                 db.delete_unresolved(conn, m["url"])
-    return inserted
+    return tally["inserted"]
 
 
 # --- expire ---------------------------------------------------------------
@@ -438,7 +514,8 @@ def _gone(exc) -> bool:
 
 
 def run_expire(conn, *, now, detail_fetch_fn, detail_sources=DETAIL_SOURCES,
-               limit=EXPIRE_BATCH, recheck_id_fn=recheck_id) -> int:
+               limit=EXPIRE_BATCH, recheck_id_fn=recheck_id,
+               counts: dict | None = None) -> int:
     """Re-fetch the least-recently-checked live postings and mark the dead ones
     source_state='closed', so a closed req stops sitting in the queue as a dead link.
     Returns rows closed.
@@ -452,9 +529,11 @@ def run_expire(conn, *, now, detail_fetch_fn, detail_sources=DETAIL_SOURCES,
     Every outcome rotates the row to the back of the queue, so a row that always
     errors cannot pin the head of it; wrongly expiring a live match costs
     the operator a job while a missed dead link costs one stale row.
+    `counts`, when given, gets the pass-record tallies: checked, closed, inconclusive.
     """
-    expired = skipped = 0
-    for row in db.get_recheck_candidates(conn, sorted(detail_sources), limit):
+    expired = skipped = found = 0
+    rows = db.get_recheck_candidates(conn, sorted(detail_sources), limit)
+    for row in rows:
         key = recheck_id_fn(row)
         if not key:
             db.record_check_inconclusive(conn, row["id"], now=now, category="no_recheck_key")
@@ -478,8 +557,12 @@ def run_expire(conn, *, now, detail_fetch_fn, detail_sources=DETAIL_SOURCES,
                                          category="incomplete_content")
         else:
             db.record_check_found(conn, row["id"], now=now)
+            found += 1
     if skipped:
         print(f"[expire] skipped {skipped} row(s) with no recheck key")
+    if counts is not None:
+        counts.update({"checked": len(rows), "closed": expired,
+                       "inconclusive": len(rows) - expired - found})
     return expired
 
 
@@ -601,7 +684,7 @@ def run_jev(conn, *, now: str, jev_fn, policy_sha: str, model: str, limit: int,
              - timedelta(days=JEV_MAX_AGE_DAYS)).date().isoformat()
     rows = db.get_jev_candidates(conn, policy_sha, since)
     tally = {"attempted": 0, "keep": 0, "skip": 0, "errors": 0, "deferred": 0,
-             "spent_usd": Decimal(0), "stopped": None}
+             "spent_usd": Decimal(0), "stopped": None, "errors_by_category": {}}
     breaker = _BackendBreaker()
     for row in rows:
         if breaker.tripped:
@@ -620,6 +703,8 @@ def run_jev(conn, *, now: str, jev_fn, policy_sha: str, model: str, limit: int,
         except JevError as exc:
             tally["spent_usd"] += exc.cost
             tally["errors"] += 1
+            by = tally["errors_by_category"]
+            by[exc.category] = by.get(exc.category, 0) + 1
             if exc.category != "request_too_large":
                 breaker.record_failure()
             db.save_jev(conn, int(row["id"]), state="provider_error", verdict=None, reasons=None,
@@ -646,11 +731,8 @@ def _screen_error_category(exc: Exception | None) -> str:
     """Map failures to fixed safe categories; exception text may contain job data."""
     if exc is None:
         return "provider_error"
-    if type(exc).__name__ in {"TimeoutError", "TimeoutExpired"}:
-        return "timeout"
-    if isinstance(exc, FileNotFoundError):
-        return "executable_missing"
-    return "screen_error"
+    category = provider_failure_category(exc)
+    return "screen_error" if category == "provider_error" else category
 
 
 def run_screen(conn, *, now: str, screen_fn, extract, candidate=None, backend: str,
@@ -674,7 +756,8 @@ def run_screen(conn, *, now: str, screen_fn, extract, candidate=None, backend: s
         "ON p.id=s.job_posting_id WHERE p.pipeline_status='new' AND s.state='complete'"
     ).fetchone()[0]
     tally = {"attempted": 0, "passed": 0, "disqualified": 0, "unknown": 0,
-             "errors": 0, "saved": 0, "changed": 0, "uncalled": 0}
+             "errors": 0, "saved": 0, "changed": 0, "uncalled": 0,
+             "disqualified_by_reason": {}, "errors_by_category": {}}
     breaker = _BackendBreaker()
     workers = max(1, int(screen_workers))
 
@@ -708,11 +791,15 @@ def run_screen(conn, *, now: str, screen_fn, extract, candidate=None, backend: s
                     breaker.record_success()
                 if result.get("disqualified"):
                     tally["disqualified"] += 1
+                    _count_failed_checks(tally["disqualified_by_reason"], result)
                 else:
                     checks = (result.get("screen") or {}).values()
                     has_verdict = any(isinstance(check, dict) and "pass" in check
                                       for check in checks)
                     tally["passed" if has_verdict else "unknown"] += 1
+        if category is not None:
+            by = tally["errors_by_category"]
+            by[category] = by.get(category, 0) + 1
         saved_at = clock() if clock is not None else now
         saved = db.save_screening(
             conn, int(row["id"]), state=state, result=stored,

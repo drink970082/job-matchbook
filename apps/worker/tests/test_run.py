@@ -55,6 +55,13 @@ def test_load_env_on_a_directory_returns_empty_not_crash(tmp_path):
     assert run.load_env(str(d)) == {}
 
 
+def _stub_pass_record(monkeypatch):
+    """For tests that run run_once over a FakeConn: the worker_runs writes are no-ops."""
+    monkeypatch.setattr(run.db, "start_pass", lambda conn, **_: 1)
+    monkeypatch.setattr(run.db, "update_pass_counts", lambda *_a, **_k: None)
+    monkeypatch.setattr(run.db, "finish_pass", lambda *_a, **_k: None)
+
+
 def test_run_once_fetch_only_stops_before_the_screen(monkeypatch):
     # --fetch-only must return BEFORE any screen call (a quota-free board refresh).
     order = []
@@ -67,6 +74,7 @@ def test_run_once_fetch_only_stops_before_the_screen(monkeypatch):
             pass
 
     monkeypatch.setattr(run.db, "connect", lambda path: FakeConn())
+    _stub_pass_record(monkeypatch)
     monkeypatch.setattr(run.db, "count_watchlist", lambda conn: 1)
     monkeypatch.setattr(run.db, "get_preferences", lambda conn: None)
     monkeypatch.setattr(run.db, "get_watchlist",
@@ -508,6 +516,7 @@ def test_run_once_threads_fetch_filters(monkeypatch):
             pass
 
     monkeypatch.setattr(run.db, "connect", lambda path: FakeConn())
+    _stub_pass_record(monkeypatch)
     monkeypatch.setattr(run.db, "count_watchlist", lambda conn: 1)
     stored: dict = {}
     monkeypatch.setattr(run.db, "seed_preferences",
@@ -872,6 +881,7 @@ def test_a_scheduled_pass_skips_the_slot_instead_of_dying(monkeypatch, tmp_path,
     monkeypatch.setattr(run, "run_once", lambda cfg, **kw: calls.append(kw))
     monkeypatch.setattr(run, "_candidate_for_pass", lambda conn, cfg, now: None)
     monkeypatch.setattr(run.db, "connect", lambda path: type("C", (), {"close": lambda self: None})())
+    monkeypatch.setattr(run.db, "has_table", lambda conn, name: True)
     real_load_config = cfgmod.load_config
     monkeypatch.setattr(run.config_mod, "load_config",
                         lambda path: real_load_config("companies: []\n"))
@@ -956,6 +966,7 @@ def _daemon_harness(monkeypatch, schedule_hours=4):
     monkeypatch.setattr(run, "run_once", fake_run_once)
     # The startup preference seed; a no-op here (no real DB behind the daemon stub).
     monkeypatch.setattr(run.db, "connect", lambda path: type("C", (), {"close": lambda self: None})())
+    monkeypatch.setattr(run.db, "has_table", lambda conn, name: True)
     monkeypatch.setattr(run, "_candidate_for_pass", lambda conn, cfg, now: None)
     real_load_config = cfgmod.load_config
     monkeypatch.setattr(run.config_mod, "load_config",

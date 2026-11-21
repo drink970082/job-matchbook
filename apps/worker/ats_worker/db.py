@@ -14,6 +14,7 @@ import json
 import sqlite3
 
 from .config import RECIPE_SOURCES
+from .screening.errors import PROVIDER_ERROR_CATEGORIES
 from .source_lifecycle import (SOURCE_ERROR_CATEGORIES, assessment_input_hash,
                                has_embedded_screen, has_fit_assessment)
 
@@ -363,8 +364,7 @@ def save_screening(conn: sqlite3.Connection, posting_id: int, *, state: str,
     if state == "provider_error" and result is not None:
         raise ValueError("provider errors cannot be cached as successful results")
     safe_category = error_category if state == "provider_error" else None
-    if safe_category not in {None, "provider_error", "timeout", "executable_missing",
-                             "screen_error"}:
+    if safe_category is not None and safe_category not in PROVIDER_ERROR_CATEGORIES:
         raise ValueError("invalid screen error category")
     result_json = (json.dumps(result, ensure_ascii=False, separators=(",", ":"))
                    if result is not None else None)
@@ -717,6 +717,46 @@ def record_check_found(conn, posting_id: int, *, now: str) -> None:
         "UPDATE job_postings SET source_last_check_attempted_at=?,source_last_checked_at=?,"
         "source_last_check_outcome='found',source_last_check_error_category=NULL "
         "WHERE id=?", (now, now, posting_id))
+    conn.commit()
+
+
+# --- pass record (worker_runs) ---------------------------------------------
+
+def _json(value) -> str:
+    # default=str: run_jev's spend is a Decimal.
+    return json.dumps(value, sort_keys=True, separators=(",", ":"), default=str)
+
+
+def has_table(conn: sqlite3.Connection, name: str) -> bool:
+    return conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?",
+                        (name,)).fetchone() is not None
+
+
+def start_pass(conn: sqlite3.Connection, *, now: str, fetch_only: bool,
+               jev_enabled: bool, config: dict) -> int:
+    """Insert this pass's `running` row and return its id. Any row still `running` is
+    a pass that died: the caller holds the pass lock, so no other pass is live. It is
+    marked `failed`/`abandoned` with finished_at left NULL (the death time is unknown).
+    `config` is the effective runtime config and must carry no secret."""
+    conn.execute("UPDATE worker_runs SET status='failed', error_category='abandoned' "
+                 "WHERE status='running'")
+    cur = conn.execute(
+        "INSERT INTO worker_runs (started_at, status, fetch_only, jev_enabled, "
+        "config_json, counts_json) VALUES (?, 'running', ?, ?, ?, '{}')",
+        (now, bool(fetch_only), bool(jev_enabled), _json(config)))
+    conn.commit()
+    return int(cur.lastrowid)
+
+
+def update_pass_counts(conn: sqlite3.Connection, run_id: int, counts: dict) -> None:
+    """Store the stage tallies so far, so a pass that dies keeps what it finished."""
+    conn.execute("UPDATE worker_runs SET counts_json=? WHERE id=?", (_json(counts), run_id))
+    conn.commit()
+
+
+def finish_pass(conn: sqlite3.Connection, run_id: int, *, now: str, counts: dict) -> None:
+    conn.execute("UPDATE worker_runs SET status='ok', finished_at=?, counts_json=? "
+                 "WHERE id=? AND status='running'", (now, _json(counts), run_id))
     conn.commit()
 
 

@@ -167,6 +167,18 @@ CREATE TABLE "jev_profile" (
     "updated_at" TEXT NOT NULL
 );
 
+CREATE TABLE "worker_runs" (
+    "id" INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+    "started_at" TEXT NOT NULL,
+    "finished_at" TEXT,
+    "status" TEXT NOT NULL,
+    "error_category" TEXT,
+    "fetch_only" BOOLEAN NOT NULL DEFAULT false,
+    "jev_enabled" BOOLEAN NOT NULL DEFAULT false,
+    "config_json" TEXT NOT NULL,
+    "counts_json" TEXT NOT NULL
+);
+
 CREATE INDEX "job_postings_pipeline_status_idx" ON "job_postings"("pipeline_status");
 CREATE INDEX "job_postings_source_source_last_check_attempted_at_idx" ON "job_postings"("source", "source_last_check_attempted_at");
 CREATE UNIQUE INDEX "job_screenings_job_posting_id_key" ON "job_screenings"("job_posting_id");
@@ -182,3 +194,4 @@ CREATE INDEX "audit_log_entity_id_idx" ON "audit_log"("entity", "id");
 CREATE UNIQUE INDEX "feed_unresolved_url_key" ON "feed_unresolved"("url");
 CREATE INDEX "feed_unresolved_reason_idx" ON "feed_unresolved"("reason");
 CREATE INDEX "status_history_application_id_idx" ON "status_history"("application_id");
+CREATE INDEX "worker_runs_started_at_idx" ON "worker_runs"("started_at");
