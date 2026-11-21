@@ -11,9 +11,8 @@ behavior. Completed work belongs in CHANGELOG, not this queue.
 - **One candidate profile; evaluate each posting once — spec approved; implementation
   not started** `[WORKER+WEB+MCP · L]` (epic #223; no implementation branch yet).
   [Spec](superpowers/specs/2026-11-20-candidate-profile-design.md); #224 is next.
-- **Recipe JSON Schema, validated at every entry point — PR open, awaiting review**
-  `[WORKER+WEB · M]` (#238, epic #236; branch `feat/238-recipe-json-schema`). An invalid
-  stored recipe is logged and skipped per board; recording it as a board-health status is #231.
+- **Workday expiry check builds a malformed URL, so workday never closes**
+  `[WORKER · S]` (#266, epic #229; branch `fix/266-workday-expiry`).
 
 These references reserve unfinished work; they do not claim the branches are currently
 executing or establish merge readiness. Inspect actual refs/worktrees and coordinate
