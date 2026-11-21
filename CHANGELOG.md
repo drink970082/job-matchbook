@@ -7,6 +7,17 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 
 ## [Unreleased]
 
+### Added
+
+- **Pass record (#247)**: a new `worker_runs` table holds one row per worker pass:
+  start/finish time, `running | ok | failed` (`abandoned` when a pass died and the next
+  one found it still `running`), the fetch-only/JEV mode flags, the effective runtime
+  config (no secrets) and per-stage counts for fetch, feed, expire, screen and triage.
+  Screen provider failures now carry the closed categories `provider_auth`,
+  `quota_exhausted` and `provider_unreachable` where the cause is known. **Operator
+  step:** run `make db-push` (back up `db/` first) before starting the new worker;
+  without the table every pass fails at start.
+
 ### Removed
 
 - **Fit-scorer columns** (#174): `job_postings.score`, `attempts`, `notify_attempts`,

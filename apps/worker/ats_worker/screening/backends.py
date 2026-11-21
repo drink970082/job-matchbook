@@ -26,6 +26,7 @@ import subprocess
 import tempfile
 
 from .errors import ModelResponseError as ScoreError
+from .errors import cli_failure_category
 from ats_worker.screen_providers import PROVIDERS
 
 def _parse(raw: str, provider: str) -> dict:
@@ -115,7 +116,8 @@ def _run_cli(runner, cmd, prompt, timeout, provider):
         raise ScoreError(f"{provider} binary not found: {cmd[0]!r}") from exc
     if proc.returncode != 0:
         tail = (proc.stdout or proc.stderr or "").strip()[-400:]
-        raise ScoreError(f"{provider} failed (exit {proc.returncode}): {tail}")
+        raise ScoreError(f"{provider} failed (exit {proc.returncode}): {tail}",
+                         category=cli_failure_category(proc.stderr))
     return proc
 
 

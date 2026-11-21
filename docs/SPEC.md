@@ -459,6 +459,26 @@ worker modules are pure and dependency-injected; real services are wired only in
   record is lost, which both sides announce. Other open failures (an unwritable DB
   directory, a file this user simply cannot read) still fail loud. The worker reads no
   résumé or profile file.
+  **Pass record:** every pass except `--refresh-unscored` writes one `worker_runs` row
+  (§8). `db.start_pass` inserts it `running` with the mode flags and the effective
+  runtime config (`_pass_config`: screen backend/model/effort/limit/workers/rescreen,
+  triage backend/limit/USD cap, enabled feeds, browser sources on/off, `max_age_days`;
+  an allowlist, so no env value or secret is ever recorded). Because the caller holds
+  `pass_lock`, any row still `running` at that point belongs to a dead pass and is
+  marked `failed` / `abandoned` (`finished_at` stays null). Each stage's tally is
+  written as it finishes (`counts_json` keys `fetch`, `feed` per feed name, `expire`,
+  `screen`, `triage`), so a pass that raises stays `running` with the stages it
+  finished; the end of the pass sets `ok` and `finished_at`. Stage failures that the
+  pass survives (a dead screen backend, a skipped triage) are counted, not a `failed`
+  pass. Tallies: fetch `boards_attempted`/`boards_failed`, `listed`, `dropped_title`,
+  `dropped_age`, `discarded` + `discarded_by_reason` (failed check names), `bodyless`,
+  `closed_by_absence`, `inserted`; feed `listings`, `prefilter_dropped` (the feed's own
+  gate), `dropped_title`, `dropped_age` (feed date), `dropped_age_board`, `resolved`,
+  `unresolved_by_reason`, `inserted`; expire `checked`, `closed`, `inconclusive`;
+  screen the `run_screen` tally plus `disqualified_by_reason` and `errors_by_category`;
+  triage the `run_jev` tally plus `errors_by_category` and the resolved `model`, or
+  `{"skipped": no_api_key | no_profile | <provider category>}`. Fetch and feed
+  counts are per listing per pass, including listings already stored.
 - **`config.py` — load/validate `config.yaml`.** Validates `source ∈ VALID_SOURCES`
   (the watchlist-capable boards: {greenhouse, lever, ashby, workday, pinpoint,
   smartrecruiters, workable, icims, phenom, custom, browser} — feed-only sources oracle/jobvite
@@ -1000,7 +1020,14 @@ worker modules are pure and dependency-injected; real services are wired only in
   scan of the whole description — and on a working backend the model's labels overrule
   it while on a dead one nothing does, so running it during an outage discards precisely
   the postings this design keeps. `run_screen` stores a `provider_error` result as
-  retryable, so the next pass screens the row properly.
+  retryable, so the next pass screens the row properly. Its `error_category` is closed
+  (`screening.errors.PROVIDER_ERROR_CATEGORIES`) and names the cause where it is known:
+  `provider_auth` (HTTP 401/403, or a CLI exit whose stderr reads as a login failure),
+  `quota_exhausted` (HTTP 429, or a CLI usage/rate-limit message), `provider_unreachable`
+  (connection refused, e.g. a stopped Ollama), `timeout`, `executable_missing`, else
+  `provider_error`/`screen_error`. Only exception types, status codes and CLI stderr
+  markers are read, never stored; the CLI markers are unverified against every CLI
+  version.
 
   **The retrieval vocabulary is `sponsor` alone, and the cost is stated rather than
   hidden.** Every false positive ever recorded on this path came from a word that is not
@@ -1663,10 +1690,10 @@ worker modules are pure and dependency-injected; real services are wired only in
 
 *Class: **Snapshot** — mirrors `schema.prisma` (the real source of truth); if they disagree, update this spec.*
 
-Twelve tables, owned solely by `apps/web/prisma/schema.prisma` (`applications`,
+Thirteen tables, owned solely by `apps/web/prisma/schema.prisma` (`applications`,
 `status_history`, `job_postings`, `watched_companies`, `audit_log`, `feed_unresolved`,
 `app_settings`, `job_screenings`, `job_jev_assessments`,
-`job_triage_overrides`, `candidate_preferences`, `jev_profile`). Dates are stored as **ISO-8601 strings** for sortability and
+`job_triage_overrides`, `candidate_preferences`, `jev_profile`, `worker_runs`). Dates are stored as **ISO-8601 strings** for sortability and
 timezone-independence (`date_applied` as `YYYY-MM-DD`; timestamps as full ISO with
 millisecond precision to match Prisma / the worker's `_now()`).
 
@@ -1854,6 +1881,19 @@ model jev_profile {              // JEV filter inputs; one row, id=1, seeded fro
   actor        String             // config (seed) | web | mcp
   changed_at   String?
   updated_at   String
+}
+
+model worker_runs {              // one row per worker pass (§7.1 run.py); worker-written, all kept
+  id             Int     @id @default(autoincrement())
+  started_at     String
+  finished_at    String?          // null while running and on an abandoned pass
+  status         String           // running | ok | failed
+  error_category String?          // abandoned
+  fetch_only     Boolean @default(false)
+  jev_enabled    Boolean @default(false)
+  config_json    String           // effective runtime config; never secrets
+  counts_json    String           // per-stage tallies
+  @@index([started_at])
 }
 ```
 
@@ -2227,6 +2267,11 @@ guarantee:
   The human sees both under Screen rejected (kept `disqualification_reason`); there is no
   override path.
 
+**Pass record** (`worker_runs`, §7.1 run.py): every pass leaves exactly one row. A pass
+whose screen backend fails on every call still finishes `ok`, with the failures counted
+by closed category; a pass that raises stays `running` and the next pass marks it
+`failed` / `abandoned`. The recorded config never contains a secret.
+
 ### Invariant → test traceability
 
 Grounds the "verifiable" claim. **(no test)** marks an invariant with **no** (or only indirect)
@@ -2238,6 +2283,7 @@ automated coverage — those rely on code review or the human in the loop, not a
 | Pipeline stage gating + per-item failure isolation | `worker/tests/test_pipeline.py`, `integration/test_pipeline_e2e.py` |
 | Screen-only stores result/provenance separately, preserves posting/fit lifecycle fields, caches completed rows, retries provider errors oldest-first under the provider-call cap, and re-checks eligibility before commit | `test_screen_pipeline.py` (`test_screen_results_cache_and_leave_fit_lifecycle_unchanged`, `test_provider_cap_counts_failures_and_errors_retry_oldest_first`, `test_screen_result_is_not_saved_if_lifecycle_changes_during_provider_call`, `test_provider_exception_text_is_not_persisted`) |
 | A pass is fetch then screen; `--screen-only` is an accepted alias; invalid mode combinations are rejected; Codex defaults to Luna/medium when no overrides are set | `test_run.py` (`test_run_once_defaults_codex_to_luna_medium`, `test_screen_only_is_an_accepted_alias_for_the_default_pass`, `test_screen_only_invalid_combinations_fail_before_config_or_db`, `test_rescreen_screened_requires_one_shot`), `test_backends_screen.py` |
+| Pass record: one `worker_runs` row per pass; a failing screen backend still records `ok` with errors by category; a raising pass stays `running` and the next marks it `failed`/`abandoned`; no secret in the recorded config; stage tallies | `test_worker_runs.py` |
 | Dedup `(source, external_id)` on ingest | `test_db.py`, `test_pipeline.py` |
 | WAL + `busy_timeout` pragmas on connect | `test_db.py` |
 | Web Prisma client's SQLite connection defaults `busy_timeout` ≥5000 ms (regression lock) | `db-pragma.int.test.ts` |

@@ -326,7 +326,8 @@ class _Cfg:
 
 
 def test_run_jev_without_a_key_skips_loudly(capsys):
-    run._run_jev(None, _Cfg(), env={}, limit=1, max_usd=Decimal("1"), now=NOW)
+    assert run._run_jev(None, _Cfg(), env={}, limit=1, max_usd=Decimal("1"),
+                        now=NOW) == {"skipped": "no_api_key"}
     assert "OPENROUTER_API_KEY" in capsys.readouterr().out
 
 
@@ -344,8 +345,9 @@ def test_run_jev_wires_the_client_into_the_pipeline(monkeypatch, tmp_path):
 
         post = staticmethod(fake_post("plausible", "three_plus"))
     monkeypatch.setattr(jev, "OpenRouterClient", Client)
-    run._run_jev(conn, _Cfg(), env={"OPENROUTER_API_KEY": "sk-x"}, limit=5,
-                 max_usd=Decimal("1"), now=NOW)
+    tally = run._run_jev(conn, _Cfg(), env={"OPENROUTER_API_KEY": "sk-x"}, limit=5,
+                         max_usd=Decimal("1"), now=NOW)
+    assert tally["model"] == MODEL and tally["skip"] == 1
     row = _rows(conn)["a"]
     assert row["verdict"] == "skip" and row["policy_sha256"] == _inputs().policy_sha(MODEL)
 
@@ -358,10 +360,10 @@ def test_run_jev_metadata_failure_skips_the_stage(monkeypatch, capsys):
             pass
 
         def resolve_model(self):
-            raise OSError("down")
+            raise ConnectionError("down")
     monkeypatch.setattr(jev, "OpenRouterClient", Client)
-    run._run_jev(None, _Cfg(), env={"OPENROUTER_API_KEY": "k"}, limit=1,
-                 max_usd=Decimal("1"), now=NOW)
+    assert run._run_jev(None, _Cfg(), env={"OPENROUTER_API_KEY": "k"}, limit=1,
+                        max_usd=Decimal("1"), now=NOW) == {"skipped": "provider_unreachable"}
     assert "metadata unavailable" in capsys.readouterr().out
 
 
