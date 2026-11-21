@@ -47,7 +47,9 @@ export async function getActivityTimeline(offset = 0, limit = 30) {
         prisma.status_history.findMany({ where: { status: { not: 'Applied' } }, orderBy: [{ timestamp: 'desc' }, { id: 'desc' }], take,
             select: { id: true, status: true, timestamp: true, actor: true,
                 applications: { select: { company_name: true, job_title: true } } } }),
-        prisma.audit_log.findMany({ orderBy: [{ at: 'desc' }, { id: 'desc' }], take }),
+        // An application add or status change is already its own line above.
+        prisma.audit_log.findMany({ where: { NOT: { entity: 'applications', action: { in: ['add', 'status'] } } },
+            orderBy: [{ at: 'desc' }, { id: 'desc' }], take }),
     ])
     const jobIds = audits.filter((a) => a.entity === 'job_triage_overrides').map((a) => a.entity_id)
     const jobs = new Map((jobIds.length ? await prisma.job_postings.findMany({ where: { id: { in: jobIds } },
@@ -82,6 +84,12 @@ function auditText(c: { entity: string; action: string; entity_id: number; paylo
             const job = jobs.get(c.entity_id) ?? `job ${c.entity_id}`
             if (c.action === 'remove') return `Cleared the keep/skip override on ${job}`
             return row.decision === 'skip' ? `Hid ${job}` : `Kept ${job}`
+        }
+        case 'applications': {
+            const app = `${row.company_name} - ${row.job_title}`
+            if (c.action === 'remove') return `Deleted the application ${app}`
+            if (c.action === 'remove_history') return `Removed ${p.removed?.status} from the history of ${app}`
+            return `Edited ${app}`
         }
         case 'candidate_preferences': return 'Updated hard requirements'
         case 'jev_profile': return 'Updated the JEV profile'

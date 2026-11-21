@@ -3,7 +3,8 @@
 import { prisma } from '@/lib/db'
 import { Prisma } from '@prisma/client'
 import { type Actor, STATUSES } from '@/lib/constants'
-import { checkedActor, searchClause, CATEGORY_FALLBACK } from '@/lib/action-helpers'
+import { todayISO } from '@/lib/utils'
+import { applicationAudit, checkedActor, searchClause, syncStatusFromHistory, writeInitialHistory, CATEGORY_FALLBACK } from '@/lib/action-helpers'
 
 // Header sort on the Applications table (#205): one column, server-side (paginated).
 export type ApplicationSort = { sort: 'company' | 'date' | 'status'; dir: 'asc' | 'desc' }
@@ -80,7 +81,7 @@ export async function addApplication(data: {
                 )
             }
 
-            return tx.applications.create({
+            const row = await tx.applications.create({
                 data: {
                     company_name: data.company_name,
                     job_title: data.job_title,
@@ -93,6 +94,9 @@ export async function addApplication(data: {
                     actor,
                 },
             })
+            await writeInitialHistory(tx, row)
+            await tx.audit_log.create({ data: applicationAudit(actor, 'add', row.id, row) })
+            return row
         })
 
         return { success: true, data: newApp }
@@ -112,23 +116,32 @@ export async function updateApplicationDetails(
         application_url?: string
         date_applied?: string
         notes?: string
-    }
+    },
+    actor: Actor = 'web',
 ) {
     try {
+        checkedActor(actor)
         const category = data.category === undefined ? undefined : data.category.trim() || CATEGORY_FALLBACK
 
-        await prisma.applications.update({
-            where: { id },
-            data: {
-                company_name: data.company_name,
-                job_title: data.job_title,
-                category,
-                application_url: data.application_url ?? undefined,
-                date_applied: data.date_applied ?? undefined,
-                notes: data.notes ?? undefined,
-                last_updated: new Date().toISOString(),
-            },
+        const found = await prisma.$transaction(async (tx) => {
+            const before = await tx.applications.findUnique({ where: { id } })
+            if (!before) return false
+            const after = await tx.applications.update({
+                where: { id },
+                data: {
+                    company_name: data.company_name,
+                    job_title: data.job_title,
+                    category,
+                    application_url: data.application_url ?? undefined,
+                    date_applied: data.date_applied ?? undefined,
+                    notes: data.notes ?? undefined,
+                    last_updated: new Date().toISOString(),
+                },
+            })
+            await tx.audit_log.create({ data: applicationAudit(actor, 'update', id, { before, after }) })
+            return true
         })
+        if (!found) return { success: false, error: 'Application not found' }
         return { success: true }
     } catch (error: any) {
         return { success: false, error: error.message }
@@ -142,25 +155,23 @@ export async function updateApplicationStatus(id: number, status: string, date?:
             return { success: false, error: 'Invalid status' }
         }
 
-        const app = await prisma.applications.findUnique({ where: { id } })
-        if (!app) {
-            return { success: false, error: 'Application not found' }
-        }
+        // A past date is stamped noon UTC (no day shift in local timezones), never later
+        // than now: a future stamp would outrank every later change until it passed. No
+        // date, or today's server-local date (the modal's default), is stamped now so it
+        // orders against other same-day writes by when they happened.
+        const now = new Date().toISOString()
+        const noon = date && date !== todayISO() ? new Date(`${date}T12:00:00Z`).toISOString() : now
+        const timestamp = noon < now ? noon : now
 
-        if (app.status === status) {
-            return { success: false, error: `Application is already in '${status}' status` }
-        }
+        // The before snapshot and the no-op check are read in the write transaction. A
+        // backdated row is recorded but only becomes current if it is the latest; the
+        // caller gets both, so it can say so.
+        const result = await prisma.$transaction(async (tx) => {
+            const app = await tx.applications.findUnique({ where: { id } })
+            if (!app) return { refused: 'Application not found' }
+            if (app.status === status) return { refused: `Application is already in '${status}' status` }
 
-        // Determine timestamp: use provided date (append noon UTC so it doesn't shift days in local timezones) or current time
-        const timestamp = date ? new Date(`${date}T12:00:00Z`).toISOString() : new Date().toISOString()
-
-        await prisma.$transaction(async (tx) => {
-            await tx.applications.update({
-                where: { id },
-                data: { status, last_updated: new Date().toISOString() },
-            })
-
-            await tx.status_history.create({
+            const history = await tx.status_history.create({
                 data: {
                     application_id: id,
                     status,
@@ -168,19 +179,42 @@ export async function updateApplicationStatus(id: number, status: string, date?:
                     actor,
                 },
             })
+            const after = await syncStatusFromHistory(tx, id, { last_updated: new Date().toISOString() })
+            await tx.audit_log.create({ data: applicationAudit(actor, 'status', id, { before: app, after, history }) })
+            return { current: after.status }
         })
+        if (result.refused) return { success: false, error: result.refused }
 
-        return { success: true }
+        return { success: true, data: { status: result.current!, recorded: status } }
     } catch (error: any) {
         return { success: false, error: error.message }
     }
 }
 
-export async function deleteApplication(id: number) {
+// The delete cascades status_history and nulls job_postings.application_id; in the same
+// transaction each linked posting still 'applied' goes back to 'new' so it can be
+// marked again (other statuses and source_state are untouched). The audit
+// payload is the row plus its history and the linked posting ids.
+export async function deleteApplication(id: number, actor: Actor = 'web') {
     try {
-        await prisma.applications.delete({
-            where: { id },
+        checkedActor(actor)
+        const found = await prisma.$transaction(async (tx) => {
+            const row = await tx.applications.findUnique({
+                where: { id },
+                include: { status_history: true, job_postings: { select: { id: true } } },
+            })
+            if (!row) return false
+            const { job_postings, ...rest } = row
+            await tx.job_postings.updateMany({
+                where: { application_id: id, pipeline_status: 'applied' },
+                data: { pipeline_status: 'new', updated_at: new Date().toISOString() },
+            })
+            await tx.applications.delete({ where: { id } })
+            await tx.audit_log.create({ data: applicationAudit(actor, 'remove', id,
+                { ...rest, job_posting_ids: job_postings.map((p) => p.id) }) })
+            return true
         })
+        if (!found) return { success: false, error: 'Application not found' }
         return { success: true }
     } catch (error: any) {
         return { success: false, error: error.message }
@@ -191,7 +225,7 @@ export async function getApplicationHistory(id: number) {
     try {
         const history = await prisma.status_history.findMany({
             where: { application_id: id },
-            orderBy: { timestamp: 'desc' },
+            orderBy: [{ timestamp: 'desc' }, { id: 'desc' }],
         })
         return { success: true, data: history }
     } catch (error: any) {
@@ -199,35 +233,23 @@ export async function getApplicationHistory(id: number) {
     }
 }
 
-export async function deleteHistoryItem(id: number) {
+export async function deleteHistoryItem(id: number, actor: Actor = 'web') {
     try {
-        // Find the history item first to get the application_id
-        const item = await prisma.status_history.findUnique({
-            where: { id },
-            select: { application_id: true }
-        })
+        checkedActor(actor)
+        const item = await prisma.status_history.findUnique({ where: { id } })
 
         if (!item) {
             return { success: false, error: 'History item not found' }
         }
 
         await prisma.$transaction(async (tx) => {
+            const before = await tx.applications.findUniqueOrThrow({ where: { id: item.application_id } })
             await tx.status_history.delete({
                 where: { id },
             })
-
-            // Find the most recent history item after deletion
-            const latestHistory = await tx.status_history.findFirst({
-                where: { application_id: item.application_id },
-                orderBy: { timestamp: 'desc' }
-            })
-
-            // Update application status to the most recent history, or 'Applied' if empty
-            const newStatus = latestHistory ? latestHistory.status : 'Applied'
-            await tx.applications.update({
-                where: { id: item.application_id },
-                data: { status: newStatus }
-            })
+            const after = await syncStatusFromHistory(tx, item.application_id)
+            await tx.audit_log.create({ data: applicationAudit(actor, 'remove_history', item.application_id,
+                { before, after, removed: item }) })
         })
 
         return { success: true }

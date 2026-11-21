@@ -11,6 +11,9 @@ behavior. Completed work belongs in CHANGELOG, not this queue.
 - **One candidate profile; evaluate each posting once — spec approved; implementation
   not started** `[WORKER+WEB+MCP · L]` (epic #223; no implementation branch yet).
   [Spec](superpowers/specs/2026-11-20-candidate-profile-design.md); #224 is next.
+- **Status = latest history row; initial Applied row** `[WEB · S]` (#243, part of #240) on
+  `feat/243-status-from-history`: landed, PR open. Operator step after merge: back up
+  `db/`, then run `prisma/backfill-applied-history-243.mjs` against the deployed DB.
 - **Recipe JSON Schema, validated at every entry point — PR open, awaiting review**
   `[WORKER+WEB · M]` (#238, epic #236; branch `feat/238-recipe-json-schema`). An invalid
   stored recipe is logged and skipped per board; recording it as a board-health status is #231.

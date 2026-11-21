@@ -100,10 +100,19 @@ export function ApplicationsView({
         }
     }
 
+    // A backdated change is recorded but stays behind a later history row (#243).
+    const statusToast = (data?: { status: string; recorded: string }) => {
+        if (data && data.status !== data.recorded) {
+            toast.info(`Recorded ${data.recorded}; status stays ${data.status} (a later change is newer)`)
+        } else {
+            toast.success('Status updated')
+        }
+    }
+
     const handleStatusChange = async (id: number, newStatus: string) => {
         const result = await updateApplicationStatus(id, newStatus)
         if (result.success) {
-            toast.success('Status updated')
+            statusToast(result.data)
             refreshStatusData()
         } else {
             toast.error(result.error)
@@ -138,9 +147,12 @@ export function ApplicationsView({
 
     const handleAddStatus = async (data: { status: string; date: string }) => {
         if (selectedApp) {
-            const result = await updateApplicationStatus(selectedApp.id, data.status, data.date)
+            // Today's date (the modal default) is sent as no date, so it is stamped now and
+            // orders against other same-day changes; the server's "today" may be another zone's.
+            const date = data.date === todayISO() ? undefined : data.date
+            const result = await updateApplicationStatus(selectedApp.id, data.status, date)
             if (result.success) {
-                toast.success('Status updated')
+                statusToast(result.data)
                 const historyResult = await getApplicationHistory(selectedApp.id)
                 if (historyResult.success) setHistoryData(historyResult.data ?? [])
                 refreshStatusData()

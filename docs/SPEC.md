@@ -1408,7 +1408,8 @@ worker modules are pure and dependency-injected; real services are wired only in
   `ATS_API_URL` (default `http://127.0.0.1:3000`) and never open a writable DB handle:
   `record_application` (date defaults to today, status from the `STATUSES` enum),
   `mark_job_applied(job_id, category?)`, `update_application_status(application_id,
-  status, date?)`, `add_source(name, url? | source + slug)` (known-ATS boards; a
+  status, date?)` (returns `{application_id, status, recorded}`: `status` is the current
+  status, which a backdated `recorded` change does not move), `add_source(name, url? | source + slug)` (known-ATS boards; a
   `url` is resolved by the web's `lib/board-url.ts`, the Sources tab's resolver; web's
   slug/source/duplicate checks and messages), `remove_source(source_id)` (returns the
   removed row), `override_triage(job_id, keep|skip|clear, reason?)`, `set_preferences`
@@ -1477,8 +1478,7 @@ worker modules are pure and dependency-injected; real services are wired only in
   `200`), since the worker may not have run a subscription screen pass yet.
 - **`app/api/v1/*`** — the key-scoped loopback write API the MCP server calls, so write
   validation exists once in the `lib/*-actions.ts` Server Actions. Each route is a
-  thin wrapper over one action; creating an application, changing a status and a watchlist add/remove stamp
-  `actor='mcp'` (detail edits carry no actor): `POST applications` (`addApplication`; an
+  thin wrapper over one action; every write stamps `actor='mcp'`: `POST applications` (`addApplication`; an
   unknown `status` is a `400`, where the UI falls back to `Applied`), `PATCH
   applications/{id}` (`updateApplicationDetails`; omitted fields unchanged), `POST
   applications/{id}/status` `{status, date?}` (`updateApplicationStatus`), `POST
@@ -1510,8 +1510,8 @@ worker modules are pure and dependency-injected; real services are wired only in
     status, category, free-text; `date_applied desc`), `addApplication`,
     `updateApplicationDetails`, `updateApplicationStatus` (validates against
     `STATUSES`, appends to `status_history`), `deleteApplication`,
-    `getApplicationHistory`, `deleteHistoryItem` (recomputes current status from
-    remaining history), `getKPIs`.
+    `getApplicationHistory`, `deleteHistoryItem`, `getKPIs`. Every status write ends in
+    `syncStatusFromHistory` (`action-helpers.ts`, §9 "Status is the latest history row").
   - *Charts:* `getStatusFlow` (Sankey transitions), `getTimelineData` (heatmap),
     `getCategoryData` (donut).
   - *Discovered jobs:* `getJobPostings` defaults to `stage: 'for_you'` (§9 "Postings
@@ -1566,9 +1566,11 @@ worker modules are pure and dependency-injected; real services are wired only in
     row, so this is not every dollar spent); no run table exists, so a failing pass shows only through these)
     and `getActivityTimeline(offset, limit=30)` — applications (by `date_applied`; they
     carry no creation stamp), `status_history` rows other than the initial `Applied`, and
-    `audit_log` rows merged newest first into one plain-English line each ("Applied to
+    `audit_log` rows (minus application `add`/`status`, which the first two sources
+    already show) merged newest first into one plain-English line each ("Applied to
     Acme - Engineer", "Acme - Engineer -> Interviewing", "Added board Stripe", "Hid Acme -
-    Data Engineer", "Updated hard requirements"), each with its `actor`; offset paging
+    Data Engineer", "Updated hard requirements", "Edited / Deleted the application Acme -
+    Engineer"), each with its `actor`; offset paging
     over the merge (ties by source, then id desc; the client pages by the returned
     `nextOffset`), capped at 500 rows deep with a note that older activity is not shown.
   - *CSV:* `exportApplicationsCSV`, `importApplicationsCSV` (hand-rolled RFC-4180
@@ -1783,7 +1785,7 @@ model watched_companies {        // the DB-owned watchlist (web-managed)
   @@unique([source, slug])       // dedup key
 }
 
-model audit_log {                // append-only watchlist add/remove record (web writes)
+model audit_log {                // append-only write record (web writes): watchlist, override, preferences, applications
   id        Int    @id @default(autoincrement())
   at        String
   actor     String // web | mcp
@@ -2074,18 +2076,44 @@ Triage evidence with duplicate object members at its root, screen map, or check 
 
 **Application invariants:**
 
+- **Status is the latest history row.** `applications.status` is the status of the
+  application's latest `status_history` row by `timestamp`, ties by `id`, or `Applied`
+  when none remains; every status write recomputes it in the same transaction. A
+  backdated change is recorded but does not become current unless it is the latest.
+- **Creation writes the initial `Applied` row.** `addApplication`, `markJobApplied` and
+  CSV import insert an `Applied` row at the start of `date_applied` (`T00:00:00.000Z`,
+  clamped to now so a same-day change sorts after it; now when `date_applied` does not
+  start `YYYY-MM-DD`); a non-`Applied` creation status
+  adds a second row on the same timestamp. The row is dated from `date_applied` at
+  creation (and by `prisma/backfill-applied-history-243.mjs`, the one-off idempotent
+  backfill for older applications); a later `date_applied` edit does not move it.
 - **Status changes append history.** `updateApplicationStatus` rejects values not
-  in `STATUSES`, rejects a no-op (same status), and in one transaction updates the
-  application and inserts a `status_history` row (timestamp = provided date at
-  `T12:00:00Z`, else now).
+  in `STATUSES`, rejects a no-op (same as the current status), and in one transaction
+  inserts a `status_history` row and recomputes the status. Timestamp: a date at
+  `T12:00:00Z`, never later than now (so a future date cannot outrank later changes;
+  the dialog's date input is capped at today); no date, or today's date (server-local;
+  the history dialog sends its today default as no date), is now, so same-day changes
+  order by when they were made.
+  It returns `{ status, recorded }`: the current status after the write and the one
+  requested. The UI says when they differ; `/api/v1` and MCP return both.
 - **Dedup on `(company_name, job_title)`** for `addApplication`, `markJobApplied`,
   and CSV import — all three run their existence-check + create in a `$transaction`
   (findFirst-then-throw-to-rollback if a match exists), closing the TOCTOU window
   between the check and the write. There is no DB-level `@@unique` on the pair
   (deferred — see PROGRESS.md); dedup is enforced entirely in application code.
-- **`deleteHistoryItem`** recomputes the application's current status to the most
-  recent remaining history entry, or `Applied` if none remain — the delete +
-  recompute + status update run in one `$transaction`.
+- **`deleteHistoryItem`** deletes the row and recomputes the status by the same rule
+  in one `$transaction`.
+- **`deleteApplication` frees its postings.** In one `$transaction` with the cascade
+  (history deleted, `job_postings.application_id` nulled), each linked posting still
+  `applied` goes back to `pipeline_status='new'`, so `markJobApplied` can mark it again;
+  any other status (e.g. `removed`) and `source_state` are left as they are.
+- **Every application write is audited.** Create (`addApplication`, `markJobApplied`, CSV import),
+  detail edit, status change, history-item delete and delete each take an `actor`
+  (`web` | `mcp`) and write one `audit_log` row (`entity='applications'`, `entity_id` =
+  application id) in the same transaction: action `add` (payload: the row), `update` /
+  `status` / `remove_history` (`{before, after}`, plus `history` or `removed` for the
+  history row), `remove` (the row with its `status_history` and `job_posting_ids`). CSV
+  import audits one `add` (actor `web`) per imported row. A rejected write writes none.
 - **KPIs** (`getKPIs`): `total` = every application; `active` = not Offer / Accepted /
   Rejected / Withdrew and the latest status-history date (else `date_applied`) within
   60 days, so a silent application drops out (not `last_updated`, the write stamp); `screening`, `interviewing`, `rejected`; `offer`
@@ -2223,9 +2251,10 @@ automated coverage — those rely on code review or the human in the loop, not a
 | Discovered Jobs and Activity are read-only except Mark Applied and Not interested, Sources writes only board add/remove (no server-action import in their display components; `JobsView` wires only reads plus `markJobApplied` and the triage override set/clear; no discard/reopen/bulk export); Sources `postings_30d`; Activity's status strip and merged plain-English timeline with paging | `web/src/__tests__/readonly-dashboard.test.ts`, `watchlist.int.test.ts`, `activity.int.test.ts`, `web/e2e/discovered.spec.ts`, `web/e2e/sources-activity.spec.ts` |
 | `markJobApplied` atomic create + back-link + dedup | `actions.test.ts`, `actions.int.test.ts` (real-Prisma tx) |
 | `updateApplicationStatus` validates `STATUSES`, appends history | `actions.test.ts`, `actions.int.test.ts` |
-| `deleteHistoryItem` recomputes current status | `actions.int.test.ts` |
+| Status = latest history row (timestamp, ties by id) on write and `deleteHistoryItem`; creation writes the initial `Applied` row; the #243 backfill | `actions.int.test.ts`, `history-backfill.int.test.ts` |
+| `deleteApplication` resets linked `applied` postings to `new`; every application write leaves one audit row (web and `/api/v1`) | `application-audit.int.test.ts` |
 | KPI aggregation buckets | `actions.test.ts`, `actions.int.test.ts` |
-| Chart-data aggregation (`getStatusFlow`/`getTimelineData`/`getCategoryData`): Sankey chain dedup/collapse + multi-hop, T-split day counts, category counts incl. ties/`null`->Others | `charts.int.test.ts` |
+| Chart-data aggregation (`getStatusFlow`/`getTimelineData`/`getCategoryData`): Sankey chain read from history only, dedup/collapse + multi-hop, T-split day counts, category counts incl. ties/`null`->Others | `charts.int.test.ts` |
 | CSV import/export rules (dedup, enum fallback) | `actions.int.test.ts` |
 | Feed resolve (URL→board incl. workday/smartrecruiters/workable/oracle/jobvite + GH-EU host) + classify-reason | `test_feed_resolve.py` |
 | SmartRecruiters adapter (two-step list+detail) | `test_smartrecruiters.py` |

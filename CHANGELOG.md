@@ -41,6 +41,17 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
   (`exclude` default, `only`, `all`) and the overview's `jev_filter_counts` leave closed
   rows out; both sides are pinned by `worker/tests/fixtures/closed-stage-cases.json`.
 
+- **Application status is the latest history row** (#243): `applications.status` is the
+  status of the latest `status_history` row by timestamp (ties by id) on every write,
+  so a backdated status change no longer becomes current because it was written last.
+  Creating an application (add, Mark Applied, CSV import) writes its initial `Applied`
+  row dated `date_applied`; `getStatusFlow` reads the chain from history alone.
+  `prisma/backfill-applied-history-243.mjs` adds the row to existing applications and
+  recomputes their status (data-only, idempotent; back up `db/` first). A status change
+  dated today is stamped now, not noon, and no change is stamped later than now. `updateApplicationStatus`, `/api/v1` and MCP
+  `update_application_status` return the current status and the recorded one, and the
+  UI says when a backdated change did not become current.
+
 - **`run_expire` writes `source_state='closed'`** (#230) on a 404/410 instead of
   `pipeline_status='expired'`; lifecycle and `updated_at` stay untouched. `expired` is a
   legacy status nothing writes; `prisma/migrate-expired-230.mjs` turns stored `expired`
@@ -192,6 +203,12 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
   screen, JEV and recheck queues. Deploy: back up `db/`, `make db-push` (additive
   column), then `node apps/web/prisma/migrate-expired-230.mjs <DATABASE_URL>`.
 
+- **Application deletes free the posting; application writes are audited** (#242).
+  Deleting an application sets each linked `applied` posting back to `new` in the same
+  transaction, so it can be marked applied again. Create (including CSV import), detail edit,
+  status change, history-item delete and delete each write one `audit_log` row with the
+  actor and the row before/after; `PATCH /api/v1/applications/{id}` now stamps
+  `actor='mcp'`. The Activity tab lists edits and deletes.
 - **Example JEV packs and a per-stage provider guide** (#179). `apps/worker/jev.example/`
   holds a synthetic `jev_dir` (profile, both packs, experience context) a fresh checkout
   can run `--jev` against; SPEC documents the pack format; SETUP Path C2 adds a

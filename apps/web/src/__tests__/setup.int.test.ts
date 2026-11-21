@@ -19,7 +19,7 @@ test('setup is complete once requirements, a board and a posting exist; AI clien
     expect(await getSetupStatus()).toEqual({ complete: true,
         steps: { aiClient: false, requirements: true, sources: true, jev: false, firstFetch: true } })
 
-    // An application logged over MCP counts as a connected client (it writes no audit row).
+    // An mcp application row counts as a connected client even with no audit row.
     await prisma.applications.create({ data: makeApplication({ actor: 'mcp' }) })
     expect((await getSetupStatus()).steps.aiClient).toBe(true)
 })
