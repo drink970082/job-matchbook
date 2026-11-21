@@ -153,19 +153,15 @@ export async function updateApplicationStatus(id: number, status: string, date?:
             return { success: false, error: 'Invalid status' }
         }
 
-        const app = await prisma.applications.findUnique({ where: { id } })
-        if (!app) {
-            return { success: false, error: 'Application not found' }
-        }
-
-        if (app.status === status) {
-            return { success: false, error: `Application is already in '${status}' status` }
-        }
-
         // Determine timestamp: use provided date (append noon UTC so it doesn't shift days in local timezones) or current time
         const timestamp = date ? new Date(`${date}T12:00:00Z`).toISOString() : new Date().toISOString()
 
-        await prisma.$transaction(async (tx) => {
+        // The before snapshot and the no-op check are read in the write transaction.
+        const refused = await prisma.$transaction(async (tx) => {
+            const app = await tx.applications.findUnique({ where: { id } })
+            if (!app) return 'Application not found'
+            if (app.status === status) return `Application is already in '${status}' status`
+
             const after = await tx.applications.update({
                 where: { id },
                 data: { status, last_updated: new Date().toISOString() },
@@ -180,7 +176,9 @@ export async function updateApplicationStatus(id: number, status: string, date?:
                 },
             })
             await tx.audit_log.create({ data: applicationAudit(actor, 'status', id, { before: app, after, history }) })
+            return null
         })
+        if (refused) return { success: false, error: refused }
 
         return { success: true }
     } catch (error: any) {

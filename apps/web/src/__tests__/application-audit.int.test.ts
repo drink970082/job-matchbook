@@ -11,6 +11,7 @@ import {
     addApplication, deleteApplication, deleteHistoryItem, updateApplicationDetails, updateApplicationStatus,
 } from '@/lib/application-actions'
 import { markJobApplied } from '@/lib/job-actions'
+import { importApplicationsCSV } from '@/lib/csv-actions'
 import { getActivityTimeline } from '@/lib/activity-actions'
 import { prisma, resetDb } from '@/test-utils/db'
 import { makeApplication, makeJobPosting, makeStatusHistory } from '@/test-utils/factories'
@@ -117,4 +118,15 @@ test('the activity timeline shows edits and deletes once, and creates/status cha
     ])
     expect(texts.slice(3)).toEqual(['Applied to Beta - Analyst'])
     expect((kept as any).success).toBe(true)
+})
+
+test('CSV import audits one add per imported application (actor=web), none for a skipped duplicate', async () => {
+    await prisma.applications.create({ data: makeApplication() })
+    const csv = 'company_name,job_title,date_applied\nAcme,Engineer,2026-11-01\nBeta,Analyst,2026-11-02\nGamma,Dev,2026-11-03\n'
+    const res: any = await importApplicationsCSV(csv)
+    expect(res.success).toBe(true)
+    const log = await audits()
+    expect(log.map((r) => [r.entity, r.action, r.actor, payload(r).company_name])).toEqual([
+        ['applications', 'add', 'web', 'Beta'], ['applications', 'add', 'web', 'Gamma'],
+    ])
 })

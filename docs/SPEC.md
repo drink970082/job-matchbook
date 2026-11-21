@@ -2049,13 +2049,13 @@ Triage evidence with duplicate object members at its root, screen map, or check 
   (history deleted, `job_postings.application_id` nulled), each linked posting still
   `applied` goes back to `pipeline_status='new'`, so `markJobApplied` can mark it again;
   a posting the worker has since closed keeps its status.
-- **Every application write is audited.** Create (`addApplication`, `markJobApplied`),
+- **Every application write is audited.** Create (`addApplication`, `markJobApplied`, CSV import),
   detail edit, status change, history-item delete and delete each take an `actor`
   (`web` | `mcp`) and write one `audit_log` row (`entity='applications'`, `entity_id` =
   application id) in the same transaction: action `add` (payload: the row), `update` /
   `status` / `remove_history` (`{before, after}`, plus `history` or `removed` for the
-  history row), `remove` (the row with its `status_history` and `job_posting_ids`). A
-  rejected write writes none. CSV import is not audited.
+  history row), `remove` (the row with its `status_history` and `job_posting_ids`). CSV
+  import audits one `add` (actor `web`) per imported row. A rejected write writes none.
 - **KPIs** (`getKPIs`): `total` = every application; `active` = not Offer / Accepted /
   Rejected / Withdrew and the latest status-history date (else `date_applied`) within
   60 days, so a silent application drops out (not `last_updated`, the write stamp); `screening`, `interviewing`, `rejected`; `offer`
