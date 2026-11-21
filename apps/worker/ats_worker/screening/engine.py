@@ -5,6 +5,7 @@ import json
 import re
 
 from .errors import ModelResponseError as ScoreError
+from .errors import provider_failure_category
 
 from .location import resolve_location
 from .prompts import SCREEN_HEADER, SCREEN_SCHEMA, _candidate_block, _job_block
@@ -174,12 +175,7 @@ def screen_posting(posting: dict, *, extract=None, candidate: dict | None = None
             print("[screen] provider error, keeping posting unscreened")
             screen = {"screen": {}, "disqualified": False, "disqualification_reason": ""}
             provider_error = True
-            error_name = type(exc).__name__
-            provider_error_category = (
-                "timeout" if error_name in {"TimeoutError", "TimeoutExpired"}
-                else "executable_missing" if isinstance(exc, FileNotFoundError)
-                else "provider_error"
-            )
+            provider_error_category = provider_failure_category(exc)
 
     # Deterministic CODE gates (intern title + location string), hoisted into a
     # shared helper so the fetch-time pre-filter applies the SAME verdict. No LLM.

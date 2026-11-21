@@ -15,6 +15,8 @@ behavior. Completed work belongs in CHANGELOG, not this queue.
   ats_worker.migrate_profile backup --db <db>`; deploy and `npx prisma db push
   --accept-data-loss`; `python3 -m ats_worker.migrate_profile migrate --db <db>
   --legacy-db <backup> --config config.yaml`; start the worker. #225 is next.
+- **Operator step for #247** (deploy): back up `db/`, then `make db-push` before the new
+  worker starts; without the `worker_runs` table the daemon refuses to start.
 - **Operator step for #243** (deploy): back up `db/`, then run
   `prisma/backfill-applied-history-243.mjs` against the deployed DB.
 
@@ -24,8 +26,9 @@ before changing them. No older research authorization schedules new provider cal
 
 ## Do next — the pick order
 
-1. [#229 Sources tell the truth](https://github.com/drink970082/job-matchbook/issues/229): #231, with #247 (pass record,
-   [#246 epic](https://github.com/drink970082/job-matchbook/issues/246)) alongside.
+1. [#229 Sources tell the truth](https://github.com/drink970082/job-matchbook/issues/229): #231, with #249 (Activity strip
+   from the pass record, [#246 epic](https://github.com/drink970082/job-matchbook/issues/246))
+   alongside; #248 (intake funnel) after #225.
 2. [#223 One candidate profile](https://github.com/drink970082/job-matchbook/issues/223): #224 -> #225 -> #226, with #227 after #224.
 3. [#251 Runtime settings in the web](https://github.com/drink970082/job-matchbook/issues/251), then [#256 MCP as the downstream contract](https://github.com/drink970082/job-matchbook/issues/256)
    (#209 decided: option A, [note](superpowers/specs/2026-11-20-mcp-read-path-research.md); next a hosted tunnel check, then #257).

@@ -31,6 +31,7 @@ from .fetch import fetch_company, fetch_one_company, smartrecruiters
 from .feed import embedded_gh, simplify
 from .screen_providers import PROVIDERS, RETIRED
 from .screening import screen_posting
+from .screening.errors import provider_failure_category
 
 # qwen3.5:4b runs fully on an 8GB GPU (~3GB resident) and returns clean JSON in
 # ~2s/posting with thinking disabled. The 9b (6.6GB) spills to
@@ -173,6 +174,35 @@ def run_once(cfg, *, db_path, env,
                         session=_feed_session(), timeout=_FEED_TIMEOUT),
             )
             return
+        # The pass record (#247). run_once runs under pass_lock, so start_pass may mark
+        # any row still `running` abandoned. A raise below leaves this row `running`.
+        provider = PROVIDERS[screen_backend]
+        effective_model = screen_model_for(screen_backend, screen_model=screen_model,
+                                           ollama_model=ollama_model)
+        effective_effort = (screen_effort or "medium") if provider.effort else None
+        screen_cfg = None if fetch_only else {
+            "backend": screen_backend, "model": effective_model, "effort": effective_effort,
+            "limit": screen_limit, "workers": screen_workers or 1,
+            "rescreen": rescreen_screened}
+        triage_cfg = None if not jev_enabled else {
+            "backend": jev_backend, "limit": jev_limit,
+            "max_usd": None if jev_backend == "extract" else str(jev_max_usd)}
+        # The candidate profile, read once up front (before the pass record, which
+        # records its scope): its search scope filters fetch, its hard requirements drive
+        # the deterministic pre-screen gate and the screen, and triage reads it below. No
+        # row or no requirement => no gate, no SCREEN call. A malformed row raises here.
+        prof = _profile_for_pass(conn, cfg, now=now)
+        candidate = prof.screen_candidate() if prof else None
+        scope = prof or profile.CandidateProfile()
+        run_id = db.start_pass(conn, now=now, fetch_only=fetch_only, jev_enabled=jev_enabled,
+                               config=_pass_config(cfg, scope, screen=screen_cfg,
+                                                   triage=triage_cfg))
+        counts: dict = {}
+
+        def record(stage: str, tally) -> None:
+            counts[stage] = tally
+            db.update_pass_counts(conn, run_id, counts)
+
         # The watchlist is DB-owned. Seed it once from config.yaml `companies:`
         # when the table is empty; thereafter the DB (web-managed) is authoritative.
         if db.count_watchlist(conn) == 0 and cfg.companies:
@@ -191,25 +221,22 @@ def run_once(cfg, *, db_path, env,
                       f"(enable_browser_sources is off): {names}")
             companies = [c for c in companies if c["source"] != "browser"]
 
-        # The candidate profile, read once up front: its search scope filters fetch, its
-        # hard requirements drive the deterministic pre-screen gate and the screen, and
-        # triage reads it below. No row or no requirement => no gate, no SCREEN call.
-        prof = _profile_for_pass(conn, cfg, now=now)
-        candidate = prof.screen_candidate() if prof else None
-        scope = prof or profile.CandidateProfile()
-
+        fetch_counts: dict = {}
         pipeline.run_fetch(conn, companies, list(scope.title_include), now=now,
                            fetch_fn=fetch_company, title_exclude=list(scope.title_exclude),
-                           max_age_days=scope.max_age_days, candidate=candidate)
+                           max_age_days=scope.max_age_days, candidate=candidate,
+                           counts=fetch_counts)
+        record("fetch", fetch_counts)
 
         # Discovery feeds: broad listing streams resolved back to boards. Runs
         # before the screen so feed-discovered 'new' rows are screened this same pass.
+        feed_counts: dict = {}
         for feed in cfg.feeds:
             if not feed.enabled:
                 continue
             if feed.name == "simplify":
                 pipeline.run_feed(
-                    conn, now=now,
+                    conn, now=now, counts=feed_counts.setdefault(feed.name, {}),
                     feed_fn=lambda f=feed: simplify.fetch(url=f.url or simplify.DEFAULT_URL),
                     keep_categories=feed.categories, feed_name=feed.name,
                     # Bind a per-thread Session + shorter timeout into the network fns
@@ -228,13 +255,16 @@ def run_once(cfg, *, db_path, env,
                     title_exclude=list(scope.title_exclude),
                     max_age_days=scope.max_age_days,
                 )
+        record("feed", feed_counts)
 
         # Re-check a capped batch of live postings and expire the dead ones, so a
         # closed req stops sitting in the queue as a dead link.
+        expire_counts: dict = {}
         gone = pipeline.run_expire(
-            conn, now=now,
+            conn, now=now, counts=expire_counts,
             detail_fetch_fn=lambda s, sl, e, n: fetch_one_company(
                 s, sl, e, n, session=_feed_session(), timeout=_FEED_TIMEOUT))
+        record("expire", expire_counts)
         if gone:
             print(f"expired {gone} dead posting(s)")
 
@@ -244,6 +274,7 @@ def run_once(cfg, *, db_path, env,
         if fetch_only:
             print(f"fetch-only: {len(db.get_by_status(conn, 'new'))} row(s) left "
                   f"'new', skipping screen")
+            db.finish_pass(conn, run_id, now=_now(), counts=counts)
             return
 
         if rescreen_screened:
@@ -251,10 +282,6 @@ def run_once(cfg, *, db_path, env,
             print(f"rescreen-screened: cleared {cleared} cached result(s) for eligible "
                   "new postings")
         num_ctx = int(env.get("OLLAMA_NUM_CTX", "8192"))
-        provider = PROVIDERS[screen_backend]
-        effective_model = screen_model_for(screen_backend, screen_model=screen_model,
-                                           ollama_model=ollama_model)
-        effective_effort = (screen_effort or "medium") if provider.effort else None
         screen_extract = make_screener(
             screen_backend, env=env, http=requests, model=ollama_model,
             screen_model=effective_model, screen_effort=effective_effort,
@@ -264,11 +291,11 @@ def run_once(cfg, *, db_path, env,
             return screen_posting(posting, extract=screen_extract,
                                    candidate=candidate, num_ctx=num_ctx)
 
-        pipeline.run_screen(
+        record("screen", pipeline.run_screen(
             conn, now=now, screen_fn=screen_only_fn, extract=screen_extract,
             candidate=candidate, backend=screen_backend, model=effective_model,
             effort=effective_effort, limit=screen_limit,
-            screen_workers=screen_workers or 1, clock=_now)
+            screen_workers=screen_workers or 1, clock=_now))
         # Refresh the quota bar (and its re-login notice) for the subscription the
         # screen just spent; one free GET, best-effort by contract.
         if provider.quota:
@@ -276,53 +303,65 @@ def run_once(cfg, *, db_path, env,
                 os.path.dirname(os.path.realpath(db_path)), QUOTA_FILE), screen_backend)
         if jev_enabled:
             if jev_backend == "extract":
-                _run_jev_extract(conn, prof, extract=screen_extract, limit=jev_limit, now=now,
-                                 max_description_chars=num_ctx * 2,
-                                 model=f"extract:{jev.EXTRACT_PROMPT_VERSION}:{screen_backend}:"
-                                       f"{effective_model}:{effective_effort}:jd{num_ctx * 2}")
+                triage = _run_jev_extract(
+                    conn, prof, extract=screen_extract, limit=jev_limit, now=now,
+                    max_description_chars=num_ctx * 2,
+                    model=f"extract:{jev.EXTRACT_PROMPT_VERSION}:{screen_backend}:"
+                          f"{effective_model}:{effective_effort}:jd{num_ctx * 2}")
             else:
-                _run_jev(conn, prof, env=env, limit=jev_limit, max_usd=jev_max_usd, now=now)
+                triage = _run_jev(conn, prof, env=env, limit=jev_limit, max_usd=jev_max_usd,
+                                  now=now)
+            record("triage", triage)
+        db.finish_pass(conn, run_id, now=_now(), counts=counts)
     finally:
         conn.close()
 
 
-def _run_jev(conn, prof, *, env, limit: int, max_usd: Decimal, now: str) -> None:
+def _run_jev(conn, prof, *, env, limit: int, max_usd: Decimal, now: str) -> dict:
     """Wire the real OpenRouter transport into pipeline.run_jev. A missing key or an
-    unreachable model endpoint skips the stage loudly; fetch and screen already ran."""
+    unreachable model endpoint skips the stage loudly; fetch and screen already ran.
+    Returns the stage tally for the pass record, or {"skipped": <closed reason>}."""
     key = (env.get("OPENROUTER_API_KEY") or os.environ.get("OPENROUTER_API_KEY") or "").strip()
     if not key:
         print("[jev] OPENROUTER_API_KEY is not set; skipping the JEV filter this pass")
-        return
+        return {"skipped": "no_api_key"}
     inputs = _triage_inputs(prof)
     if inputs is None:
-        return
+        return {"skipped": _triage_skip_reason(prof)}
     client = jev.OpenRouterClient(requests.Session(), key)
     try:
         resolved = client.resolve_model()
     except Exception as exc:  # noqa: BLE001 - a dead endpoint must not fail the pass
         print(f"[jev] model metadata unavailable ({type(exc).__name__}); skipping this pass")
-        return
-    pipeline.run_jev(
+        return {"skipped": provider_failure_category(exc)}
+    tally = pipeline.run_jev(
         conn, now=now, policy_sha=inputs.policy_sha(resolved), model=resolved,
         limit=limit, max_usd=max_usd, clock=_now,
         jev_fn=lambda posting: jev.assess(posting, inputs=inputs, post=client.post,
                                           resolved_model=resolved))
+    return {**tally, "model": resolved}
 
 
 def _run_jev_extract(conn, prof, *, extract, limit: int, model: str, now: str,
-                     max_description_chars: int | None = None) -> None:
+                     max_description_chars: int | None = None) -> dict:
     """JEV_BACKEND=extract: the packs through the screen provider. `model` names the
     backend, model and effort, so it joins policy_sha and a switch re-queues every verdict.
     The seam reports no cost: --jev-limit is the cap and --jev-max-usd never trips."""
     inputs = _triage_inputs(prof)
     if inputs is None:
-        return
+        return {"skipped": _triage_skip_reason(prof)}
     print(f"[jev] backend {model} (UNVALIDATED; no cost reported, --jev-limit caps postings)")
-    pipeline.run_jev(
+    tally = pipeline.run_jev(
         conn, now=now, policy_sha=inputs.policy_sha(model), model=model,
         limit=limit, max_usd=Decimal("Infinity"), clock=_now,
         jev_fn=lambda posting: jev.assess_extract(posting, inputs=inputs, extract=extract,
                                                   max_description_chars=max_description_chars))
+    return {**tally, "model": model}
+
+
+def _triage_skip_reason(prof) -> str:
+    """The pass record's closed skip reason when _triage_inputs returned None."""
+    return "no_profile" if prof is None or prof.triage_texts() is None else "invalid_packs"
 
 
 def _triage_inputs(prof):
@@ -368,6 +407,17 @@ def _profile_for_pass(conn, cfg, *, now: str):
         print(f"[profile] config.yaml {', '.join(drift)} ignored: the stored candidate "
               "profile wins (edit it in Settings or with set_candidate_profile)")
     return stored
+
+
+def _pass_config(cfg, scope, *, screen: dict | None, triage: dict | None) -> dict:
+    """The effective runtime config a pass records (worker_runs.config_json). Built
+    from an explicit allowlist of non-secret values: no env value ever lands here.
+    `scope` is the candidate profile the pass runs under (max_age_days is its value,
+    not config.yaml's seed)."""
+    return {"screen": screen, "triage": triage,
+            "feeds": [f.name for f in cfg.feeds if f.enabled],
+            "browser_sources": bool(cfg.enable_browser_sources),
+            "max_age_days": scope.max_age_days}
 
 
 def _companies_as_dicts(cfg) -> list[dict]:
@@ -833,6 +883,11 @@ def main(argv=None) -> None:
     # row exists MCP reports it missing, and a set_candidate_profile would pre-empt it.
     conn = db.connect(args.db)
     try:
+        # Every pass writes worker_runs; a DB pushed before #247 would fail each slot
+        # while the daemon looked alive. Refuse to start instead.
+        if not db.has_table(conn, "worker_runs"):
+            raise SystemExit(f"{args.db} has no worker_runs table: the schema is older "
+                             "than this worker. Run `make db-push`, then restart.")
         _profile_for_pass(conn, cfg, now=_now())
     finally:
         conn.close()
