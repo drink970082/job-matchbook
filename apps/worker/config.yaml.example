@@ -24,6 +24,9 @@ companies:
   # - { source: icims, slug: careers-sig, name: "SIG" }         # {slug}.icims.com (server HTML)
   # Phenom slug packs "{host}/{domain}":
   # - { source: phenom, slug: "apply.careers.microsoft.com/microsoft.com", name: "Microsoft" }
+  # Recipe keys (custom + browser) are documented, with one example per mode, in the
+  # recipe JSON Schema: apps/web/src/lib/recipe.schema.json. A recipe that fails it is
+  # rejected at load, naming the key.
   # custom = plain-HTTP recipe (JSON / __NEXT_DATA__); the recipe names url/mode/fields:
   # - source: custom
   #   slug: amazon

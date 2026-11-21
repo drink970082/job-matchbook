@@ -45,3 +45,11 @@ def test_add_watched_accepts_clean_slug(tmp_path):
     conn = db.connect(str(db_path))
     rows = db.get_watchlist(conn)
     assert [r["slug"] for r in rows] == ["acme"]
+
+
+def test_add_watched_rejects_misspelled_recipe_key(tmp_path):
+    recipe = tmp_path / "recipe.json"
+    recipe.write_text('{"url": "https://a.example.com/j", "item_pth": "jobs", "fields": {"title": "t"}}')
+    with pytest.raises(SystemExit, match="item_pth"):
+        add_watched.main(["--source", "custom", "--slug", "acme", "--name", "Acme",
+                          "--recipe", str(recipe), "--db", str(tmp_path / "missing.db")])

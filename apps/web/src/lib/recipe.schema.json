@@ -1,0 +1,179 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Watchlist recipe",
+  "description": "The `recipe` of a `custom` or `browser` watchlist row. The row's source picks the definition: $defs.custom (fetch/custom.py) or $defs.browser (fetch/browser.py). Every key either executor reads is declared, and no other key is accepted, so a misspelled key is rejected when the row is added and again by the worker before fetch. Validated by apps/web/src/lib/recipe-schema.ts (web add, /api/v1/watchlist; MCP add_source carries no recipe until #239) and apps/worker/ats_worker/recipe_schema.py (worker, config seed, onboard-board add_watched.py).",
+  "$defs": {
+    "custom": {
+      "title": "custom recipe (plain HTTP)",
+      "description": "One HTTP request per page. The JSON payload (or the __NEXT_DATA__ blob of an HTML page) is walked with dotted paths: keys index objects, integer segments index lists (\"office.0.name\").",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["url", "fields"],
+      "properties": {
+        "url": { "$ref": "#/$defs/httpUrl", "description": "List endpoint. Must be a public http(s) URL (checked again at fetch)." },
+        "method": { "enum": ["GET", "POST"], "description": "Default GET." },
+        "mode": { "enum": ["json", "next-data"], "description": "json (default): the response is JSON. next-data: extract <script id=__NEXT_DATA__> from an HTML response, then treat it as JSON." },
+        "headers": { "$ref": "#/$defs/headers", "description": "Request headers. A browser User-Agent is added when absent." },
+        "body": { "type": "object", "description": "POST JSON body. page.body_param is written into it per page." },
+        "item_path": { "type": "string", "description": "Dotted path to the job array. Omit when the payload itself is the array." },
+        "total_path": { "type": "string", "description": "Dotted path to the total row count; stops offset pagination early." },
+        "page": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "Pagination. Stops on an empty page or a page of already-seen ids.",
+          "properties": {
+            "type": { "enum": ["offset", "page", "none"], "description": "offset: advance by rows; page: advance a page number; none (default): one request." },
+            "param": { "type": "string", "description": "Query parameter carrying the offset/page number." },
+            "body_param": { "type": "string", "description": "body key carrying the offset/page number (POST boards)." },
+            "size_param": { "type": "string", "description": "Query parameter carrying the page size." },
+            "size": { "type": "integer", "minimum": 1, "description": "Page size sent in size_param." }
+          }
+        },
+        "fields": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "Raw job object -> canonical posting. Each value is a dotted path.",
+          "properties": {
+            "title": { "type": "string" },
+            "location": { "type": "string", "description": "A list value is joined with \", \"." },
+            "url": { "type": "string", "description": "Dotted path, or a template whose {dotted.path} placeholders are filled from the raw item." },
+            "description": { "$ref": "#/$defs/pathOrPaths", "description": "A list of paths is concatenated. HTML is flattened to text." },
+            "posted_at": { "type": "string", "description": "ISO date, \"Month D, YYYY\", or epoch s/ms." },
+            "external_id": { "type": "string", "description": "Dedup key; a row without one is dropped." }
+          }
+        },
+        "detail": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "Optional per-posting hydration for a board whose list call carries only a teaser.",
+          "properties": {
+            "url": { "type": "string", "description": "Template with {dotted.path} placeholders filled from the RAW list item." },
+            "url_field": { "type": "string", "description": "Instead of url: a canonical posting key holding the detail URL (usually job_url)." },
+            "mode": { "enum": ["http-json", "http-html"], "description": "http-json (default): read fields with dotted paths; http-html: read them with CSS selectors." },
+            "headers": { "$ref": "#/$defs/headers", "description": "Default: the list request's headers." },
+            "fields": { "$ref": "#/$defs/detailFields" }
+          }
+        }
+      },
+      "examples": [
+        {
+          "url": "https://www.amazon.jobs/en/search.json?base_query=software+engineer",
+          "mode": "json",
+          "item_path": "jobs",
+          "total_path": "hits",
+          "page": { "type": "offset", "param": "offset", "size_param": "result_limit", "size": 100 },
+          "fields": {
+            "title": "title",
+            "location": "normalized_location",
+            "url": "https://www.amazon.jobs{job_path}",
+            "description": "description",
+            "posted_at": "posted_date",
+            "external_id": "id_icims"
+          }
+        },
+        {
+          "url": "https://www.deshaw.com/careers",
+          "mode": "next-data",
+          "item_path": "props.pageProps.regularJobs",
+          "page": { "type": "none" },
+          "fields": {
+            "title": "displayName",
+            "location": "office.0.name",
+            "url": "https://www.deshaw.com/careers/{data.jobUrl}",
+            "description": "data.jobDescription.websiteDescription",
+            "posted_at": "data.validFromDate",
+            "external_id": "id"
+          }
+        }
+      ]
+    },
+    "browser": {
+      "title": "browser recipe (headless Chromium)",
+      "description": "The listing is rendered in Chromium and each job card is read from the rendered DOM with CSS selectors.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["url", "item", "fields"],
+      "properties": {
+        "url": { "$ref": "#/$defs/httpUrl", "description": "Listing page (page 1). Relative card URLs resolve against it." },
+        "mode": { "const": "html-css", "description": "Optional label; the only browser mode." },
+        "item": { "type": "string", "minLength": 1, "description": "CSS selector matching one node per job card." },
+        "page": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "type": { "enum": ["url", "none"], "description": "url: render template.format(n) for n = start, start+1, ... until a page adds nothing new; none (default): page 1 only." },
+            "template": { "type": "string", "description": "Page URL with an {n} placeholder." },
+            "start": { "type": "integer", "minimum": 0, "description": "First n. Default 2." }
+          }
+        },
+        "fields": {
+          "type": "object",
+          "description": "Card node -> canonical posting. title, location, url, description, posted_at and external_id feed the posting; any other name is a helper a url template can reference.",
+          "additionalProperties": { "$ref": "#/$defs/cssSpec" },
+          "properties": {
+            "url": { "$ref": "#/$defs/cssSpec", "description": "A CSS spec, or a string containing { = a template over this recipe's other field values." }
+          }
+        },
+        "detail": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "Optional per-posting hydration from each posting's detail page.",
+          "properties": {
+            "url_field": { "type": "string", "description": "Canonical posting key holding the detail URL (usually job_url). Without it there is no hydration." },
+            "mode": { "enum": ["http-html", "http-json"], "description": "Omit to render each detail page in Chromium. http-html/http-json hydrate over plain HTTP (Chromium only enumerates)." },
+            "fields": { "$ref": "#/$defs/detailFields" }
+          }
+        }
+      },
+      "examples": [
+        {
+          "url": "https://www.citadelsecurities.com/careers/open-opportunities/",
+          "item": "a.careers-listing-card",
+          "page": { "type": "url", "template": "https://www.citadelsecurities.com/careers/open-opportunities/page/{n}/", "start": 2 },
+          "fields": {
+            "title": "h2",
+            "location": ".careers-listing-card__location",
+            "url": { "attr": "href" },
+            "external_id": { "attr": "href", "extract": "details/([^/]+)/" }
+          },
+          "detail": { "url_field": "job_url", "fields": { "description": ".single-job-post-description" } }
+        }
+      ]
+    },
+    "httpUrl": { "type": "string", "pattern": "^[Hh][Tt][Tt][Pp][Ss]?://" },
+    "headers": { "type": "object", "additionalProperties": { "type": "string" } },
+    "pathOrPaths": {
+      "anyOf": [
+        { "type": "string" },
+        { "type": "array", "items": { "type": "string" }, "minItems": 1 }
+      ]
+    },
+    "cssSpec": {
+      "description": "A CSS selector string (the element's text), or {selector?, attr?, extract?}: pick a child by selector (default: the card itself), read attr (default: its text), then keep regex group 1 of extract.",
+      "anyOf": [
+        { "type": "string" },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "selector": { "type": ["string", "null"], "description": "null or absent: the card itself." },
+            "attr": { "type": "string" },
+            "extract": { "type": "string" }
+          }
+        }
+      ]
+    },
+    "detailFields": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Detail document -> posting keys. A non-empty value overwrites the list call's. Read with dotted paths on a JSON document, with CSS specs on an HTML one.",
+      "properties": {
+        "description": { "anyOf": [{ "$ref": "#/$defs/pathOrPaths" }, { "$ref": "#/$defs/cssSpec" }] },
+        "job_title": { "$ref": "#/$defs/cssSpec" },
+        "location": { "$ref": "#/$defs/cssSpec" },
+        "job_url": { "$ref": "#/$defs/cssSpec" },
+        "posted_at": { "$ref": "#/$defs/cssSpec" }
+      }
+    }
+  }
+}

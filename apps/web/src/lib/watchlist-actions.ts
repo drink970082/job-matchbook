@@ -4,6 +4,7 @@ import { prisma } from '@/lib/db'
 import { type Actor, VALID_SOURCES, RECIPE_SOURCES } from '@/lib/constants'
 import { checkedActor } from '@/lib/action-helpers'
 import { resolveBoardUrl, SLUG_OK } from '@/lib/board-url'
+import { recipeErrors } from '@/lib/recipe-schema'
 
 // --- Watchlist (DB-backed; the worker fetches these companies in full) ------
 // The watchlist moved out of the worker's config.yaml into the DB. The Sources tab and
@@ -94,6 +95,10 @@ export async function addWatchedCompany(input: {
         }
         if ((RECIPE_SOURCES as readonly string[]).includes(source) && !recipe) {
             return { success: false, error: `source '${source}' requires a recipe (JSON object)` }
+        }
+        const recipeErrs = recipe ? recipeErrors(source, JSON.parse(recipe)) : []
+        if (recipeErrs.length) {
+            return { success: false, error: `invalid ${source} recipe: ${recipeErrs.join('; ')}` }
         }
 
         const existing = await prisma.watched_companies.findFirst({

@@ -463,7 +463,7 @@ worker modules are pure and dependency-injected; real services are wired only in
   (the watchlist-capable boards: {greenhouse, lever, ashby, workday, pinpoint,
   smartrecruiters, workable, icims, phenom, custom, browser} — feed-only sources oracle/jobvite
   are intentionally excluded); a `RECIPE_SOURCES` row (`custom`, `browser`) must carry a `recipe`
-  mapping (else a startup `ConfigError`). Each company's `slug` is checked by `_valid_slug`
+  mapping that passes the recipe schema (see "Recipe schema" under the custom executor; else a startup `ConfigError` naming the key). Each company's `slug` is checked by `_valid_slug`
   against the same charset rule as the web boundary — `[A-Za-z0-9._/-]`, no `..`, no
   leading/trailing/doubled `/` — since the worker interpolates it straight into a fetch
   URL host/path (`ConfigError` on a bad slug). Exposes `companies` (each with an optional
@@ -609,6 +609,19 @@ worker modules are pure and dependency-injected; real services are wired only in
   the shared `fetch/_recipe.py` helpers. One executor covers many boards (Amazon, ByteDance/TikTok,
   DE Shaw, Jane Street, …) with **no per-site code** — adding one stays a data row. Anything a recipe can't express is a
   `browser` recipe, never a hand-written adapter.
+  **Recipe schema.** [`apps/web/src/lib/recipe.schema.json`](../apps/web/src/lib/recipe.schema.json)
+  is the recipe documentation and the one definition of both grammars: `$defs.custom` and
+  `$defs.browser` declare every key the executors read, with one worked example per mode
+  (`json`, `next-data`, browser), and reject any other key, so a misspelled `item_pth` is refused
+  naming the key. A `browser` `fields` map is the one open map (helper fields feed a `url`
+  template), so only its value shapes are checked. It is validated at every entry point: the web
+  add path (`addWatchedCompany`, so the Sources tab and `POST /api/v1/watchlist`; MCP
+  `add_source` sends no recipe, known-ATS boards only, until #239) via zod's `fromJSONSchema` (`lib/recipe-schema.ts`); the `config.yaml` seed
+  (`ConfigError`), onboard-board's `add_watched.py`, and `fetch_company` before any request via
+  `jsonschema` (`ats_worker/recipe_schema.py`). An invalid stored recipe therefore fails only its
+  own board: `run_fetch` logs `skipped after error: invalid custom recipe: ...` and the pass
+  goes on. `worker/tests/fixtures/recipe-cases.json` runs through both validators, so they cannot
+  drift.
   An optional **`detail` block** hydrates a board whose list call carries only a teaser: `url`
   (a `{field}` template interpolated against the **raw** item, not the canonical posting — the id a
   detail endpoint keys on is often not the one mapped to `external_id`) or `url_field` (reuse the
@@ -1448,7 +1461,8 @@ worker modules are pure and dependency-injected; real services are wired only in
   applications/{id}/status` `{status, date?}` (`updateApplicationStatus`), `POST
   jobs/{id}/applied` `{category?}` (`markJobApplied`, scope `{stage: 'all'}`), `POST
   watchlist` / `DELETE watchlist/{id}` (`addWatchedCompany` / `removeWatchedCompany`;
-  the delete returns the removed row), `POST jobs/{id}/triage` `{decision, reason?}` /
+  a `recipe` that fails the recipe schema is a `400` listing each violation; the delete
+  returns the removed row), `POST jobs/{id}/triage` `{decision, reason?}` /
   `DELETE jobs/{id}/triage` (`setTriageOverride` / `clearTriageOverride`: one override
   per posting, reason at most 500 chars, recorded with the posting's current revision;
   each set, replace (`update`, payload `{before, after}`) and clear lands in
