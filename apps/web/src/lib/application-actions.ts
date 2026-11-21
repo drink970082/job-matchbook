@@ -155,11 +155,13 @@ export async function updateApplicationStatus(id: number, status: string, date?:
             return { success: false, error: 'Invalid status' }
         }
 
-        // A past date is stamped noon UTC (no day shift in local timezones); no date, or
-        // today's date (the modal's default), is stamped now so it orders against other
-        // same-day writes by when they happened.
-        const timestamp = date && date !== todayISO()
-            ? new Date(`${date}T12:00:00Z`).toISOString() : new Date().toISOString()
+        // A past date is stamped noon UTC (no day shift in local timezones), never later
+        // than now: a future stamp would outrank every later change until it passed. No
+        // date, or today's server-local date (the modal's default), is stamped now so it
+        // orders against other same-day writes by when they happened.
+        const now = new Date().toISOString()
+        const noon = date && date !== todayISO() ? new Date(`${date}T12:00:00Z`).toISOString() : now
+        const timestamp = noon < now ? noon : now
 
         // The before snapshot and the no-op check are read in the write transaction. A
         // backdated row is recorded but only becomes current if it is the latest; the

@@ -410,7 +410,8 @@ def _add_write_tools(server: MCPServer, repo: ReadOnlyATSRepository, writer: ATS
         date: Date = None,
     ) -> dict[str, Any]:
         """Record a status change as a status_history row. date is when it happened (defaults
-        to now; today's date also means now). The current status is the latest row by date,
+        to now; the web server's today, or any future date, is stamped now). The current
+        status is the latest row by date,
         so a backdated change is recorded but stays behind a later one: `status` is the
         current status after the write, `recorded` the one requested. Fails if the
         application is already in that status."""

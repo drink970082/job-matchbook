@@ -2,8 +2,9 @@
 // One-off data backfill for #243: every application gets its initial Applied
 // status_history row, and applications.status is recomputed as the status of the latest
 // history row by timestamp (ties by id), the rule the web now applies on every write.
-// - An application with no Applied row gets one at the start of date_applied (UTC), or
-//   1 ms before its earliest existing row if that is earlier, so it always sorts first.
+// - An application with no Applied row gets one at the start of date_applied (UTC; now
+//   if date_applied is not YYYY-MM-DD), or 1 ms before its earliest existing row if that
+//   is earlier, so it always sorts first.
 // - An application with no history at all and a non-Applied status also gets a row with
 //   that status on the same timestamp (the later id makes it current).
 // Data only, no DDL. Idempotent: a second run reports all zeros. Back up db/ first.
@@ -22,7 +23,10 @@ const result = await prisma.$transaction(async (tx) => {
     for (const app of apps) {
         const history = app.status_history
         if (history.some((h) => h.status === 'Applied')) continue
-        let timestamp = `${app.date_applied.slice(0, 10)}T00:00:00.000Z`
+        // A date_applied that does not start YYYY-MM-DD falls back to now (then before the
+        // earliest existing row, below).
+        let timestamp = /^\d{4}-\d{2}-\d{2}(T|$)/.test(app.date_applied)
+            ? `${app.date_applied.slice(0, 10)}T00:00:00.000Z` : new Date().toISOString()
         const earliest = history[0]?.timestamp
         if (earliest !== undefined && earliest <= timestamp) {
             const ms = Date.parse(earliest)

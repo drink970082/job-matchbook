@@ -42,7 +42,7 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
   row dated `date_applied`; `getStatusFlow` reads the chain from history alone.
   `prisma/backfill-applied-history-243.mjs` adds the row to existing applications and
   recomputes their status (data-only, idempotent; back up `db/` first). A status change
-  dated today is stamped now, not noon. `updateApplicationStatus`, `/api/v1` and MCP
+  dated today is stamped now, not noon, and no change is stamped later than now. `updateApplicationStatus`, `/api/v1` and MCP
   `update_application_status` return the current status and the recorded one, and the
   UI says when a backdated change did not become current.
 - **`run_expire` writes `source_state='closed'`** (#230) on a 404/410 instead of

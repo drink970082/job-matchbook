@@ -169,6 +169,30 @@ test('updateApplicationStatus returns the recomputed current status and the reco
         .toEqual({ success: true, data: { status: 'Interviewing', recorded: 'Rejected' } })
 })
 
+test('a future-dated change is stamped now, so a later no-date change still becomes current', async () => {
+    const res = await addApplication({ company_name: 'Acme', job_title: 'Eng', date_applied: '2026-01-05' })
+    const id = res.data!.id
+    const tomorrow = new Date(Date.now() + 2 * 86_400_000).toISOString().slice(0, 10)
+    const before = new Date().toISOString()
+    await updateApplicationStatus(id, 'Screening', tomorrow)
+    expect((await historyOf(id)).at(-1)!.timestamp <= new Date().toISOString()).toBe(true)
+    expect((await historyOf(id)).at(-1)!.timestamp >= before).toBe(true)
+    await updateApplicationStatus(id, 'Interviewing')
+    expect(await statusOf(id)).toBe('Interviewing')
+})
+
+test('an initial Applied row for a non-ISO date_applied is stamped now', async () => {
+    const before = new Date().toISOString()
+    const res = await addApplication({ company_name: 'Acme', job_title: 'Eng', date_applied: '1/5/2026' })
+    const [row] = await historyOf(res.data!.id)
+    expect(row.status).toBe('Applied')
+    expect(row.timestamp >= before && row.timestamp <= new Date().toISOString()).toBe(true)
+
+    await importApplicationsCSV('company_name,job_title,date_applied\nBeta,DS,Jan 5 2026\n')
+    const beta = await prisma.applications.findFirstOrThrow({ where: { company_name: 'Beta' } })
+    expect((await historyOf(beta.id))[0].timestamp >= before).toBe(true)
+})
+
 test('the status audit row snapshots the recomputed status, not the requested one', async () => {
     const res = await addApplication({ company_name: 'Acme', job_title: 'Eng', date_applied: '2026-10-20' })
     const id = res.data!.id

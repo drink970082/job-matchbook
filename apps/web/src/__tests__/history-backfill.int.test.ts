@@ -28,7 +28,12 @@ test('the #243 backfill gives every application an initial Applied row and recom
     const e = await prisma.applications.create({ data: makeApplication({ company_name: 'E', date_applied: '2026-01-05' }) })
     await prisma.status_history.create({ data: makeStatusHistory({ application_id: e.id, status: 'Applied', timestamp: '2026-01-05T00:00:00.000Z' }) })
 
-    expect(backfill()).toEqual({ applied_rows_added: 4, status_rows_added: 1, statuses_recomputed: 1 })
+    // A date_applied that is not YYYY-MM-DD: stamped now, not a garbage timestamp.
+    const f = await prisma.applications.create({ data: makeApplication({ company_name: 'F', date_applied: '1/5/2026' }) })
+    const before = new Date().toISOString()
+
+    expect(backfill()).toEqual({ applied_rows_added: 5, status_rows_added: 1, statuses_recomputed: 1 })
+    expect((await historyOf(f.id))[0].timestamp >= before).toBe(true)
 
     expect((await historyOf(a.id)).map((h) => [h.status, h.timestamp])).toEqual([['Applied', '2026-01-05T00:00:00.000Z']])
     expect((await historyOf(b.id)).map((h) => h.status)).toEqual(['Applied', 'Screening'])

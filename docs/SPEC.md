@@ -2078,15 +2078,18 @@ Triage evidence with duplicate object members at its root, screen map, or check 
   backdated change is recorded but does not become current unless it is the latest.
 - **Creation writes the initial `Applied` row.** `addApplication`, `markJobApplied` and
   CSV import insert an `Applied` row at the start of `date_applied` (`T00:00:00.000Z`,
-  clamped to now so a same-day change sorts after it); a non-`Applied` creation status
+  clamped to now so a same-day change sorts after it; now when `date_applied` does not
+  start `YYYY-MM-DD`); a non-`Applied` creation status
   adds a second row on the same timestamp. The row is dated from `date_applied` at
   creation (and by `prisma/backfill-applied-history-243.mjs`, the one-off idempotent
   backfill for older applications); a later `date_applied` edit does not move it.
 - **Status changes append history.** `updateApplicationStatus` rejects values not
   in `STATUSES`, rejects a no-op (same as the current status), and in one transaction
-  inserts a `status_history` row and recomputes the status. Timestamp: a past date at
-  `T12:00:00Z`; no date, or today's date (server-local; the history dialog sends its
-  today default as no date), is now, so same-day changes order by when they were made.
+  inserts a `status_history` row and recomputes the status. Timestamp: a date at
+  `T12:00:00Z`, never later than now (so a future date cannot outrank later changes;
+  the dialog's date input is capped at today); no date, or today's date (server-local;
+  the history dialog sends its today default as no date), is now, so same-day changes
+  order by when they were made.
   It returns `{ status, recorded }`: the current status after the write and the one
   requested. The UI says when they differ; `/api/v1` and MCP return both.
 - **Dedup on `(company_name, job_title)`** for `addApplication`, `markJobApplied`,
