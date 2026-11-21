@@ -448,8 +448,9 @@ def run_expire(conn, *, now, detail_fetch_fn, detail_sources=DETAIL_SOURCES,
     `recheck_id_fn(row)` gives the key fetch_one takes (workday: the job path, not the
     stored GUID); a row with none is skipped, recorded inconclusive.
     Err toward alive — only a 404/410 closes a row (`_gone`). Any other error is
-    recorded inconclusive, which rotates the row to the back of the queue so a row
-    that always errors cannot pin the head of it; wrongly expiring a live match costs
+    recorded inconclusive, and so is an adapter's None; a served posting is `found`.
+    Every outcome rotates the row to the back of the queue, so a row that always
+    errors cannot pin the head of it; wrongly expiring a live match costs
     the operator a job while a missed dead link costs one stale row.
     """
     expired = skipped = 0
@@ -460,8 +461,8 @@ def run_expire(conn, *, now, detail_fetch_fn, detail_sources=DETAIL_SOURCES,
             skipped += 1
             continue
         try:
-            detail_fetch_fn(row["source"], row["company_slug"] or "", key,
-                            row["company_name"])
+            posting = detail_fetch_fn(row["source"], row["company_slug"] or "", key,
+                                      row["company_name"])
         except Exception as exc:  # noqa: BLE001 — one bad check never aborts the pass
             if _gone(exc):
                 db.mark_source_closed(conn, row["id"], now=now)
@@ -470,9 +471,13 @@ def run_expire(conn, *, now, detail_fetch_fn, detail_sources=DETAIL_SOURCES,
                 db.record_check_inconclusive(conn, row["id"], now=now,
                                              category=observation_error_category(exc))
             continue
-        # Alive (or the adapter declined with None — treat as alive): rotate it to
-        # the back of the queue so the next pass checks different rows.
-        db.touch(conn, row["id"], now=now)
+        if posting is None:
+            # The adapter declined (no usable payload): alive by default, but the
+            # check proved nothing, so it must not read as a found posting.
+            db.record_check_inconclusive(conn, row["id"], now=now,
+                                         category="incomplete_content")
+        else:
+            db.record_check_found(conn, row["id"], now=now)
     if skipped:
         print(f"[expire] skipped {skipped} row(s) with no recheck key")
     return expired

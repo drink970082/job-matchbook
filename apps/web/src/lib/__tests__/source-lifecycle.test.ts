@@ -46,6 +46,12 @@ describe('source lifecycle summary', () => {
         })
     })
 
+    it('keeps the expiry sweep no_recheck_key category', () => {
+        expect(sourceLifecycleSummary({
+            ...posting, source_last_check_error_category: 'no_recheck_key',
+        }).last_check_error_category).toBe('no_recheck_key')
+    })
+
     it('reports legacy evidence as unknown and keeps provider errors distinct', () => {
         expect(sourceLifecycleSummary({
             ...posting,

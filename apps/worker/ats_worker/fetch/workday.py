@@ -108,7 +108,9 @@ def recheck_id(row) -> str | None:
     if "job" not in parts:
         return None
     tail = [p for p in parts[parts.index("job") + 1:] if p]
-    return "/job/" + "/".join(tail) if tail else None
+    if not tail or any(p in (".", "..") for p in tail):
+        return None   # a dot segment would resolve to another endpoint on the host
+    return "/job/" + "/".join(tail)
 
 
 def fetch_one(slug: str, external_id: str, company_name: str,

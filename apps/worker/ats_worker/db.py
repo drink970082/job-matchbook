@@ -695,8 +695,9 @@ def mark_source_closed(conn, posting_id: int, *, now: str) -> None:
 
 
 def record_check_inconclusive(conn, posting_id: int, *, now: str, category: str) -> None:
-    """A detail check that proved nothing (transient error, or no usable key): stamp
-    the attempt and a fixed error category so the row rotates to the back of
+    """A detail check that proved nothing (transient error, no usable key, or the
+    adapter declined with None): stamp the attempt and an allow-listed error category
+    (SOURCE_ERROR_CATEGORIES) so the row rotates to the back of
     get_recheck_candidates' queue. Never 'found', never closed; source_state and
     updated_at are left alone."""
     conn.execute(
@@ -706,10 +707,16 @@ def record_check_inconclusive(conn, posting_id: int, *, now: str, category: str)
     conn.commit()
 
 
-def touch(conn, posting_id: int, *, now: str) -> None:
-    """Re-checked and still live: stamp the check attempt so the row rotates to the
-    back of get_recheck_candidates' queue. updated_at is left alone — bumping it
-    would move a `new` row to the front of the screen/JEV queues."""
-    _update(conn, posting_id, {"source_last_check_attempted_at": now})
+def record_check_found(conn, posting_id: int, *, now: str) -> None:
+    """The listing's detail endpoint served the posting: a conclusive `found` check,
+    clearing any earlier inconclusive category, and the row rotates to the back of
+    get_recheck_candidates' queue. source_state, the content and updated_at are left
+    alone — bumping updated_at would move a `new` row to the front of the screen/JEV
+    queues; refreshing content is run_unscored_refresh's job."""
+    conn.execute(
+        "UPDATE job_postings SET source_last_check_attempted_at=?,source_last_checked_at=?,"
+        "source_last_check_outcome='found',source_last_check_error_category=NULL "
+        "WHERE id=?", (now, now, posting_id))
+    conn.commit()
 
 

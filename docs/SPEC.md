@@ -731,7 +731,8 @@ worker modules are pure and dependency-injected; real services are wired only in
   `record_board_listing` (one successful board list: stamps every listed stored id
   seen and resets its absence count; for an absence-closure source and a non-empty
   list, counts one absence on the board's other open rows and closes them at 3),
-  `mark_source_closed`, `touch`. Watchlist + feed
+  `mark_source_closed`, `record_check_found`, `record_check_inconclusive` (the
+  `run_expire` outcomes). Watchlist + feed
   helpers: `get_watchlist` (skips a `custom`/`browser` row with malformed recipe JSON,
   but keeps a platform-source row — it fetches without a recipe), `count_watchlist`,
   `import_watchlist` (idempotent), `record_unresolved` (upsert on `url`),
@@ -1300,12 +1301,14 @@ worker modules are pure and dependency-injected; real services are wired only in
   `fetch_one` takes the `/job/...` path and so reads it off the stored `job_url` (the
   stored id is the posting GUID, and workday's `fetch_one` raises on anything that is
   not a `/job/` path). A row with no key (a workday `job_url` without a `/job/` path on a
-  Workday host) is not fetched. A **404/410** marks the row
+  Workday host, or with a `.`/`..` segment) is not fetched. A **404/410** marks the row
   `source_state='closed'` (`source_last_check_outcome='confirmed_closed'`); lifecycle and
-  `updated_at` are untouched. **Nothing else closes a row** — a timeout, a 403 bot wall,
-  a 429, a 5xx or a row with no key records `source_last_check_outcome='inconclusive'`
-  with a fixed error category (`no_recheck_key` for the missing key), and a fetched or
-  `None` posting is treated as alive, because wrongly expiring a live match costs the
+  `updated_at` are untouched. A served posting records
+  `source_last_check_outcome='found'` (`source_last_checked_at` set, error category
+  cleared). **Nothing else closes a row** — a timeout, a 403 bot wall, a 429, a 5xx, a
+  row with no key, or an adapter's `None` records `inconclusive` with an allow-listed
+  error category (`no_recheck_key` for the missing key, `incomplete_content` for `None`)
+  and leaves the row live, because wrongly expiring a live match costs the
   operator a job while a missed dead link costs one stale row. Every check stamps
   `source_last_check_attempted_at`, which rotates the row to the back of the queue —
   that's the whole scheduling mechanism, and it means a row whose check always errors
@@ -2279,7 +2282,7 @@ automated coverage — those rely on code review or the human in the loop, not a
 | Unknown lifecycle names cannot crash inventory rendering; impossible calendar dates and invalid assessment times remain null with shared Python/web timestamp fixtures | `web/src/components/__tests__/DiscoveredJobsTable.test.tsx`, `web/src/lib/__tests__/screen-summary.test.ts`, `worker/tests/test_mcp_repository.py` |
 | Synthetic browser flow: newest unscored job, full JD, all-text search, second page, retained Matched details and All-jobs application workflow | `web/e2e/discovered.spec.ts`, `apply-loop.spec.ts` |
 | Integration-harness self-check (real Prisma round-trip on the temp DB) | `web/src/__tests__/harness.int.test.ts` |
-| Dead-link sweep: 404/410 → `source_state='closed'` (lifecycle untouched), every other error or a missing recheck key records `inconclusive` and rotates the row, workday is fetched by the `/job/...` path from the stored `job_url` (never the GUID), closed rows not rechecked | `test_pipeline.py` (`run_expire`), `test_fetch_new.py` (`recheck_id`, `test_stored_workday_row_rechecks_at_a_well_formed_job_url`) |
+| Dead-link sweep: 404/410 → `source_state='closed'` (lifecycle untouched), every other error, a missing recheck key or an adapter `None` records `inconclusive`, a served posting records `found` (clearing an earlier category), every check rotates the row, workday is fetched by the `/job/...` path from the stored `job_url` (never the GUID), closed rows not rechecked | `test_pipeline.py` (`run_expire`), `test_fetch_new.py` (`recheck_id`, `test_stored_workday_row_rechecks_at_a_well_formed_job_url`) |
 | Board absence closes: 3rd consecutive successful non-empty list without the id closes it, a failed or empty fetch never counts, relisting reopens; filter- and stub-gate-dropped ids still stamped seen; board-scoped stamp and count; workday/smartrecruiters/phenom/browser/icims/custom never close by absence; closed rows leave the screen and JEV queues | `test_closure.py` |
 | Explicit one-shot source refresh stays within 1–25 SmartRecruiters requests without following redirects, selects only unscored/unlinked rows without fit assessment, validates identity and visible core JD content, preserves state on inconclusive/closed results, reopens source availability without relabeling detail-check time, and skips concurrent eligibility changes | `test_source_lifecycle.py`, `test_run.py::test_run_once_unscored_refresh_runs_as_an_isolated_source_only_mode`, `test_smartrecruiters.py` |
 | Explicitly inactive SmartRecruiters details cannot insert or reopen a source observation on normal feed/watchlist ingestion; missing `active` remains compatible and normal ingest never records closure | `test_smartrecruiters.py` (`test_fetch_one_rejects_an_explicitly_inactive_detail`, `test_fetch_skips_explicitly_inactive_detail_but_keeps_missing_active_compatibility`), `test_feed_pipeline.py` (`test_run_feed_does_not_insert_smartrecruiters_explicitly_inactive_detail`, `test_run_fetch_does_not_reopen_closed_smartrecruiters_row_from_inactive_detail`), `test_source_lifecycle.py` |

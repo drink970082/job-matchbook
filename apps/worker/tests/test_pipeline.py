@@ -455,6 +455,26 @@ def test_run_expire_declined_fetch_is_treated_as_alive(db_path):
     assert pipeline.run_expire(
         conn, now=LATER, detail_fetch_fn=lambda *a: None) == 0
     assert _statuses(conn)["x"] == "notified"
+    row = conn.execute("SELECT * FROM job_postings").fetchone()
+    # Alive by default, but the check proved nothing: not 'found'.
+    assert (row["source_state"], row["source_last_check_outcome"],
+            row["source_last_check_error_category"]) == (
+        "available", "inconclusive", "incomplete_content")
+
+
+def test_run_expire_success_after_an_inconclusive_check_records_found(db_path):
+    # A 429 pass then a served posting: the row must read as found, not keep the
+    # stale 429 the web detail modal and MCP would report as a failed check.
+    conn = db.connect(db_path)
+    _seed_live(conn, ["x"])
+    pipeline.run_expire(conn, now=NOW,
+                        detail_fetch_fn=lambda *a: (_ for _ in ()).throw(_HTTPError(429)))
+    pipeline.run_expire(conn, now=LATER,
+                        detail_fetch_fn=lambda *a: _posting("x", source=DETAIL_SRC))
+    row = conn.execute("SELECT * FROM job_postings").fetchone()
+    assert (row["source_last_check_outcome"], row["source_last_check_error_category"],
+            row["source_last_checked_at"], row["source_last_check_attempted_at"]) == (
+        "found", None, LATER, LATER)
 
 
 # --- per-board health line: the thing that makes a teaser board visible ---

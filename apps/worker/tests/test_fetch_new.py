@@ -203,6 +203,9 @@ def test_workday_recheck_id_is_the_external_path_from_the_stored_job_url(job_url
 @pytest.mark.parametrize("job_url", [
     "", None, "https://x.wd5.myworkdayjobs.com/site", "https://x.wd5.myworkdayjobs.com/site/job",
     "https://x.wd5.myworkdayjobs.com/site/job/", "https://example.com/site/job/X_R1",
+    # dot segments would resolve to another endpoint on the host (a 404 there closes)
+    "https://x.wd5.myworkdayjobs.com/site/job/../../../../jobs",
+    "https://x.wd5.myworkdayjobs.com/site/job/./X_R1",
 ])
 def test_workday_recheck_id_without_a_job_path_is_none(job_url):
     # No reliable path -> no key: run_expire skips the row instead of guessing a URL.
