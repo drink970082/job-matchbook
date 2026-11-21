@@ -11,8 +11,9 @@ behavior. Completed work belongs in CHANGELOG, not this queue.
 - **One candidate profile; evaluate each posting once — spec approved; implementation
   not started** `[WORKER+WEB+MCP · L]` (epic #223; no implementation branch yet).
   [Spec](superpowers/specs/2026-11-20-candidate-profile-design.md); #224 is next.
-- **Workday expiry check builds a malformed URL, so workday never closes — PR open,
-  awaiting review** `[WORKER · S]` (#266, epic #229; branch `fix/266-workday-expiry`).
+- **Status = latest history row; initial Applied row** `[WEB · S]` (#243, part of #240) on
+  `feat/243-status-from-history`: landed, PR open. Operator step after merge: back up
+  `db/`, then run `prisma/backfill-applied-history-243.mjs` against the deployed DB.
 
 These references reserve unfinished work; they do not claim the branches are currently
 executing or establish merge readiness. Inspect actual refs/worktrees and coordinate

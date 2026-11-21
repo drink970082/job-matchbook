@@ -7,7 +7,7 @@ import { todayISO } from '@/lib/utils'
 import { legacyScreenEvidence, SCREEN_OUTCOMES, standaloneScreenSummary, type ScreenOutcome } from '@/lib/screen-summary'
 import { sourceLifecycleSummary } from '@/lib/source-lifecycle'
 import { jobTriageSummary } from '@/lib/triage-summary'
-import { checkedActor, CATEGORY_FALLBACK } from '@/lib/action-helpers'
+import { applicationAudit, checkedActor, writeInitialHistory, CATEGORY_FALLBACK } from '@/lib/action-helpers'
 import { JOB_STAGES, type JobStage, type JobStageFilter } from '@/lib/job-stages'
 
 export type { JobStage, JobStageFilter }
@@ -496,6 +496,8 @@ export async function markJobApplied(id: number, category: string | undefined, s
                     actor,
                 },
             })
+            await writeInitialHistory(tx, newApp)
+            await tx.audit_log.create({ data: applicationAudit(actor, 'add', newApp.id, newApp) })
 
             const updated = await tx.job_postings.updateMany({
                 where: { id, pipeline_status: { notIn: ['applied', 'removed'] } },

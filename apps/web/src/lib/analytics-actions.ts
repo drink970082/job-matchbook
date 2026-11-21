@@ -29,39 +29,21 @@ export async function getKPIs() {
 export async function getStatusFlow() {
     try {
         const apps = await prisma.applications.findMany({
-            include: { status_history: { orderBy: { timestamp: 'asc' } } },
+            select: { status_history: { select: { status: true }, orderBy: [{ timestamp: 'asc' }, { id: 'asc' }] } },
         })
 
         const transitions: { from: string; to: string }[] = []
 
+        // History starts with the initial Applied row and its tail is the current status
+        // (#243). The seed only covers an application whose every row was deleted.
         for (const app of apps) {
-            const history = app.status_history
-
-            if (history.length === 0) {
-                // No history at all — just use current status
-                const to = app.status === 'Applied' ? 'No Response' : app.status
-                transitions.push({ from: 'Applied', to })
-            } else {
-                // Build the full chain: start with Applied, then each history entry
-                const chain: string[] = ['Applied']
-                for (const h of history) {
-                    // Avoid duplicate consecutive statuses
-                    if (chain[chain.length - 1] !== h.status) {
-                        chain.push(h.status)
-                    }
-                }
-                // If current status differs from last history entry, add it
-                if (chain[chain.length - 1] !== app.status) {
-                    chain.push(app.status === 'Applied' ? 'No Response' : app.status)
-                }
-                // If chain is just ['Applied'] with no transitions, mark as No Response
-                if (chain.length === 1) {
-                    transitions.push({ from: 'Applied', to: 'No Response' })
-                } else {
-                    for (let i = 0; i < chain.length - 1; i++) {
-                        transitions.push({ from: chain[i], to: chain[i + 1] })
-                    }
-                }
+            const chain: string[] = ['Applied']
+            for (const h of app.status_history) {
+                if (chain[chain.length - 1] !== h.status) chain.push(h.status)
+            }
+            if (chain.length === 1) chain.push('No Response')
+            for (let i = 0; i < chain.length - 1; i++) {
+                transitions.push({ from: chain[i], to: chain[i + 1] })
             }
         }
 

@@ -10,6 +10,7 @@ import { exportApplicationsCSV, importApplicationsCSV } from '@/lib/csv-actions'
 import { getJobPostings, markJobApplied } from '@/lib/job-actions'
 import { getSettings } from '@/lib/preference-actions'
 import { getCategories, setCategories } from '@/lib/category-actions'
+import { todayISO } from '@/lib/utils'
 import { prisma, resetDb } from '@/test-utils/db'
 import { makeApplication, makeJobPosting, makeStatusHistory } from '@/test-utils/factories'
 
@@ -89,6 +90,144 @@ test('addApplication rejects a duplicate (company,title) atomically', async () =
     expect(dup.success).toBe(false)
     expect(dup.error).toContain('already exists')
     expect(await prisma.applications.count()).toBe(1)
+})
+
+
+// --- #243: status = latest history row by timestamp (ties by id) ----------
+
+const historyOf = (id: number) => prisma.status_history.findMany({
+    where: { application_id: id }, orderBy: [{ timestamp: 'asc' }, { id: 'asc' }] })
+const statusOf = async (id: number) => (await prisma.applications.findUnique({ where: { id } }))!.status
+
+test('addApplication writes the initial Applied row dated date_applied', async () => {
+    const res = await addApplication({ company_name: 'Acme', job_title: 'Eng', date_applied: '2026-01-05' }, 'mcp')
+    const hist = await historyOf(res.data!.id)
+    expect(hist.map((h) => [h.status, h.timestamp, h.actor])).toEqual([['Applied', '2026-01-05T00:00:00.000Z', 'mcp']])
+})
+
+test('addApplication with a non-Applied status writes Applied then that status, which is current', async () => {
+    const res = await addApplication({ company_name: 'Acme', job_title: 'Eng', date_applied: '2026-01-05', status: 'Screening' })
+    expect((await historyOf(res.data!.id)).map((h) => h.status)).toEqual(['Applied', 'Screening'])
+    expect(await statusOf(res.data!.id)).toBe('Screening')
+})
+
+test('the initial Applied row is never dated after now, so a same-day change stays current', async () => {
+    // A date_applied ahead of UTC (a user east of UTC applying just after local midnight).
+    const tomorrow = new Date(Date.now() + 86_400_000).toISOString().slice(0, 10)
+    const res = await addApplication({ company_name: 'Acme', job_title: 'Eng', date_applied: tomorrow })
+    await updateApplicationStatus(res.data!.id, 'Screening')
+    expect(await statusOf(res.data!.id)).toBe('Screening')
+})
+
+test('markJobApplied and CSV import write the initial Applied row', async () => {
+    const jp = await prisma.job_postings.create({ data: makeJobPosting({ external_id: 'h1' }) })
+    expect((await markJobApplied(jp.id, undefined, { stage: 'all' })).success).toBe(true)
+    const marked = await prisma.applications.findFirstOrThrow()
+    expect((await historyOf(marked.id)).map((h) => h.status)).toEqual(['Applied'])
+
+    await importApplicationsCSV('company_name,job_title,date_applied,status\nBeta,DS,2026-01-02,Rejected\n')
+    const beta = await prisma.applications.findFirst({ where: { company_name: 'Beta' } })
+    expect((await historyOf(beta!.id)).map((h) => [h.status, h.timestamp])).toEqual([
+        ['Applied', '2026-01-02T00:00:00.000Z'], ['Rejected', '2026-01-02T00:00:00.000Z']])
+    expect(beta!.status).toBe('Rejected')
+})
+
+test('a backdated status change does not become current; deleting either row recomputes', async () => {
+    const res = await addApplication({ company_name: 'Acme', job_title: 'Eng', date_applied: '2026-10-20' })
+    const id = res.data!.id
+    expect((await updateApplicationStatus(id, 'Interviewing', '2026-11-10')).success).toBe(true)
+    expect((await updateApplicationStatus(id, 'Rejected', '2026-11-01')).success).toBe(true)
+    expect(await statusOf(id)).toBe('Interviewing')
+
+    const hist = await historyOf(id)
+    const interviewing = hist.find((h) => h.status === 'Interviewing')!
+    const rejected = hist.find((h) => h.status === 'Rejected')!
+    await deleteHistoryItem(interviewing.id)
+    expect(await statusOf(id)).toBe('Rejected')
+    await deleteHistoryItem(rejected.id)
+    expect(await statusOf(id)).toBe('Applied')
+})
+
+test('a date-only write for today is stamped now, so it sorts after an earlier now write', async () => {
+    const res = await addApplication({ company_name: 'Acme', job_title: 'Eng', date_applied: '2026-01-05' })
+    const id = res.data!.id
+    await updateApplicationStatus(id, 'Screening')                    // dropdown / MCP: no date -> now
+    await updateApplicationStatus(id, 'Interviewing', todayISO())     // modal default: today's date
+    expect(await statusOf(id)).toBe('Interviewing')
+    const hist = await historyOf(id)
+    expect(hist.at(-1)!.status).toBe('Interviewing')
+    expect(hist.at(-1)!.timestamp).not.toBe(`${todayISO()}T12:00:00.000Z`) // not the noon stamp
+    expect(hist.at(-1)!.timestamp >= hist.at(-2)!.timestamp).toBe(true)
+})
+
+test('updateApplicationStatus returns the recomputed current status and the recorded one', async () => {
+    const res = await addApplication({ company_name: 'Acme', job_title: 'Eng', date_applied: '2026-10-20' })
+    const id = res.data!.id
+    expect(await updateApplicationStatus(id, 'Interviewing', '2026-11-10'))
+        .toEqual({ success: true, data: { status: 'Interviewing', recorded: 'Interviewing' } })
+    expect(await updateApplicationStatus(id, 'Rejected', '2026-11-01'))
+        .toEqual({ success: true, data: { status: 'Interviewing', recorded: 'Rejected' } })
+})
+
+test('a future-dated change is stamped now, so a later no-date change still becomes current', async () => {
+    const res = await addApplication({ company_name: 'Acme', job_title: 'Eng', date_applied: '2026-01-05' })
+    const id = res.data!.id
+    const tomorrow = new Date(Date.now() + 2 * 86_400_000).toISOString().slice(0, 10)
+    const before = new Date().toISOString()
+    await updateApplicationStatus(id, 'Screening', tomorrow)
+    expect((await historyOf(id)).at(-1)!.timestamp <= new Date().toISOString()).toBe(true)
+    expect((await historyOf(id)).at(-1)!.timestamp >= before).toBe(true)
+    await updateApplicationStatus(id, 'Interviewing')
+    expect(await statusOf(id)).toBe('Interviewing')
+})
+
+test('an initial Applied row for a non-ISO date_applied is stamped now', async () => {
+    const before = new Date().toISOString()
+    const res = await addApplication({ company_name: 'Acme', job_title: 'Eng', date_applied: '1/5/2026' })
+    const [row] = await historyOf(res.data!.id)
+    expect(row.status).toBe('Applied')
+    expect(row.timestamp >= before && row.timestamp <= new Date().toISOString()).toBe(true)
+
+    await importApplicationsCSV('company_name,job_title,date_applied\nBeta,DS,Jan 5 2026\n')
+    const beta = await prisma.applications.findFirstOrThrow({ where: { company_name: 'Beta' } })
+    expect((await historyOf(beta.id))[0].timestamp >= before).toBe(true)
+})
+
+test('the status audit row snapshots the recomputed status, not the requested one', async () => {
+    const res = await addApplication({ company_name: 'Acme', job_title: 'Eng', date_applied: '2026-10-20' })
+    const id = res.data!.id
+    await updateApplicationStatus(id, 'Interviewing', '2026-11-10')
+    await updateApplicationStatus(id, 'Rejected', '2026-11-01')
+    const audit = await prisma.audit_log.findFirstOrThrow({ where: { action: 'status' }, orderBy: { id: 'desc' } })
+    const payload = JSON.parse(audit.payload!)
+    expect(payload.after.status).toBe('Interviewing')
+    expect(payload.history.status).toBe('Rejected')
+
+    await deleteHistoryItem(payload.history.id)
+    const removed = await prisma.audit_log.findFirstOrThrow({ where: { action: 'remove_history' } })
+    expect(JSON.parse(removed.payload!).after.status).toBe('Interviewing')
+})
+
+test('deleting the backdated row leaves the later one current', async () => {
+    const res = await addApplication({ company_name: 'Acme', job_title: 'Eng', date_applied: '2026-10-20' })
+    const id = res.data!.id
+    await updateApplicationStatus(id, 'Interviewing', '2026-11-10')
+    await updateApplicationStatus(id, 'Rejected', '2026-11-01')
+    const rejected = (await historyOf(id)).find((h) => h.status === 'Rejected')!
+    await deleteHistoryItem(rejected.id)
+    expect(await statusOf(id)).toBe('Interviewing')
+})
+
+test('history rows on the same timestamp resolve by id', async () => {
+    const app = await prisma.applications.create({ data: makeApplication({ status: 'Screening' }) })
+    const ts = '2026-01-02T12:00:00.000Z'
+    await prisma.status_history.create({ data: makeStatusHistory({ application_id: app.id, status: 'Screening', timestamp: ts }) })
+    const last = await prisma.status_history.create({ data: makeStatusHistory({ application_id: app.id, status: 'Rejected', timestamp: ts }) })
+    const extra = await prisma.status_history.create({ data: makeStatusHistory({ application_id: app.id, status: 'Offer', timestamp: '2026-01-01T00:00:00.000Z' }) })
+    await deleteHistoryItem(extra.id)
+    expect(await statusOf(app.id)).toBe('Rejected')
+    await deleteHistoryItem(last.id)
+    expect(await statusOf(app.id)).toBe('Screening')
 })
 
 

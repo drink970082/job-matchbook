@@ -34,8 +34,10 @@ services:
       # created by the worker are visible here — otherwise cross-container WAL
       # silently breaks and reads/writes can diverge.
       DATABASE_URL: "file:/data/applications.db"
-      # The container clock is UTC by default, and one server action stamps a date from
-      # it — markJobApplied's `date_applied`. The browser-side date defaults (the add
+      # The container clock is UTC by default, and two server actions read today's date
+      # from it — markJobApplied's `date_applied`, and updateApplicationStatus, which
+      # stamps a change dated today as now (other dates at noon UTC, never later than
+      # now). The browser-side date defaults (the add
       # form, the CSV filename) use the VIEWER's local day, so west of UTC the two
       # disagree by one day after ~19:00 local unless this is set. Set TZ in the
       # gitignored root `.env` to your own zone (e.g. TZ=America/New_York) and they
