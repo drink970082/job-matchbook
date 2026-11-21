@@ -1364,7 +1364,7 @@ worker modules are pure and dependency-injected; real services are wired only in
   lapses when the content changes. Each row carries `jev.status`, `model_status`,
   `reasons` (the model's) and `override` (`decision, reason, actor, set_at, applies`, or
   null); the keep/skip filter and counts use the effective status. `get_job` adds model, policy hash and attempt
-  times; `get_ats_overview` adds `jev_filter_counts` over `pipeline_status=new`.
+  times; `get_ats_overview` adds `jev_filter_counts` over `pipeline_status=new`, not `source_state=closed`.
   `list_jobs` keeps metadata search as the default and offers opt-in literal `all_text`
   matching over title, company, location and description; `%`, `_` and `!` are escaped,
   and description bodies remain available only through the chunk tool. Its optional
