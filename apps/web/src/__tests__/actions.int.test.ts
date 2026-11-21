@@ -10,6 +10,7 @@ import { exportApplicationsCSV, importApplicationsCSV } from '@/lib/csv-actions'
 import { getJobPostings, markJobApplied } from '@/lib/job-actions'
 import { getSettings } from '@/lib/preference-actions'
 import { getCategories, setCategories } from '@/lib/category-actions'
+import { todayISO } from '@/lib/utils'
 import { prisma, resetDb } from '@/test-utils/db'
 import { makeApplication, makeJobPosting, makeStatusHistory } from '@/test-utils/factories'
 
@@ -120,8 +121,9 @@ test('the initial Applied row is never dated after now, so a same-day change sta
 
 test('markJobApplied and CSV import write the initial Applied row', async () => {
     const jp = await prisma.job_postings.create({ data: makeJobPosting({ external_id: 'h1' }) })
-    const marked = await markJobApplied(jp.id, undefined, { stage: 'all' })
-    expect((await historyOf(marked.data!.id)).map((h) => h.status)).toEqual(['Applied'])
+    expect((await markJobApplied(jp.id, undefined, { stage: 'all' })).success).toBe(true)
+    const marked = await prisma.applications.findFirstOrThrow()
+    expect((await historyOf(marked.id)).map((h) => h.status)).toEqual(['Applied'])
 
     await importApplicationsCSV('company_name,job_title,date_applied,status\nBeta,DS,2026-01-02,Rejected\n')
     const beta = await prisma.applications.findFirst({ where: { company_name: 'Beta' } })
@@ -144,6 +146,27 @@ test('a backdated status change does not become current; deleting either row rec
     expect(await statusOf(id)).toBe('Rejected')
     await deleteHistoryItem(rejected.id)
     expect(await statusOf(id)).toBe('Applied')
+})
+
+test('a date-only write for today is stamped now, so it sorts after an earlier now write', async () => {
+    const res = await addApplication({ company_name: 'Acme', job_title: 'Eng', date_applied: '2026-01-05' })
+    const id = res.data!.id
+    await updateApplicationStatus(id, 'Screening')                    // dropdown / MCP: no date -> now
+    await updateApplicationStatus(id, 'Interviewing', todayISO())     // modal default: today's date
+    expect(await statusOf(id)).toBe('Interviewing')
+    const hist = await historyOf(id)
+    expect(hist.at(-1)!.status).toBe('Interviewing')
+    expect(hist.at(-1)!.timestamp).not.toBe(`${todayISO()}T12:00:00.000Z`) // not the noon stamp
+    expect(hist.at(-1)!.timestamp >= hist.at(-2)!.timestamp).toBe(true)
+})
+
+test('updateApplicationStatus returns the recomputed current status and the recorded one', async () => {
+    const res = await addApplication({ company_name: 'Acme', job_title: 'Eng', date_applied: '2026-10-20' })
+    const id = res.data!.id
+    expect(await updateApplicationStatus(id, 'Interviewing', '2026-11-10'))
+        .toEqual({ success: true, data: { status: 'Interviewing', recorded: 'Interviewing' } })
+    expect(await updateApplicationStatus(id, 'Rejected', '2026-11-01'))
+        .toEqual({ success: true, data: { status: 'Interviewing', recorded: 'Rejected' } })
 })
 
 test('deleting the backdated row leaves the later one current', async () => {

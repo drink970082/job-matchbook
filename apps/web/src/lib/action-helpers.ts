@@ -25,11 +25,14 @@ export function checkedActor(actor: unknown): Actor {
 
 // applications.status is the status of the latest status_history row by timestamp, ties
 // by id (#243) - not "whichever row was written last", so a backdated change does not
-// become current. 'Applied' when no row remains. Every status write ends with this.
+// become current. 'Applied' when no row remains. Every status write ends with this;
+// returns the status it set.
 export async function syncStatusFromHistory(tx: Prisma.TransactionClient, applicationId: number) {
     const latest = await tx.status_history.findFirst({
         where: { application_id: applicationId }, orderBy: [{ timestamp: 'desc' }, { id: 'desc' }] })
-    await tx.applications.update({ where: { id: applicationId }, data: { status: latest?.status ?? 'Applied' } })
+    const status = latest?.status ?? 'Applied'
+    await tx.applications.update({ where: { id: applicationId }, data: { status } })
+    return status
 }
 
 // An application's first history: an Applied row at the start of date_applied (UTC),

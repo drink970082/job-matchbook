@@ -41,7 +41,10 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
   Creating an application (add, Mark Applied, CSV import) writes its initial `Applied`
   row dated `date_applied`; `getStatusFlow` reads the chain from history alone.
   `prisma/backfill-applied-history-243.mjs` adds the row to existing applications and
-  recomputes their status (data-only, idempotent; back up `db/` first).
+  recomputes their status (data-only, idempotent; back up `db/` first). A status change
+  dated today is stamped now, not noon. `updateApplicationStatus`, `/api/v1` and MCP
+  `update_application_status` return the current status and the recorded one, and the
+  UI says when a backdated change did not become current.
 
 - **Product direction**: Job Matchbook is an elimination filter, not a recommender, for
   new graduates and international students

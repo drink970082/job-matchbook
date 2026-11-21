@@ -1372,7 +1372,8 @@ worker modules are pure and dependency-injected; real services are wired only in
   `ATS_API_URL` (default `http://127.0.0.1:3000`) and never open a writable DB handle:
   `record_application` (date defaults to today, status from the `STATUSES` enum),
   `mark_job_applied(job_id, category?)`, `update_application_status(application_id,
-  status, date?)`, `add_source(name, url? | source + slug)` (known-ATS boards; a
+  status, date?)` (returns `{application_id, status, recorded}`: `status` is the current
+  status, which a backdated `recorded` change does not move), `add_source(name, url? | source + slug)` (known-ATS boards; a
   `url` is resolved by the web's `lib/board-url.ts`, the Sources tab's resolver; web's
   slug/source/duplicate checks and messages), `remove_source(source_id)` (returns the
   removed row), `override_triage(job_id, keep|skip|clear, reason?)`, `set_preferences`
@@ -2039,12 +2040,16 @@ Triage evidence with duplicate object members at its root, screen map, or check 
 - **Creation writes the initial `Applied` row.** `addApplication`, `markJobApplied` and
   CSV import insert an `Applied` row at the start of `date_applied` (`T00:00:00.000Z`,
   clamped to now so a same-day change sorts after it); a non-`Applied` creation status
-  adds a second row on the same timestamp. `prisma/backfill-applied-history-243.mjs` is
-  the one-off, idempotent data backfill for applications created before this rule.
+  adds a second row on the same timestamp. The row is dated from `date_applied` at
+  creation (and by `prisma/backfill-applied-history-243.mjs`, the one-off idempotent
+  backfill for older applications); a later `date_applied` edit does not move it.
 - **Status changes append history.** `updateApplicationStatus` rejects values not
   in `STATUSES`, rejects a no-op (same as the current status), and in one transaction
-  inserts a `status_history` row (timestamp = provided date at `T12:00:00Z`, else now)
-  and recomputes the status.
+  inserts a `status_history` row and recomputes the status. Timestamp: a past date at
+  `T12:00:00Z`; no date, or today's date (server-local; the history dialog sends its
+  today default as no date), is now, so same-day changes order by when they were made.
+  It returns `{ status, recorded }`: the current status after the write and the one
+  requested. The UI says when they differ; `/api/v1` and MCP return both.
 - **Dedup on `(company_name, job_title)`** for `addApplication`, `markJobApplied`,
   and CSV import — all three run their existence-check + create in a `$transaction`
   (findFirst-then-throw-to-rollback if a match exists), closing the TOCTOU window

@@ -129,7 +129,7 @@ async def test_write_tools_call_the_api_and_are_not_read_only(tmp_path):
     writer, session = _client(
         FakeResponse(200, {"data": {"id": 1}}),
         FakeResponse(200, {"data": {"id": 2}}),
-        FakeResponse(200, {"data": None}),
+        FakeResponse(200, {"data": {"status": "Interviewing", "recorded": "Offer"}}),
     )
     server = create_server(ReadOnlyATSRepository(path), writer)
     async with Client(server, raise_exceptions=True) as client:
@@ -143,7 +143,10 @@ async def test_write_tools_call_the_api_and_are_not_read_only(tmp_path):
             "company_name": "Acme", "job_title": "Engineer", "date_applied": "2026-11-18"})
         assert rec.structured_content == {"application": {"id": 1}}
         await client.call_tool("mark_job_applied", {"job_id": 5, "category": "SWE"})
-        await client.call_tool("update_application_status", {"application_id": 1, "status": "Offer"})
+        moved = await client.call_tool("update_application_status", {"application_id": 1, "status": "Offer"})
+        # The web's recomputed current status, not the requested one: a backdated change is
+        # recorded but stays behind a later row.
+        assert moved.structured_content == {"application_id": 1, "status": "Interviewing", "recorded": "Offer"}
 
     assert [(c["method"], c["url"].removeprefix("http://web.test")) for c in session.calls] == [
         ("POST", "/api/v1/applications"),

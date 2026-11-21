@@ -3,6 +3,7 @@
 import { prisma } from '@/lib/db'
 import { Prisma } from '@prisma/client'
 import { type Actor, STATUSES } from '@/lib/constants'
+import { todayISO } from '@/lib/utils'
 import { checkedActor, searchClause, syncStatusFromHistory, writeInitialHistory, CATEGORY_FALLBACK } from '@/lib/action-helpers'
 
 // Header sort on the Applications table (#205): one column, server-side (paginated).
@@ -153,11 +154,15 @@ export async function updateApplicationStatus(id: number, status: string, date?:
             return { success: false, error: `Application is already in '${status}' status` }
         }
 
-        // Determine timestamp: use provided date (append noon UTC so it doesn't shift days in local timezones) or current time
-        const timestamp = date ? new Date(`${date}T12:00:00Z`).toISOString() : new Date().toISOString()
+        // A past date is stamped noon UTC (no day shift in local timezones); no date, or
+        // today's date (the modal's default), is stamped now so it orders against other
+        // same-day writes by when they happened.
+        const timestamp = date && date !== todayISO()
+            ? new Date(`${date}T12:00:00Z`).toISOString() : new Date().toISOString()
 
-        // A backdated row is recorded but only becomes current if it is the latest.
-        await prisma.$transaction(async (tx) => {
+        // A backdated row is recorded but only becomes current if it is the latest; the
+        // caller gets both, so it can say so.
+        const current = await prisma.$transaction(async (tx) => {
             await tx.status_history.create({
                 data: {
                     application_id: id,
@@ -167,10 +172,10 @@ export async function updateApplicationStatus(id: number, status: string, date?:
                 },
             })
             await tx.applications.update({ where: { id }, data: { last_updated: new Date().toISOString() } })
-            await syncStatusFromHistory(tx, id)
+            return syncStatusFromHistory(tx, id)
         })
 
-        return { success: true }
+        return { success: true, data: { status: current, recorded: status } }
     } catch (error: any) {
         return { success: false, error: error.message }
     }

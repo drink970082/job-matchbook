@@ -409,10 +409,14 @@ def _add_write_tools(server: MCPServer, repo: ReadOnlyATSRepository, writer: ATS
         status: ApplicationStatus,
         date: Date = None,
     ) -> dict[str, Any]:
-        """Move an application to a new status and append a status_history row. date is when
-        it happened (defaults to now). Fails if the application is already in that status."""
-        write("POST", f"/api/v1/applications/{application_id}/status", drop_none(status=status, date=date))
-        return {"application_id": application_id, "status": status}
+        """Record a status change as a status_history row. date is when it happened (defaults
+        to now; today's date also means now). The current status is the latest row by date,
+        so a backdated change is recorded but stays behind a later one: `status` is the
+        current status after the write, `recorded` the one requested. Fails if the
+        application is already in that status."""
+        res = write("POST", f"/api/v1/applications/{application_id}/status", drop_none(status=status, date=date))
+        current = res.get("status", status) if isinstance(res, dict) else status
+        return {"application_id": application_id, "status": current, "recorded": status}
 
     @server.tool(annotations=_WRITE)
     def override_triage(
