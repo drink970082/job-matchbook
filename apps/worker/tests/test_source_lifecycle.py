@@ -337,3 +337,16 @@ def test_completed_assessments_capture_posting_revision(db_path):
     scored = json.loads(conn.execute("SELECT score_detail FROM job_postings WHERE id=?",
                                      (scored_row["id"],)).fetchone()[0])
     assert scored["source_content_revision"] == 1
+
+
+def test_error_categories_match_the_web_allow_list():
+    # Both readers drop an unknown category; a value one side writes and the other
+    # lacks silently vanishes from the web detail modal or from MCP.
+    import re
+    from pathlib import Path
+
+    from ats_worker.source_lifecycle import SOURCE_ERROR_CATEGORIES
+    ts = (Path(__file__).resolve().parents[2] / "web/src/lib/source-lifecycle.ts").read_text()
+    block = re.search(r"const ERROR_CATEGORIES = new Set\(\[(.*?)\]\)", ts, re.S).group(1)
+    assert set(re.findall(r"'([a-z0-9_]+)'", block)) == SOURCE_ERROR_CATEGORIES
+    assert "no_recheck_key" in SOURCE_ERROR_CATEGORIES

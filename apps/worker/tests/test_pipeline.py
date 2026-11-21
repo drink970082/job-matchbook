@@ -317,8 +317,67 @@ def test_run_expire_keeps_row_on_any_non_gone_error(db_path, exc):
 
     assert pipeline.run_expire(conn, now=LATER, detail_fetch_fn=fetch_one) == 0
     row = conn.execute("SELECT * FROM job_postings").fetchone()
-    assert row["pipeline_status"] == "scored"
-    assert row["updated_at"] == NOW      # untouched, so it's re-checked next pass
+    assert (row["pipeline_status"], row["source_state"]) == ("scored", "available")
+    assert row["updated_at"] == NOW
+    # The attempt is recorded as inconclusive (never 'found'), which rotates the row.
+    assert row["source_last_check_outcome"] == "inconclusive"
+    assert row["source_last_check_attempted_at"] == LATER
+    assert row["source_last_checked_at"] is None
+
+
+def test_run_expire_failing_rows_do_not_starve_the_queue(db_path):
+    # A row whose check always errors (a 429 storm, an HTML page where JSON was
+    # expected) used to stay at the head of the queue forever, so the sweep re-tried
+    # the same `limit` rows every pass and never reached the rest.
+    conn = db.connect(db_path)
+    _seed_live(conn, ["broken", "next"])
+    checked = []
+
+    def fetch_one(source, slug, ext, name):
+        checked.append(ext)
+        if ext == "broken":
+            raise _HTTPError(429)
+        return _posting(ext, source=DETAIL_SRC)
+
+    pipeline.run_expire(conn, now=LATER, detail_fetch_fn=fetch_one, limit=1)
+    pipeline.run_expire(conn, now=LATER, detail_fetch_fn=fetch_one, limit=1)
+    assert checked == ["broken", "next"]
+    row = conn.execute("SELECT * FROM job_postings WHERE external_id='broken'").fetchone()
+    assert row["source_last_check_error_category"] == "http_429"
+
+
+def test_run_expire_hands_workday_fetch_one_the_job_path_not_the_guid(db_path):
+    # #266: workday's fetch_one takes the /job/... path; the stored external_id is the
+    # posting GUID. The default recheck key derives the path from the stored job_url.
+    conn = db.connect(db_path)
+    url = "https://acme.wd5.myworkdayjobs.com/Careers/job/NYC/Quant_R1"
+    db.upsert_postings(conn, [_posting("0097a5", source="workday", job_url=url)], now=NOW)
+    seen = []
+
+    def fetch_one(source, slug, ext, name):
+        seen.append((source, ext))
+        raise _HTTPError(404)
+
+    assert pipeline.run_expire(conn, now=LATER, detail_fetch_fn=fetch_one) == 1
+    assert seen == [("workday", "/job/NYC/Quant_R1")]
+
+
+def test_run_expire_skips_a_row_with_no_recheck_key(db_path):
+    # No reliable key (a workday row whose job_url has no /job/ path): no request is
+    # made, and the row is recorded inconclusive - never touched as alive.
+    conn = db.connect(db_path)
+    db.upsert_postings(conn, [_posting("0097a5", source="workday",
+                                       job_url="https://acme.wd5.myworkdayjobs.com/Careers")],
+                       now=NOW)
+
+    def fetch_one(*a):
+        raise AssertionError("no fetch without a recheck key")
+
+    assert pipeline.run_expire(conn, now=LATER, detail_fetch_fn=fetch_one) == 0
+    row = conn.execute("SELECT * FROM job_postings").fetchone()
+    assert row["source_state"] != "closed"
+    assert (row["source_last_check_outcome"], row["source_last_check_error_category"],
+            row["source_last_check_attempted_at"]) == ("inconclusive", "no_recheck_key", LATER)
 
 
 def test_run_expire_touches_live_rows_to_rotate_the_queue(db_path):
@@ -396,6 +455,26 @@ def test_run_expire_declined_fetch_is_treated_as_alive(db_path):
     assert pipeline.run_expire(
         conn, now=LATER, detail_fetch_fn=lambda *a: None) == 0
     assert _statuses(conn)["x"] == "notified"
+    row = conn.execute("SELECT * FROM job_postings").fetchone()
+    # Alive by default, but the check proved nothing: not 'found'.
+    assert (row["source_state"], row["source_last_check_outcome"],
+            row["source_last_check_error_category"]) == (
+        "available", "inconclusive", "incomplete_content")
+
+
+def test_run_expire_success_after_an_inconclusive_check_records_found(db_path):
+    # A 429 pass then a served posting: the row must read as found, not keep the
+    # stale 429 the web detail modal and MCP would report as a failed check.
+    conn = db.connect(db_path)
+    _seed_live(conn, ["x"])
+    pipeline.run_expire(conn, now=NOW,
+                        detail_fetch_fn=lambda *a: (_ for _ in ()).throw(_HTTPError(429)))
+    pipeline.run_expire(conn, now=LATER,
+                        detail_fetch_fn=lambda *a: _posting("x", source=DETAIL_SRC))
+    row = conn.execute("SELECT * FROM job_postings").fetchone()
+    assert (row["source_last_check_outcome"], row["source_last_check_error_category"],
+            row["source_last_checked_at"], row["source_last_check_attempted_at"]) == (
+        "found", None, LATER, LATER)
 
 
 # --- per-board health line: the thing that makes a teaser board visible ---
