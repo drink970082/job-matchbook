@@ -14,9 +14,6 @@ behavior. Completed work belongs in CHANGELOG, not this queue.
 - **Status = latest history row; initial Applied row** `[WEB · S]` (#243, part of #240) on
   `feat/243-status-from-history`: landed, PR open. Operator step after merge: back up
   `db/`, then run `prisma/backfill-applied-history-243.mjs` against the deployed DB.
-- **Recipe JSON Schema, validated at every entry point — PR open, awaiting review**
-  `[WORKER+WEB · M]` (#238, epic #236; branch `feat/238-recipe-json-schema`). An invalid
-  stored recipe is logged and skipped per board; recording it as a board-health status is #231.
 
 These references reserve unfinished work; they do not claim the branches are currently
 executing or establish merge readiness. Inspect actual refs/worktrees and coordinate

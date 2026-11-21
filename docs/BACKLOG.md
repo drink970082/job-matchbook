@@ -37,6 +37,13 @@ data before selecting it.
 
 ## Fetch
 
+- **`run_expire` reads a non-404 closed answer as alive.** Every stored row of the four
+  detail sources yields a well-formed key, but only a 404/410 closes. smartrecruiters'
+  `fetch_one` returns `None` on `active: false`; jobvite returns `None` when the page has
+  no JobPosting JSON-LD (a closed job that redirects to the career home); oracle builds a
+  posting even from an empty requisition payload. All three count as alive. Whether each
+  board answers a really closed job with 404, 200-inactive or a redirect is unverified
+  live; workday answers a nonexistent `/job/` path with a JSON 404.
 - **Wasted re-fetch GETs.** Workday's `existing_external_ids` prune never matches (the
   feed carries `externalPath`, the DB stores the GUID), so every feed-surfaced Workday
   listing costs one CXS GET per pass; Microsoft files about 50 `empty_description` rows

@@ -72,6 +72,7 @@ const ERROR_CATEGORIES = new Set([
     'invalid_request', 'malformed_response', 'identity_mismatch', 'company_mismatch',
     'invalid_active', 'incomplete_content', 'timeout', 'connection_error', 'http_403',
     'http_404', 'http_410', 'http_429', 'http_5xx', 'http_error', 'refresh_error',
+    'no_recheck_key',
 ])
 
 export function sourceLifecycleSummary(

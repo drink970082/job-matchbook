@@ -167,6 +167,18 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 
 ### Fixed
 
+- **Workday postings never closed, and the dead-link sweep was stuck** (#266).
+  `run_expire` handed workday's `fetch_one` the stored GUID, which built
+  `.../cxs/<tenant>/<site><guid>`: an HTML career page with a 200, never a 404. Those
+  checks raised, and a raising check stamped nothing, so the same 50 workday rows held
+  the head of the recheck queue on every pass and no detail source was ever rechecked.
+  Now `fetch.recheck_id` gives each row the key its `fetch_one` takes (workday: the
+  `/job/...` path from the stored `job_url`; a `.`/`..` segment gives no key), workday's
+  `fetch_one` refuses a non-path id, and every check records its outcome and rotates the
+  row: a served posting is `found` (clearing an earlier error category); any
+  non-404/410 error, a row with no key (`no_recheck_key`) or an adapter `None`
+  (`incomplete_content`) is `inconclusive`. `no_recheck_key` is in both the worker and
+  web error-category allow-lists, and a test keeps the two lists in sync.
 - **Web polish**: dark-mode `<select>` lists are readable (`color-scheme: dark` + themed
   `<option>`); Applications puts Export/Import on the KPI row; Settings sections are
   separated by rules; the raw JEV profile under Advanced starts collapsed and indented
