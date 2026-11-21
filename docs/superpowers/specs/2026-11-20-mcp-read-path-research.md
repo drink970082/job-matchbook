@@ -1,5 +1,7 @@
 # MCP read path: tunnel over HTTP, then option A or B (#209)
 
+**Status:** approved 2026-11-20 (option A; scope per section 6; decision 5 open). Gates #257.
+
 Research for epic #256. No code changes. Recommendation: **option A** (MCP server inside
 the web app). The tunnel can front a streamable-HTTP server, so A is not blocked.
 
@@ -107,9 +109,8 @@ or returns a different shape.
   endpoint rewriting shows that more than one path is reachable there. Under A that
   origin is the whole web app, server actions included. Request paths are chosen by
   OpenAI's control plane, not by tool input, so this is not a prompt-injection path.
-  It is still a wider surface than a stdio child. Mitigation for #257: middleware that
-  refuses non-`/mcp` requests arriving through the tunnel, or MCP on its own loopback
-  port.
+  It is still a wider surface than a stdio child. Mitigation (decided, section 6): MCP
+  listens on its own loopback port and the tunnel points only at that port.
 
 ## 4. Operational impact
 
@@ -120,7 +121,8 @@ or returns a different shape.
   second loopback hop (MCP -> Next.js), still single-digit ms (not measured against
   Next.js).
 - **Install:** A removes host Python and the checkout from the MCP path. Claude Code,
-  Codex and Claude Desktop connect to `http://127.0.0.1:3000/mcp` with a bearer header.
+  Codex and Claude Desktop connect to the MCP loopback port (`http://127.0.0.1:<mcp-port>/mcp`)
+  with a bearer header.
   ChatGPT's tunnel profile switches from `--mcp-command` to `--mcp-server-url` (plus
   `--mcp.extra-headers`). B keeps the stdio Python process, so the docker-only goal of
   #256 still fails unless the Python MCP is containerized too.
@@ -131,16 +133,17 @@ or returns a different shape.
 
 | Work | Days |
 |---|---|
-| Route + transport (`WebStandardStreamableHTTPServerTransport`, or `mcp-handler`), bearer auth, per-scope tool set, error mapping | 0.5 |
+| Transport on its own loopback port (a second listener in the web container that imports the same action modules and Prisma client; compose port; templates), bearer auth, per-scope tool set, error mapping | 1.0-1.5 |
 | Nine write tools as direct action calls, plus instructions and prompts | 0.25 |
 | Close the partial gaps (list filters, cursors or a deliberate switch to offset, field omission, sources/setup/profile shapes) by extending the existing actions | 1.0 |
 | New reads: `get_job`, `get_application`, both chunk tools, overview counts (triage SQL port) | 0.75 |
 | `list/get_ats_record` with redaction | 0.5 |
 | Port about 68 Python tests (repository 42, protocol 4, write 22; ~1,760 lines) to jest | 1.0 |
 | Templates, SETUP, tunnel profile change, delete `ats_worker/mcp/` | 0.5 |
-| **Total** | **~4.5** |
+| **Total** | **~5-5.5** |
 
-That is above #257's 3 days. Two scope calls recover about 1-1.5 days:
+That is above #257's 3 days. The separate port (section 6, decision 4) costs 0.5-1 day
+more than a route inside Next.js. Two scope calls recover about 1-1.5 days:
 1. Defer or drop the record tools (do any consumers use them?).
 2. Let #258's consumer-shaped `list_jobs` replace the five-vocabulary filter set instead
    of porting it, then reshaping it.
@@ -171,7 +174,10 @@ Option A, scoped for #257:
    five-vocabulary filter set.
 4. **Separate loopback port.** MCP listens on its own loopback port, and the tunnel points
    only at that port. The web origin and its server actions are never behind the tunnel.
-5. **Read key.** After the switch the tunnel keeps today's read-only reach and gets a
-   read-scope key. A read-write tunnel is a separate decision.
+5. **Open: tunnel key scope.** The deployed ChatGPT tunnel is read-write today: its
+   launcher exports `ATS_API_KEY` with the read-write key, matching
+   `apps/web/templates/mcp/chatgpt.txt`. `docs/SETUP.md` Path D omits the key (read-only),
+   so the two shipped instructions disagree. Keeping read-write is the status quo;
+   a read key would remove ChatGPT's write tools. To decide before #257 ships.
 
-With 2 and 3, A is about 3-3.5 days.
+With 2, 3 and 4, A is about 4-4.5 days.

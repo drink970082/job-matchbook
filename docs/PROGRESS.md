@@ -11,9 +11,6 @@ behavior. Completed work belongs in CHANGELOG, not this queue.
 - **One candidate profile; evaluate each posting once — spec approved; implementation
   not started** `[WORKER+WEB+MCP · L]` (epic #223; no implementation branch yet).
   [Spec](superpowers/specs/2026-11-20-candidate-profile-design.md); #224 is next.
-- **MCP read path research — option A chosen, PR open** `[DOCS · S]`
-  (#209, branch `docs/209-mcp-read-path-research`).
-  [Note](superpowers/specs/2026-11-20-mcp-read-path-research.md): tunnel fronts HTTP; A with a separate MCP port, record tools deferred (section 6 scopes #257).
 
 These references reserve unfinished work; they do not claim the branches are currently
 executing or establish merge readiness. Inspect actual refs/worktrees and coordinate
@@ -25,7 +22,7 @@ before changing them. No older research authorization schedules new provider cal
    [#246 epic](https://github.com/drink970082/job-matchbook/issues/246)) alongside #231.
 2. [#223 One candidate profile](https://github.com/drink970082/job-matchbook/issues/223): #224 -> #225 -> #226, with #227 after #224.
 3. [#251 Runtime settings in the web](https://github.com/drink970082/job-matchbook/issues/251), then [#256 MCP as the downstream contract](https://github.com/drink970082/job-matchbook/issues/256)
-   (its #209 research can start any time).
+   (#209 decided: option A, [note](superpowers/specs/2026-11-20-mcp-read-path-research.md); next a hosted tunnel check, then #257).
 4. [#240 Applications](https://github.com/drink970082/job-matchbook/issues/240), then [#236 source extensibility](https://github.com/drink970082/job-matchbook/issues/236).
 5. [#94 Scheduled Daily Brief](https://github.com/drink970082/job-matchbook/issues/94): one observed unattended run.
 
