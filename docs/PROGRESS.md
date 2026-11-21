@@ -11,8 +11,7 @@ behavior. Completed work belongs in CHANGELOG, not this queue.
 - **One candidate profile; evaluate each posting once — spec approved; implementation
   not started** `[WORKER+WEB+MCP · L]` (epic #223; no implementation branch yet).
   [Spec](superpowers/specs/2026-11-20-candidate-profile-design.md); #224 is next.
-- **Status = latest history row; initial Applied row** `[WEB · S]` (#243, part of #240):
-  merged. Operator step before deploying it: back up `db/`, then run
+- **Operator step for #243** (deploy): back up `db/`, then run
   `prisma/backfill-applied-history-243.mjs` against the deployed DB.
 
 These references reserve unfinished work; they do not claim the branches are currently
