@@ -10,7 +10,7 @@ and testable without network.
 Stage gating:
   run_fetch  -> inserts brand-new postings ('new'); code-only gates discard at ingest
   run_expire -> re-checks a capped batch of live rows from per-listing sources and
-                marks the 404/410 ones 'expired' (terminal)
+                marks the 404/410 ones source_state='closed'
   run_screen -> standalone hard-requirements screen of eligible 'new' rows
 """
 from __future__ import annotations
@@ -23,8 +23,8 @@ from urllib.parse import urlparse
 
 from . import db, screening
 from .jev import JevError
-from .fetch import (DETAIL_SOURCES, STUB_GATE_NOW_SOURCES, STUB_GATE_SOURCES,
-                    prefilter_postings)
+from .fetch import (ABSENCE_CLOSURE_SOURCES, DETAIL_SOURCES, STUB_GATE_NOW_SOURCES,
+                    STUB_GATE_SOURCES, prefilter_postings)
 from .feed import prefilter as _prefilter
 from .feed import resolve as _resolve
 from .source_lifecycle import (assessment_input_hash,
@@ -41,6 +41,11 @@ def run_fetch(conn, companies, title_filter, *, now, fetch_fn=None,
 
     A failing company is logged-and-skipped (no posting to mark failed yet —
     nothing is in the db), so the remaining companies still ingest.
+
+    Before any filter, every id the board listed — returned, or seen only by the stub
+    gate — is recorded as observed (`db.record_board_listing`). For a source in
+    `ABSENCE_CLOSURE_SOURCES` a stored posting missing from that complete list counts
+    one absence; a raising fetch records nothing, and an empty list counts nothing.
     """
     if fetch_fn is None:
         raise ValueError("run_fetch requires an injected fetch_fn (wired in run.py)")
@@ -69,8 +74,13 @@ def run_fetch(conn, companies, title_filter, *, now, fetch_fn=None,
             # Pass recipe only for recipe-driven rows so a plain 3-arg fetch_fn
             # (and every non-recipe adapter) is called exactly as before.
             kw = {"recipe": c["recipe"]} if c.get("recipe") is not None else {}
+            gated: set[str] = set()   # ids the stub gate saw, including dropped ones
             if c["source"] in STUB_GATE_SOURCES:
-                kw["keep"] = _keep
+                def _observed_keep(stub, _gated=gated):
+                    if stub.get("external_id"):
+                        _gated.add(str(stub["external_id"]))
+                    return _keep(stub)
+                kw["keep"] = _observed_keep
                 if c["source"] in STUB_GATE_NOW_SOURCES:
                     # Relative-prose stub dates need the injected clock to become a
                     # date the age gate can read; the other stub-gate adapters'
@@ -78,6 +88,13 @@ def run_fetch(conn, companies, title_filter, *, now, fetch_fn=None,
                     # layer's to know, not ours.
                     kw["now"] = now
             postings = fetch_fn(c["source"], c["slug"], c["name"], **kw)
+            closed = db.record_board_listing(
+                conn, c["source"], c["slug"],
+                gated | {str(p.get("external_id") or "") for p in postings}, now=now,
+                count_absence=c["source"] in ABSENCE_CLOSURE_SOURCES)
+            if closed:
+                print(f"[fetch] {c['source']}/{c['slug']}: closed {closed} posting(s) "
+                      f"absent from {db.ABSENT_LISTS_TO_CLOSE} consecutive lists")
             kept = prefilter_postings(
                 postings, title_filter=title_filter, title_exclude=title_exclude,
                 max_age_days=max_age_days, now=now)
@@ -423,12 +440,12 @@ def _gone(exc) -> bool:
 def run_expire(conn, *, now, detail_fetch_fn, detail_sources=DETAIL_SOURCES,
                limit=EXPIRE_BATCH) -> int:
     """Re-fetch the least-recently-checked live postings and mark the dead ones
-    'expired', so a closed req stops sitting in the queue as a dead link. Returns
-    rows expired.
+    source_state='closed', so a closed req stops sitting in the queue as a dead link.
+    Returns rows closed.
 
     Per-LISTING sources only: they already have a per-job endpoint, so the check is
     one honest request with a real status. Board sources would need an invented one.
-    Err toward alive — only a 404/410 expires a row (`_gone`); anything else leaves
+    Err toward alive — only a 404/410 closes a row (`_gone`); anything else leaves
     it untouched for the next pass, because wrongly expiring a live match costs the
     operator a job while a missed dead link costs one stale row.
     """
@@ -439,7 +456,7 @@ def run_expire(conn, *, now, detail_fetch_fn, detail_sources=DETAIL_SOURCES,
                             row["external_id"], row["company_name"])
         except Exception as exc:  # noqa: BLE001 — one bad check never aborts the pass
             if _gone(exc):
-                db.mark_expired(conn, row["id"], now=now)
+                db.mark_source_closed(conn, row["id"], now=now)
                 expired += 1
             continue
         # Alive (or the adapter declined with None — treat as alive): rotate it to

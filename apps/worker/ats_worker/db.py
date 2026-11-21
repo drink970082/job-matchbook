@@ -90,12 +90,50 @@ def upsert_postings(conn: sqlite3.Connection, postings, *, now: str) -> int:
             # A repeated exact identity is a positive source observation, but its
             # content remains immutable here; refresh owns content replacement.
             conn.execute(
-                "UPDATE job_postings SET source_state='available',source_last_seen_at=? "
-                "WHERE source=? AND external_id=?",
-                (now, p["source"], p["external_id"]),
+                "UPDATE job_postings SET source_state='available',source_last_seen_at=?,"
+                "source_absent_count=CASE WHEN company_slug IS ? THEN 0 "
+                "ELSE source_absent_count END WHERE source=? AND external_id=?",
+                (now, p.get("company_slug"), p["source"], p["external_id"]),
             )
     conn.commit()
     return inserted
+
+
+# A posting absent from this many consecutive successful, non-empty lists of its
+# board is closed at the source.
+ABSENT_LISTS_TO_CLOSE = 3
+
+
+def record_board_listing(conn: sqlite3.Connection, source: str, slug: str, listed_ids,
+                         *, now: str, count_absence: bool) -> int:
+    """Apply one successful board list to the stored rows of `(source, slug)`.
+
+    Both halves are scoped to the board `(source, company_slug)`, so a second board that
+    lists the same id (overlapping custom boards) neither stamps nor resets the first
+    board's row. Every listed id stored under this board is a positive observation:
+    available, seen now, absence count reset. With `count_absence` and a non-empty list, every other open
+    row of the board counts one absence and closes at ABSENT_LISTS_TO_CLOSE. An empty
+    list proves nothing and only stamps. Returns the rows closed by this call.
+    """
+    ids = sorted({str(i) for i in listed_ids if i})
+    if not ids:
+        return 0
+    listed = json.dumps(ids)   # one bound parameter, however long the board is
+    conn.execute(
+        "UPDATE job_postings SET source_state='available',source_last_seen_at=?,"
+        "source_absent_count=0 WHERE source=? AND company_slug=? "
+        "AND external_id IN (SELECT value FROM json_each(?))", (now, source, slug, listed))
+    closed = 0
+    if count_absence:
+        absent = ("source=? AND company_slug=? AND source_state<>'closed' "
+                  "AND external_id NOT IN (SELECT value FROM json_each(?))")
+        conn.execute("UPDATE job_postings SET source_absent_count=source_absent_count+1 "
+                     f"WHERE {absent}", (source, slug, listed))
+        closed = conn.execute(
+            f"UPDATE job_postings SET source_state='closed' WHERE {absent} "
+            "AND source_absent_count>=?", (source, slug, listed, ABSENT_LISTS_TO_CLOSE)).rowcount
+    conn.commit()
+    return closed
 
 
 # --- watchlist ------------------------------------------------------------
@@ -280,17 +318,19 @@ def get_by_status(conn: sqlite3.Connection, status: str):
 def get_screen_candidates(conn: sqlite3.Connection) -> list[dict]:
     """Return eligible standalone-screen work: fresh rows newest-first, then errors
     oldest-attempt-first. Completed rows remain cached until explicitly cleared.
+    A posting closed at the source is never screened.
     """
     fresh = conn.execute(
         "SELECT p.* FROM job_postings p "
         "LEFT JOIN job_screenings s ON s.job_posting_id=p.id "
-        "WHERE p.pipeline_status='new' AND s.id IS NULL "
+        "WHERE p.pipeline_status='new' AND p.source_state<>'closed' AND s.id IS NULL "
         "ORDER BY COALESCE(p.updated_at,'') DESC, p.id DESC"
     ).fetchall()
     errors = conn.execute(
         "SELECT p.* FROM job_postings p "
         "JOIN job_screenings s ON s.job_posting_id=p.id "
-        "WHERE p.pipeline_status='new' AND s.state='provider_error' "
+        "WHERE p.pipeline_status='new' AND p.source_state<>'closed' "
+        "AND s.state='provider_error' "
         "ORDER BY s.last_attempted_at ASC, p.id ASC"
     ).fetchall()
     return [dict(row) for row in (*fresh, *errors)]
@@ -368,7 +408,8 @@ def save_screening(conn: sqlite3.Connection, posting_id: int, *, state: str,
 
 
 _JEV_ELIGIBLE = (
-    "p.pipeline_status='new' AND s.state='complete' AND json_valid(s.result_json) "
+    "p.pipeline_status='new' AND p.source_state<>'closed' AND s.state='complete' "
+    "AND json_valid(s.result_json) "
     "AND COALESCE(json_extract(s.result_json,'$.disqualified'),0)=0"
 )
 
@@ -458,7 +499,7 @@ def get_recheck_candidates(conn: sqlite3.Connection, sources, limit: int):
     placeholders = ",".join("?" for _ in sources)
     return conn.execute(
         "SELECT * FROM job_postings WHERE pipeline_status IN ('new','scored','notified') "
-        f"AND source IN ({placeholders}) "
+        f"AND source_state<>'closed' AND source IN ({placeholders}) "
         "ORDER BY COALESCE(source_last_check_attempted_at,updated_at,'') ASC, id ASC LIMIT ?",
         [*sources, limit],
     ).fetchall()
@@ -642,10 +683,15 @@ def _update(conn: sqlite3.Connection, posting_id: int, sets: dict) -> None:
     conn.commit()
 
 
-def mark_expired(conn, posting_id: int, *, now: str) -> None:
-    """The listing is gone from its board (404/410) — park it out of the live
-    buckets. Terminal, like 'removed': nothing requeues an expired row."""
-    _update(conn, posting_id, {"pipeline_status": "expired", "updated_at": now})
+def mark_source_closed(conn, posting_id: int, *, now: str) -> None:
+    """The listing's detail endpoint answered 404/410: the posting is closed at the
+    source. Lifecycle and updated_at are left alone; closure is source state, and a
+    later list observation reopens it (upsert_postings / record_board_listing)."""
+    conn.execute(
+        "UPDATE job_postings SET source_state='closed',source_last_check_attempted_at=?,"
+        "source_last_checked_at=?,source_last_check_outcome='confirmed_closed',"
+        "source_last_check_error_category=NULL WHERE id=?", (now, now, posting_id))
+    conn.commit()
 
 
 def touch(conn, posting_id: int, *, now: str) -> None:

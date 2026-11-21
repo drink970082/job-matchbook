@@ -49,6 +49,11 @@ data before selecting it.
 - **Rate limits:** bounded retry + salvage exists only in `phenom`; port it when a second
   board 429s. Whether it survives a live phenom WAF trip (a 403 deep in pagination) is
   unmeasured.
+- **`custom` offset paging with `body_param` sends the row offset as the page
+  number.** `_page_request` writes `n` into the body param, and `fetch` advances `n` by
+  `len(postings)` for `type: offset`, so a board that expects a page index (apple) skips
+  pages: 978 of 1,008 stored apple rows were not seen on the last pass. This is one of
+  the reasons `custom` is excluded from absence closure.
 - **A well-formed recipe can still miss the live payload:** the recipe schema rejects
   bad keys and values at write time, but an `item_path` or field path that matches
   nothing in the real response only shows at fetch time, as an empty board or

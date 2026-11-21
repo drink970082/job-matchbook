@@ -35,6 +35,7 @@ CREATE TABLE "job_postings" (
     "posted_at" TEXT,
     "source_state" TEXT NOT NULL DEFAULT 'unknown',
     "source_last_seen_at" TEXT,
+    "source_absent_count" INTEGER NOT NULL DEFAULT 0,
     "source_last_check_attempted_at" TEXT,
     "source_last_checked_at" TEXT,
     "source_last_check_outcome" TEXT NOT NULL DEFAULT 'not_checked',
