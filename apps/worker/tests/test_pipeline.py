@@ -275,7 +275,9 @@ def _statuses(conn):
 
 
 @pytest.mark.parametrize("status", [404, 410])
-def test_run_expire_marks_gone_listings_expired(db_path, status):
+def test_run_expire_closes_gone_listings_at_the_source(db_path, status):
+    # Closure is source state: a 404/410 writes source_state='closed' and leaves the
+    # lifecycle (and updated_at, which orders the screen/JEV queues) alone.
     conn = db.connect(db_path)
     _seed_live(conn, ["dead"])
 
@@ -283,7 +285,24 @@ def test_run_expire_marks_gone_listings_expired(db_path, status):
         raise _HTTPError(status)
 
     assert pipeline.run_expire(conn, now=LATER, detail_fetch_fn=fetch_one) == 1
-    assert _statuses(conn)["dead"] == "expired"
+    row = conn.execute("SELECT * FROM job_postings").fetchone()
+    assert row["pipeline_status"] == "scored"
+    assert row["source_state"] == "closed"
+    assert row["source_last_check_outcome"] == "confirmed_closed"
+    assert row["source_last_checked_at"] == LATER
+    assert row["updated_at"] == NOW
+
+
+def test_run_expire_does_not_recheck_closed_rows(db_path):
+    conn = db.connect(db_path)
+    _seed_live(conn, ["shut"])
+    conn.execute("UPDATE job_postings SET source_state='closed'")
+    conn.commit()
+
+    def fetch_one(source, slug, ext, name):
+        raise AssertionError("a closed row must not be re-checked")
+
+    assert pipeline.run_expire(conn, now=LATER, detail_fetch_fn=fetch_one) == 0
 
 
 @pytest.mark.parametrize("exc", [_HTTPError(403), _HTTPError(500), RuntimeError("timeout")])
@@ -350,7 +369,8 @@ def test_run_expire_rechecks_new_rows(db_path):
         raise _HTTPError(404)
 
     assert pipeline.run_expire(conn, now=LATER, detail_fetch_fn=fetch_one) == 1
-    assert _statuses(conn)["fresh"] == "expired"
+    row = conn.execute("SELECT * FROM job_postings").fetchone()
+    assert (row["pipeline_status"], row["source_state"]) == ("new", "closed")
 
 
 def test_run_expire_ignores_board_sources_and_dead_statuses(db_path):

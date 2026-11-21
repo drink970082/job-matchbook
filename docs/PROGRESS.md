@@ -11,6 +11,9 @@ behavior. Completed work belongs in CHANGELOG, not this queue.
 - **One candidate profile; evaluate each posting once — spec approved; implementation
   not started** `[WORKER+WEB+MCP · L]` (epic #223; no implementation branch yet).
   [Spec](superpowers/specs/2026-11-20-candidate-profile-design.md); #224 is next.
+- **Recipe JSON Schema, validated at every entry point — PR open, awaiting review**
+  `[WORKER+WEB · M]` (#238, epic #236; branch `feat/238-recipe-json-schema`). An invalid
+  stored recipe is logged and skipped per board; recording it as a board-health status is #231.
 
 These references reserve unfinished work; they do not claim the branches are currently
 executing or establish merge readiness. Inspect actual refs/worktrees and coordinate
@@ -18,11 +21,11 @@ before changing them. No older research authorization schedules new provider cal
 
 ## Do next — the pick order
 
-1. [#229 Sources tell the truth](https://github.com/drink970082/job-matchbook/issues/229): #230 (closure) first, with #247 (pass record,
-   [#246 epic](https://github.com/drink970082/job-matchbook/issues/246)) alongside #231.
+1. [#229 Sources tell the truth](https://github.com/drink970082/job-matchbook/issues/229): #231, with #247 (pass record,
+   [#246 epic](https://github.com/drink970082/job-matchbook/issues/246)) alongside.
 2. [#223 One candidate profile](https://github.com/drink970082/job-matchbook/issues/223): #224 -> #225 -> #226, with #227 after #224.
 3. [#251 Runtime settings in the web](https://github.com/drink970082/job-matchbook/issues/251), then [#256 MCP as the downstream contract](https://github.com/drink970082/job-matchbook/issues/256)
-   (its #209 research can start any time).
+   (#209 decided: option A, [note](superpowers/specs/2026-11-20-mcp-read-path-research.md); next a hosted tunnel check, then #257).
 4. [#240 Applications](https://github.com/drink970082/job-matchbook/issues/240), then [#236 source extensibility](https://github.com/drink970082/job-matchbook/issues/236).
 5. [#94 Scheduled Daily Brief](https://github.com/drink970082/job-matchbook/issues/94): one observed unattended run.
 
@@ -41,9 +44,11 @@ owns active branch claims. Documentation plans do not launch agents or deploy se
 
 - Fetch applies candidate/title gates before the agent sees the data. Existing dedup
   ignores repeated source/external IDs rather than generally refreshing their JDs.
-- Liveness rechecks (`run_expire`) cover detail adapters only; a stored board-source
-  posting is not guaranteed open. Closing it means diffing each board's current listing
-  against stored rows, where a fetch failure must never read as "every job closed".
+- Board absence closes postings only for greenhouse, lever, ashby, pinpoint and
+  workable (SPEC §7.1 `run_fetch`). phenom, browser, icims and custom boards are never
+  closed by absence (their lists can be truncated without raising; a recipe-level
+  complete-list opt-in is a possible follow-up for custom), nor feed-ingested postings
+  of boards off the watchlist, nor legacy rows with no `company_slug`.
 - Imported/manual applications may have no posting link. Deduplicate against the
   applications table, not only `application_id`.
 - No persistent Brief delivery ledger. Cross-day deduplication is

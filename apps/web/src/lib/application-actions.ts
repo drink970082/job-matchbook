@@ -188,7 +188,7 @@ export async function updateApplicationStatus(id: number, status: string, date?:
 
 // The delete cascades status_history and nulls job_postings.application_id; in the same
 // transaction each linked posting still 'applied' goes back to 'new' so it can be
-// marked again (a posting the worker has since closed keeps its status). The audit
+// marked again (other statuses and source_state are untouched). The audit
 // payload is the row plus its history and the linked posting ids.
 export async function deleteApplication(id: number, actor: Actor = 'web') {
     try {

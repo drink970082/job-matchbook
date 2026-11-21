@@ -35,7 +35,7 @@ nothing missed), then the docker-first install, then the rest. Sizes are estimat
 | | 2 | [#246 Pass record and intake funnel](https://github.com/drink970082/job-matchbook/issues/246) | #247 (write it in the same pass work as #231); #249; #248 after #225 | #231 for shared pass code | ~2 d |
 | 2. One profile, safe removal | 3 | [#223 One candidate profile; evaluate once](https://github.com/drink970082/job-matchbook/issues/223) | #224 -> #225 -> #226; #227 after #224 | None (spec approved) | ~6.5 d |
 | 3. Docker-first | 4 | [#251 Runtime settings in the web](https://github.com/drink970082/job-matchbook/issues/251) | #252 -> #253, #254, #255 | None | ~4.5 d |
-| | 5 | [#256 MCP as the downstream contract](https://github.com/drink970082/job-matchbook/issues/256) | #209 research (can start now; gates the rest) -> #257; #258 after #226 | #209; #225, #226 | ~4.5 d |
+| | 5 | [#256 MCP as the downstream contract](https://github.com/drink970082/job-matchbook/issues/256) | #209 decided (option A) -> hosted tunnel check -> #257; #258 after #226 | #225, #226 | ~4.5 d |
 | 4. Tracking and breadth | 6 | [#240 Applications](https://github.com/drink970082/job-matchbook/issues/240) | #242, #243 (independent); #241 -> #244 | None | ~3 d |
 | | 7 | [#236 Sources are easy to extend](https://github.com/drink970082/job-matchbook/issues/236) | #237, #238; #239 after #238 and #231 | #231 | ~2.5 d |
 | 5. Downstream consumers | 8 | [#94 Scheduled Daily Brief](https://github.com/drink970082/job-matchbook/issues/94) | One observed unattended run | Tunnel; #256 shape | - |
@@ -45,7 +45,7 @@ nothing missed), then the docker-first install, then the rest. Sizes are estimat
 
 | Issue | Question | State |
 |---|---|---|
-| [#209 MCP read path](https://github.com/drink970082/job-matchbook/issues/209) | Can the tunnel front an HTTP MCP server? Then option A or B | Start any time; gates #257 |
+| [#209 MCP read path](https://github.com/drink970082/job-matchbook/issues/209) | Can the tunnel front an HTTP MCP server? Then option A or B | [Note](superpowers/specs/2026-11-20-mcp-read-path-research.md): HTTP yes, recommends A; gates #257 |
 | [#180 Screen as JEV packs](https://github.com/drink970082/job-matchbook/issues/180) (under [#182 provider-neutral epic](https://github.com/drink970082/job-matchbook/issues/182)) | Can typed question packs match the screen's zero-false-disqualification bar? | Needs operator authorization for paid runs |
 | [#222 One criteria model](https://github.com/drink970082/job-matchbook/issues/222) | Is an extension point for new criteria worth a registry? | After #223 |
 | [#203 Cold-start onboarding](https://github.com/drink970082/job-matchbook/issues/203) | Taxonomy from the first fetch; which cold-start option | Q1 and Q4 answered (2026-11-20 comment) |

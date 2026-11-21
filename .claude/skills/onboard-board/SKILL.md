@@ -55,8 +55,10 @@ or guess a `search.json` / `/api/…` sibling). Don't stop at the probe.
 
 ## Step 2 — build the row for the rung the probe pointed you at
 
-The authoritative recipe shapes live in the code and examples — skim these before
-writing a recipe: `apps/worker/config.yaml.example` (worked examples of every source),
+The authoritative recipe shapes live in the recipe JSON Schema,
+`apps/web/src/lib/recipe.schema.json`: every key each executor reads, with one example
+per mode. Any other key is rejected, so a typo fails `add_watched.py` naming the key.
+Also skim: `apps/worker/config.yaml.example` (worked examples of every source),
 `apps/worker/ats_worker/fetch/custom.py` + `browser.py` (the executors), and
 `fetch/_recipe.py` (the field extractor: dotted paths, `url` templates, the tolerant
 date normalizer). Every posting the executors emit has exactly these 8 keys:
