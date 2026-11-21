@@ -66,7 +66,7 @@ DETAIL_SOURCES = frozenset(s for s, m in ADAPTERS.items() if hasattr(m, "fetch_o
 #   custom          a recipe may fetch one capped page (`limit=100`, page none) or page
 #                   wrongly; a recipe-level "complete list" opt-in could re-admit it
 # workday and smartrecruiters are per-listing sources, so run_expire's per-id check
-# still closes them.
+# still closes them (workday through `recheck_id`: its fetch_one takes the job path).
 ABSENCE_CLOSURE_SOURCES = frozenset(
     {"greenhouse", "lever", "ashby", "pinpoint", "workable"})
 
@@ -186,10 +186,19 @@ def fetch_one_company(source: str, slug: str, external_id: str,
     return adapter.fetch_one(slug, external_id, company_name, **kwargs)
 
 
+def recheck_id(row) -> str | None:
+    """The id run_expire hands `fetch_one` for a stored row. The stored external_id,
+    unless the adapter's fetch_one takes a different key and says so with its own
+    `recheck_id(row)` (workday: the `/job/...` path, not the stored GUID). None means
+    the row has no usable key and is skipped."""
+    own = getattr(ADAPTERS.get(row["source"]), "recheck_id", None)
+    return own(row) if own is not None else row["external_id"]
+
+
 __all__ = [
     "ADAPTERS", "ABSENCE_CLOSURE_SOURCES", "DETAIL_SOURCES", "STUB_GATE_SOURCES", "STUB_GATE_NOW_SOURCES",
     "filter_postings", "prefilter_postings",
-    "fetch_company", "fetch_one_company",
+    "fetch_company", "fetch_one_company", "recheck_id",
     "ashby", "greenhouse", "lever", "workday", "pinpoint", "smartrecruiters",
     "workable", "icims", "phenom", "custom", "browser", "oracle", "jobvite",
 ]

@@ -694,6 +694,18 @@ def mark_source_closed(conn, posting_id: int, *, now: str) -> None:
     conn.commit()
 
 
+def record_check_inconclusive(conn, posting_id: int, *, now: str, category: str) -> None:
+    """A detail check that proved nothing (transient error, or no usable key): stamp
+    the attempt and a fixed error category so the row rotates to the back of
+    get_recheck_candidates' queue. Never 'found', never closed; source_state and
+    updated_at are left alone."""
+    conn.execute(
+        "UPDATE job_postings SET source_last_check_attempted_at=?,"
+        "source_last_check_outcome='inconclusive',source_last_check_error_category=? "
+        "WHERE id=?", (now, category, posting_id))
+    conn.commit()
+
+
 def touch(conn, posting_id: int, *, now: str) -> None:
     """Re-checked and still live: stamp the check attempt so the row rotates to the
     back of get_recheck_candidates' queue. updated_at is left alone — bumping it

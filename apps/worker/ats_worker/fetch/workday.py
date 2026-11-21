@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import re
 from datetime import date, timedelta
+from urllib.parse import urlparse
 
 import requests
 
@@ -93,16 +94,38 @@ def parse_job(detail_payload: dict, company_name: str) -> dict:
     }
 
 
+def recheck_id(row) -> str | None:
+    """The key run_expire hands fetch_one for a STORED row: the `/job/...` external
+    path, read off the stored job_url (the detail's `externalUrl`, which ends in the
+    same path the list stub's `externalPath` carries). The stored external_id is the
+    GUID, a different id space that fetch_one cannot use. None when the url has no
+    `/job/<something>` on a Workday host — the row is then skipped, never guessed."""
+    url = urlparse(row["job_url"] or "")
+    host = (url.hostname or "").lower()
+    if not host.endswith((".myworkdayjobs.com", ".myworkdaysite.com")):
+        return None
+    parts = url.path.split("/")
+    if "job" not in parts:
+        return None
+    tail = [p for p in parts[parts.index("job") + 1:] if p]
+    return "/job/" + "/".join(tail) if tail else None
+
+
 def fetch_one(slug: str, external_id: str, company_name: str,
               session: requests.Session | None = None,
               timeout: int = 20) -> dict | None:
     """Fetch ONE job by its external path (the `/job/...` segment the feed URL
-    carries). The feed routes Workday here so it pulls only the surfaced jobs —
+    carries; for a stored row, `recheck_id`). The feed routes Workday here so it pulls only the surfaced jobs —
     listing the whole board (N+1, sometimes thousands of jobs) just to keep the
     1-2 the feed wants is the dominant feed cost. parse_job emits the GUID as the
     external_id, so it still dedups with the watchlist. fetch() lists the board."""
     if not slug or not external_id:
         return None
+    if not external_id.startswith("/job/"):
+        # A GUID (the stored external_id) would build "<cxs><guid>", which serves the
+        # HTML career page with a 200 — a check that can never say "gone" (#266).
+        raise ValueError(f"workday fetch_one takes an external path '/job/...', "
+                         f"got {external_id!r}")
     tenant, dc, site = _parts(slug)
     http = session or requests
     cxs = _CXS.format(tenant=tenant, dc=dc, site=site)

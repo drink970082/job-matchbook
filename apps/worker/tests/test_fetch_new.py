@@ -186,6 +186,59 @@ def test_workday_fetch_one_pulls_only_the_surfaced_job():
         "Campus_Careers/job/Boston/Quantitative-Developer_R1433"]
 
 
+@pytest.mark.parametrize("job_url, path", [
+    ("https://arrowstreetcapital.wd5.myworkdayjobs.com/Campus_Careers/job/Boston/"
+     "Quantitative-Developer_R1433", "/job/Boston/Quantitative-Developer_R1433"),
+    # locale prefix, query string and fragment never reach the path
+    ("https://relx.wd3.myworkdayjobs.com/en-US/relx/job/UK---London/SE-I_R100158-2"
+     "?source=feed#top", "/job/UK---London/SE-I_R100158-2"),
+    # the myworkdaysite.com career-site host stores the same /job/... tail
+    ("https://wd1.myworkdaysite.com/recruiting/snapchat/snap/job/Bellevue-Washington/"
+     "Software-Engineer_R0047198", "/job/Bellevue-Washington/Software-Engineer_R0047198"),
+])
+def test_workday_recheck_id_is_the_external_path_from_the_stored_job_url(job_url, path):
+    assert workday.recheck_id({"job_url": job_url, "external_id": "guid"}) == path
+
+
+@pytest.mark.parametrize("job_url", [
+    "", None, "https://x.wd5.myworkdayjobs.com/site", "https://x.wd5.myworkdayjobs.com/site/job",
+    "https://x.wd5.myworkdayjobs.com/site/job/", "https://example.com/site/job/X_R1",
+])
+def test_workday_recheck_id_without_a_job_path_is_none(job_url):
+    # No reliable path -> no key: run_expire skips the row instead of guessing a URL.
+    assert workday.recheck_id({"job_url": job_url, "external_id": "guid"}) is None
+
+
+def test_stored_workday_row_rechecks_at_a_well_formed_job_url():
+    # The #266 regression: run_expire used to hand fetch_one the stored GUID, which
+    # built ".../cxs/tenant/site<guid>" (no slash, no /job/ path) - a URL that serves
+    # the HTML career page, never a 404. The stored row must reach the real endpoint.
+    row = workday.parse_job(load("workday_detail.json"), company_name="Arrowstreet")
+    gets = []
+
+    class Sess:
+        def get(self, url, headers=None, timeout=None):
+            gets.append(url)
+            return _Resp(load("workday_detail.json"))
+
+    got = workday.fetch_one("arrowstreetcapital/wd5/Campus_Careers", workday.recheck_id(row),
+                            "Arrowstreet", session=Sess())
+    assert gets == ["https://arrowstreetcapital.wd5.myworkdayjobs.com/wday/cxs/"
+                    "arrowstreetcapital/Campus_Careers/job/Boston/Quantitative-Developer_R1433"]
+    assert got["external_id"] == row["external_id"]
+
+
+def test_workday_fetch_one_refuses_a_guid_instead_of_building_a_bad_url():
+    # Fail loud: a GUID is a different id space from the /job/... path fetch_one takes.
+    class NoNetwork:
+        def get(self, *a, **k):
+            raise AssertionError("no request may be built from a GUID")
+
+    with pytest.raises(ValueError, match="external path"):
+        workday.fetch_one("a/wd5/site", "0097a525e76e1001a94b5c05949c0000", "Co",
+                          session=NoNetwork())
+
+
 def test_workday_fetch_one_missing_args_returns_none():
     assert workday.fetch_one("", "/job/x", "Co", session=object()) is None
     assert workday.fetch_one("a/b/c", "", "Co", session=object()) is None

@@ -24,7 +24,7 @@ from urllib.parse import urlparse
 from . import db, screening
 from .jev import JevError
 from .fetch import (ABSENCE_CLOSURE_SOURCES, DETAIL_SOURCES, STUB_GATE_NOW_SOURCES,
-                    STUB_GATE_SOURCES, prefilter_postings)
+                    STUB_GATE_SOURCES, prefilter_postings, recheck_id)
 from .feed import prefilter as _prefilter
 from .feed import resolve as _resolve
 from .source_lifecycle import (assessment_input_hash,
@@ -438,30 +438,43 @@ def _gone(exc) -> bool:
 
 
 def run_expire(conn, *, now, detail_fetch_fn, detail_sources=DETAIL_SOURCES,
-               limit=EXPIRE_BATCH) -> int:
+               limit=EXPIRE_BATCH, recheck_id_fn=recheck_id) -> int:
     """Re-fetch the least-recently-checked live postings and mark the dead ones
     source_state='closed', so a closed req stops sitting in the queue as a dead link.
     Returns rows closed.
 
     Per-LISTING sources only: they already have a per-job endpoint, so the check is
     one honest request with a real status. Board sources would need an invented one.
-    Err toward alive — only a 404/410 closes a row (`_gone`); anything else leaves
-    it untouched for the next pass, because wrongly expiring a live match costs the
-    operator a job while a missed dead link costs one stale row.
+    `recheck_id_fn(row)` gives the key fetch_one takes (workday: the job path, not the
+    stored GUID); a row with none is skipped, recorded inconclusive.
+    Err toward alive — only a 404/410 closes a row (`_gone`). Any other error is
+    recorded inconclusive, which rotates the row to the back of the queue so a row
+    that always errors cannot pin the head of it; wrongly expiring a live match costs
+    the operator a job while a missed dead link costs one stale row.
     """
-    expired = 0
+    expired = skipped = 0
     for row in db.get_recheck_candidates(conn, sorted(detail_sources), limit):
+        key = recheck_id_fn(row)
+        if not key:
+            db.record_check_inconclusive(conn, row["id"], now=now, category="no_recheck_key")
+            skipped += 1
+            continue
         try:
-            detail_fetch_fn(row["source"], row["company_slug"] or "",
-                            row["external_id"], row["company_name"])
+            detail_fetch_fn(row["source"], row["company_slug"] or "", key,
+                            row["company_name"])
         except Exception as exc:  # noqa: BLE001 — one bad check never aborts the pass
             if _gone(exc):
                 db.mark_source_closed(conn, row["id"], now=now)
                 expired += 1
+            else:
+                db.record_check_inconclusive(conn, row["id"], now=now,
+                                             category=observation_error_category(exc))
             continue
         # Alive (or the adapter declined with None — treat as alive): rotate it to
         # the back of the queue so the next pass checks different rows.
         db.touch(conn, row["id"], now=now)
+    if skipped:
+        print(f"[expire] skipped {skipped} row(s) with no recheck key")
     return expired
 
 
