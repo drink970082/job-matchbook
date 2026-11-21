@@ -1,0 +1,33 @@
+{
+  "_comment": "Shared by the worker (tests/test_profile.py, ats_worker/profile.py) and the web (src/lib/__tests__/candidate-profile.test.ts, src/lib/candidate-profile.ts): the derived fields and the values both sides refuse. Synthetic data only.",
+  "degrees": ["none", "high school", "associate", "bachelor's", "master's", "phd"],
+  "derived": [
+    {"name": "no background", "education": [], "experience": [],
+     "highest_degree": "", "total_years": 0},
+    {"name": "highest over unordered rows; years summed without float noise",
+     "education": [{"degree": "bachelor's", "field": "CS"}, {"degree": "phd", "field": "Math"},
+                   {"degree": "master's", "field": "CS"}],
+     "experience": [{"title": "SWE", "company": "A", "years": 1.1},
+                    {"title": "TA", "company": "U", "years": 2.2}],
+     "highest_degree": "phd", "total_years": 3.3},
+    {"name": "no degree still screens on degree", "education": [{"degree": "none", "field": ""}],
+     "experience": [{"title": "", "company": "", "years": 0.125}, {"title": "", "company": "", "years": 0.125}],
+     "highest_degree": "none", "total_years": 0.25},
+    {"name": "whole years", "education": [{"degree": "associate", "field": ""}, {"degree": "high school", "field": ""}],
+     "experience": [{"title": "Dev", "company": "B", "years": 2}, {"title": "Dev", "company": "C", "years": 0.5},
+                    {"title": "Dev", "company": "D", "years": 0.5}],
+     "highest_degree": "associate", "total_years": 3}
+  ],
+  "invalid": [
+    {"name": "degree outside the vocabulary", "field": "education",
+     "value": [{"degree": "BS", "field": "CS"}], "error": "degree"},
+    {"name": "work authorization outside the vocabulary", "field": "work_authorization",
+     "value": "F-1 OPT", "error": "work_authorization"},
+    {"name": "negative years", "field": "experience",
+     "value": [{"title": "SWE", "company": "A", "years": -1}], "error": "years"},
+    {"name": "years over 60", "field": "experience",
+     "value": [{"title": "SWE", "company": "A", "years": 61}], "error": "years"},
+    {"name": "a list field that is not a list of strings", "field": "title_include",
+     "value": [1], "error": "title_include"}
+  ]
+}

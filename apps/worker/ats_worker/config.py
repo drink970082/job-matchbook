@@ -9,6 +9,11 @@ The WATCHLIST no longer lives here — it is DB-owned (`watched_companies`, read
 sites in run.py: filling an empty watchlist on first run, and the explicit
 seed path. The pipeline itself never reads it.
 
+The same holds for the candidate settings (#224): `title_filter`, `title_exclude`,
+`max_age_days`, `candidate:` and `jev_dir` only seed the DB-owned `candidate_profile`
+row once (ats_worker/profile.py); after that they are ignored and a differing value is
+logged each pass.
+
 `load_config` accepts either a path (str/PathLike) or a raw YAML string so tests
 can pass tiny inline documents without touching the filesystem.
 """
@@ -78,7 +83,8 @@ class Company:
 
 @dataclass(frozen=True)
 class Candidate:
-    """The candidate's hard-requirement facts, used ONLY by the screen. It decides
+    """The candidate's hard-requirement facts as the screen reads them (built from the
+    candidate profile each pass; config.yaml `candidate:` only seeds it). It decides
     disqualification in CODE: work authorization and location gate deterministically
     off the JD text / posting location, internships off the title, and degree /
     clearance compare the candidate's constraint against a fact the 4B model only
@@ -135,8 +141,8 @@ class Config:
     # Opt-in gate for `browser`-source rows (they drive a headless Chromium via the
     # optional Playwright extra). Off by default so a normal run stays pure `requests`.
     enable_browser_sources: bool = False
-    # Directory of the private JEV filter inputs (see ats_worker/jev.py). Empty = the
-    # filter cannot run; `--jev` refuses to start without it.
+    # Legacy directory of private JEV inputs (jev.read_files layout). Seed-only: its texts
+    # and packs go into the candidate profile once, when no row exists.
     jev_dir: str = ""
 
 

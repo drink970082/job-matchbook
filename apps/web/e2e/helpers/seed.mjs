@@ -5,7 +5,7 @@
 import { PrismaClient } from '@prisma/client'
 import { DATABASE_URL } from './db-path.mjs'
 
-// A JEV profile exists, so Discovered Jobs is in JEV mode (#207): only Acme (passed the
+// A candidate profile exists, so Discovered Jobs is in JEV mode (#207): only Acme (passed the
 // screen, JEV keep) is "for you". Globex (JEV skip), Recent Synthetic (never screened
 // or assessed), Initech (failed the screen) and the 30 legacy `scored` rows are not. `screening` and `jev` are created as related rows in seed().
 export const POSTINGS = [
@@ -95,7 +95,7 @@ async function clear(prisma) {
     await prisma.app_settings.deleteMany()
     await prisma.app_settings.create({ data: CATEGORIES })
     await prisma.job_triage_overrides.deleteMany()
-    await prisma.jev_profile.deleteMany()
+    await prisma.candidate_profile.deleteMany()
 }
 
 export async function seed(url = DATABASE_URL) {
@@ -103,8 +103,8 @@ export async function seed(url = DATABASE_URL) {
     try {
         await clear(prisma)
         await prisma.applications.create({ data: EXISTING_APPLICATION })
-        await prisma.jev_profile.create({ data: { id: 1, profile_text: '{}', c_pack: '{}', yoe_pack: '{}',
-            yoe_context: '', actor: 'config', updated_at: '2026-01-01T00:00:00.000Z' } })
+        await prisma.candidate_profile.create({ data: { id: 1, target_roles: '["Engineer"]',
+            actor: 'config', updated_at: '2026-01-01T00:00:00.000Z' } })
         for (const { screening, jev, ...p } of POSTINGS) {
             const row = await prisma.job_postings.create({ data: p })
             if (screening) {

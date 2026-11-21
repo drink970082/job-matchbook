@@ -136,8 +136,7 @@ test('postings for you: hard-requirement passes without JEV, JEV keep with it', 
     expect(await getNewJobsCount()).toBe(1)
     expect((await getJobPostings({ postedSince: new Date(Date.now() - 7 * 86_400_000).toISOString().slice(0, 10) })).data.map((j: any) => j.external_id)).toEqual(['passed'])
 
-    await prisma.jev_profile.create({ data: { id: 1, profile_text: '{}', c_pack: '{}', yoe_pack: '{}', yoe_context: '',
-        actor: 'config', updated_at: 'x' } })
+    await prisma.candidate_profile.create({ data: { id: 1, target_roles: '["Engineer"]', actor: 'config', updated_at: 'x' } })
     await prisma.job_jev_assessments.create({ data: { job_posting_id: passed.id, state: 'complete', verdict: 'skip',
         reasons_json: '[]', policy_sha256: 'p', source_content_revision: 1, last_attempted_at: 'x', created_at: 'x' } })
     expect(await getJobsMode()).toBe('jev')

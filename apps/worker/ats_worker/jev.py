@@ -1,4 +1,5 @@
-"""JEV keep/skip filter: two native OpenRouter JEV questions per screened posting.
+"""Triage, the keep/skip stage, with the JEV provider: two native OpenRouter JEV
+questions per screened posting.
 
 A posting is `skip` when the preference question (policy C) answers `weak` OR the
 required-YOE side question answers `three_plus` or `above_candidate` (YOE_SKIP);
@@ -6,11 +7,14 @@ everything else is `keep`, including
 `unknown`. The verdict only hides a row from the MCP default list; it never changes
 `pipeline_status`. Measured basis: docs/SPEC.md §7.1 "JEV keep/skip filter".
 
-Inputs are private operator files in one directory (config `jev_dir`):
-  profile-binding.json  approved profile, sent verbatim as C's candidate_context
-  question-pack.json    policy C pack (must contain a `preference` choice question)
-  yoe-pack.json         side pack (must contain `required_yoe_for_candidate`)
-  yoe-context.txt       education/experience facts sent with the YOE question
+The four inputs (INPUT_TEXTS) come from the candidate profile
+(`profile.CandidateProfile.triage_texts`):
+  profile_text  the preference context, sent verbatim as C's candidate_context
+  c_pack        policy C pack (must contain a `preference` choice question)
+  yoe_pack      side pack (must contain `required_yoe_for_candidate`)
+  yoe_context   education/experience facts sent with the YOE question
+`read_files` reads the legacy `jev_dir` layout (profile-binding.json,
+question-pack.json, yoe-pack.json, yoe-context.txt), used only to seed the profile.
 `JEV_BACKEND=extract` (see `assess_extract`) sends the same packs through the screen
 provider instead. HTTP is injected; nothing here reads the environment.
 """
@@ -81,8 +85,8 @@ def _pack(text: str, name: str, required_question: str, skip_keys: set[str]) -> 
     return value
 
 
-# The stored form of the inputs (the DB `jev_profile` row and its one-time seed): the
-# texts as read, so the policy hash of the stored row equals the hash of the files.
+# The inputs as texts (what the candidate profile yields, and what `read_files` reads):
+# the policy hash covers these exact profile/context bytes.
 INPUT_TEXTS = ("profile_text", "c_pack", "yoe_pack", "yoe_context")
 
 

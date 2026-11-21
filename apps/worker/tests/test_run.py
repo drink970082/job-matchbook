@@ -68,7 +68,7 @@ def test_run_once_fetch_only_stops_before_the_screen(monkeypatch):
 
     monkeypatch.setattr(run.db, "connect", lambda path: FakeConn())
     monkeypatch.setattr(run.db, "count_watchlist", lambda conn: 1)
-    monkeypatch.setattr(run.db, "get_preferences", lambda conn: None)
+    monkeypatch.setattr(run.db, "get_candidate_profile", lambda conn: None)
     monkeypatch.setattr(run.db, "get_watchlist",
                         lambda conn: [{"source": "greenhouse", "slug": "a", "name": "A"}])
     monkeypatch.setattr(run.db, "get_by_status", lambda conn, status: [])
@@ -293,7 +293,7 @@ def test_run_once_builds_candidate_and_honors_num_ctx(monkeypatch, tmp_path):
     captured = _run_once_capturing_screen(monkeypatch, tmp_path, cfg, env)
     kw = captured["kwargs"]
     cand = kw["candidate"]
-    assert cand["highest_degree"] == "Master's"
+    assert cand["highest_degree"] == "master's"  # canonical DEGREES value, same rank
     assert cand["locations"] == ["remote", "USA"]
     assert cand["exclude_internships"] is False        # defaults off; plumbed through
     assert kw["num_ctx"] == 4096                       # OLLAMA_NUM_CTX honored
@@ -510,9 +510,9 @@ def test_run_once_threads_fetch_filters(monkeypatch):
     monkeypatch.setattr(run.db, "connect", lambda path: FakeConn())
     monkeypatch.setattr(run.db, "count_watchlist", lambda conn: 1)
     stored: dict = {}
-    monkeypatch.setattr(run.db, "seed_preferences",
-                        lambda conn, cand, *, now: stored.update(cand, actor="config"))
-    monkeypatch.setattr(run.db, "get_preferences", lambda conn: dict(stored) or None)
+    monkeypatch.setattr(run.db, "write_candidate_profile",
+                        lambda conn, values, *, actor, now: stored.update(values, actor=actor))
+    monkeypatch.setattr(run.db, "get_candidate_profile", lambda conn: dict(stored) or None)
     monkeypatch.setattr(run.db, "get_watchlist",
                         lambda conn: [{"source": "greenhouse", "slug": "a", "name": "A"}])
 
@@ -870,7 +870,7 @@ def test_a_scheduled_pass_skips_the_slot_instead_of_dying(monkeypatch, tmp_path,
     monkeypatch.setattr(run, "_run_scheduler", fake_scheduler)
     calls: list = []
     monkeypatch.setattr(run, "run_once", lambda cfg, **kw: calls.append(kw))
-    monkeypatch.setattr(run, "_candidate_for_pass", lambda conn, cfg, now: None)
+    monkeypatch.setattr(run, "_profile_for_pass", lambda conn, cfg, now: None)
     monkeypatch.setattr(run.db, "connect", lambda path: type("C", (), {"close": lambda self: None})())
     real_load_config = cfgmod.load_config
     monkeypatch.setattr(run.config_mod, "load_config",
@@ -956,7 +956,7 @@ def _daemon_harness(monkeypatch, schedule_hours=4):
     monkeypatch.setattr(run, "run_once", fake_run_once)
     # The startup preference seed; a no-op here (no real DB behind the daemon stub).
     monkeypatch.setattr(run.db, "connect", lambda path: type("C", (), {"close": lambda self: None})())
-    monkeypatch.setattr(run, "_candidate_for_pass", lambda conn, cfg, now: None)
+    monkeypatch.setattr(run, "_profile_for_pass", lambda conn, cfg, now: None)
     real_load_config = cfgmod.load_config
     monkeypatch.setattr(run.config_mod, "load_config",
                         lambda path: real_load_config(
@@ -1136,75 +1136,87 @@ def test_screen_unlimited_cli_overrides_environment_limit(tmp_path, monkeypatch,
     assert captured["config_options"] == {}
 
 
-# --- candidate preferences (#157): the DB row wins, config.yaml seeds it once -------
+# --- candidate profile (#224): the DB row wins, config.yaml seeds it once -----------
 
-_CANDIDATE_YAML = ("companies: []\ncandidate:\n  work_authorization: needs visa sponsorship\n"
+_CANDIDATE_YAML = ("companies: []\ntitle_exclude: [sales]\nmax_age_days: 30\n"
+                   "candidate:\n  work_authorization: needs visa sponsorship\n"
                    "  locations: [remote]\n  exclude_internships: true\n")
 
 
-def _capture_candidate(monkeypatch) -> dict:
+def _capture_fetch(monkeypatch) -> dict:
     _stub_stages(monkeypatch)
     seen: dict = {}
-    monkeypatch.setattr(run.pipeline, "run_fetch",
-                        lambda *a, candidate=None, **k: seen.__setitem__("candidate", candidate) or 0)
+
+    def run_fetch(conn, companies, title_filter, *, candidate=None, **k):
+        seen.update(k, title_filter=title_filter, candidate=candidate)
+        return 0
+    monkeypatch.setattr(run.pipeline, "run_fetch", run_fetch)
     return seen
 
 
-def test_run_once_seeds_preferences_once_then_reads_the_db(monkeypatch, tmp_path, capsys):
-    seen = _capture_candidate(monkeypatch)
+def _set(dbfile, sql):
+    conn = dbmod.connect(str(dbfile))
+    conn.execute(sql)
+    conn.commit()
+    conn.close()
+
+
+def test_run_once_seeds_the_profile_once_then_reads_the_db(monkeypatch, tmp_path, capsys):
+    seen = _capture_fetch(monkeypatch)
     dbfile = tmp_path / "applications.db"
     bootstrap_db(str(dbfile))
     run.run_once(cfgmod.load_config(_CANDIDATE_YAML), db_path=str(dbfile), env=_ENV)
     assert seen["candidate"]["work_authorization"] == "needs visa sponsorship"
-    stored = dbmod.get_preferences(dbmod.connect(str(dbfile)))
-    assert (stored["actor"], stored["version"], stored["locations"]) == ("config", 1, ["remote"])
-    assert "seeded candidate requirements" in capsys.readouterr().out
+    assert (seen["title_exclude"], seen["max_age_days"]) == (["sales"], 30)
+    stored = dbmod.get_candidate_profile(dbmod.connect(str(dbfile)))
+    assert (stored["actor"], stored["version"], stored["locations"]) == ("config", 1, '["remote"]')
+    assert stored["confirmed_at"] is None
+    assert "seeded the candidate profile" in capsys.readouterr().out
 
-    # The operator changes the stored row (as the web API does); a later config edit
-    # is reported and ignored.
-    conn = dbmod.connect(str(dbfile))
-    conn.execute("UPDATE candidate_preferences SET work_authorization='citizen', "
-                 "locations='[\"Boston\"]', version=2, actor='mcp'")
-    conn.commit()
-    edited = _CANDIDATE_YAML.replace("[remote]", "[Austin]")
+    # The operator changes the stored row (as the web API does); later config edits are
+    # reported and ignored, scope and requirements alike.
+    _set(dbfile, "UPDATE candidate_profile SET work_authorization='citizen', "
+                 "locations='[\"Boston\"]', title_exclude='[\"staff\"]', max_age_days=0, "
+                 "version=2, actor='mcp'")
+    edited = _CANDIDATE_YAML.replace("[remote]", "[Austin]").replace("[sales]", "[intern]")
     run.run_once(cfgmod.load_config(edited), db_path=str(dbfile), env=_ENV)
     assert seen["candidate"]["work_authorization"] == "citizen"
     assert seen["candidate"]["locations"] == ["Boston"]
+    assert (seen["title_exclude"], seen["max_age_days"]) == (["staff"], 0)
     out = capsys.readouterr().out
-    assert "differs from the stored requirements" in out and "seeded" not in out
+    assert "title_exclude, max_age_days, candidate ignored" in out and "seeded" not in out
 
 
-def test_run_once_without_candidate_block_or_row_screens_nothing(monkeypatch, tmp_path):
-    seen = _capture_candidate(monkeypatch)
+def test_fresh_install_without_config_is_configured_by_the_row_alone(monkeypatch, tmp_path):
+    seen = _capture_fetch(monkeypatch)
     dbfile = tmp_path / "applications.db"
     bootstrap_db(str(dbfile))
     run.run_once(cfgmod.load_config("companies: []\n"), db_path=str(dbfile), env=_ENV)
-    assert seen["candidate"] is None
-    assert dbmod.get_preferences(dbmod.connect(str(dbfile))) is None
+    assert seen["candidate"] is None and seen["title_filter"] == []
+    assert dbmod.get_candidate_profile(dbmod.connect(str(dbfile))) is None
 
-    # A fresh install configured only through MCP: the stored row drives the screen.
-    conn = dbmod.connect(str(dbfile))
-    conn.execute("INSERT INTO candidate_preferences (id, highest_degree, locations, actor, "
-                 "updated_at) VALUES (1, 'PhD', '[]', 'mcp', '2026-11-18T00:00:00Z')")
-    conn.commit()
+    # Configured only through the form / set_candidate_profile: the row drives the scope
+    # and the screen, with the degree derived from the education rows.
+    _set(dbfile, "INSERT INTO candidate_profile (id, title_include, education, actor, "
+                 "updated_at) VALUES (1, '[\"engineer\"]', '[{\"degree\":\"bachelor''s\",\"field\":\"CS\"},"
+                 "{\"degree\":\"phd\",\"field\":\"Math\"}]', 'web', '2026-11-20T00:00:00Z')")
     run.run_once(cfgmod.load_config("companies: []\n"), db_path=str(dbfile), env=_ENV)
-    assert seen["candidate"]["highest_degree"] == "PhD"
+    assert seen["title_filter"] == ["engineer"]
+    assert seen["candidate"]["highest_degree"] == "phd"
 
 
 def test_run_once_rejects_an_off_vocabulary_stored_value(monkeypatch, tmp_path):
-    _capture_candidate(monkeypatch)
+    _capture_fetch(monkeypatch)
     dbfile = tmp_path / "applications.db"
     bootstrap_db(str(dbfile))
-    conn = dbmod.connect(str(dbfile))
-    conn.execute("INSERT INTO candidate_preferences (id, work_authorization, actor, updated_at) "
+    _set(dbfile, "INSERT INTO candidate_profile (id, work_authorization, actor, updated_at) "
                  "VALUES (1, 'F-1 OPT', 'mcp', '2026-11-18T00:00:00Z')")
-    conn.commit()
     with pytest.raises(cfgmod.ConfigError, match="work_authorization"):
         run.run_once(cfgmod.load_config("companies: []\n"), db_path=str(dbfile), env=_ENV)
 
 
-def test_daemon_startup_seeds_preferences_before_the_first_slot(monkeypatch, tmp_path):
-    # Until a row exists MCP reports the requirements missing, and a set_preferences in
+def test_daemon_startup_seeds_the_profile_before_the_first_slot(monkeypatch, tmp_path):
+    # Until a row exists MCP reports the profile missing, and a set_candidate_profile in
     # that window would pre-empt the config seed; so the daemon seeds at launch.
     real_load_config = cfgmod.load_config
     dbfile = tmp_path / "applications.db"
@@ -1212,4 +1224,4 @@ def test_daemon_startup_seeds_preferences_before_the_first_slot(monkeypatch, tmp
     monkeypatch.setattr(run, "_run_scheduler", lambda job, hours: None)
     monkeypatch.setattr(run.config_mod, "load_config", lambda path: real_load_config(_CANDIDATE_YAML))
     run.main(["--db", str(dbfile), "--env", str(tmp_path / "none.env")])
-    assert dbmod.get_preferences(dbmod.connect(str(dbfile)))["actor"] == "config"
+    assert dbmod.get_candidate_profile(dbmod.connect(str(dbfile)))["actor"] == "config"

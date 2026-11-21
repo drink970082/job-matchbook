@@ -8,7 +8,7 @@ import { addApplication, deleteApplication, deleteHistoryItem, getApplications, 
 import { getKPIs } from '@/lib/analytics-actions'
 import { exportApplicationsCSV, importApplicationsCSV } from '@/lib/csv-actions'
 import { getJobPostings, markJobApplied } from '@/lib/job-actions'
-import { getSettings } from '@/lib/preference-actions'
+import { getCandidateProfile } from '@/lib/profile-actions'
 import { getCategories, setCategories } from '@/lib/category-actions'
 import { todayISO } from '@/lib/utils'
 import { prisma, resetDb } from '@/test-utils/db'
@@ -521,10 +521,10 @@ test('exportApplicationsCSV neutralizes formula-injection cells', async () => {
 
 // --- bulkRemove / bulkReopen / removeAllInView ----------------------------
 
-test('getSettings returns both rows and counts only eligible postings from the last 7 days', async () => {
-    expect(await getSettings()).toEqual({ preferences: null, jev: null, reassessOnChange: 0 })
-    await prisma.candidate_preferences.create({ data: { id: 1, locations: '["remote"]', actor: 'config', updated_at: 'x' } })
-    await prisma.jev_profile.create({ data: { id: 1, profile_text: '{}', c_pack: '{}', yoe_pack: '{}', yoe_context: 'MS.', actor: 'config', updated_at: 'x' } })
+test('getCandidateProfile returns the row and counts only eligible postings from the last 7 days', async () => {
+    expect(await getCandidateProfile()).toEqual({ profile: null, reassessOnChange: 0 })
+    await prisma.candidate_profile.create({ data: { id: 1, locations: '["remote"]', actor: 'config', updated_at: 'x',
+        custom_packs: '{"preference_pack":"private","yoe_pack":"private"}' } })
     const day = (ago: number) => new Date(Date.now() - ago * 86_400_000).toISOString().slice(0, 10)
     const rows: [string, string, string][] = [
         [day(1), 'new', '{"disqualified":false}'],   // counted
@@ -537,8 +537,8 @@ test('getSettings returns both rows and counts only eligible postings from the l
         await prisma.job_screenings.create({ data: { job_posting_id: p.id, state: 'complete', result_json, backend: 'ollama',
             evaluator_version: 'screen-v1', last_attempted_at: 'x', created_at: 'x' } })
     }
-    const s = await getSettings()
-    expect(s.preferences?.locations).toEqual(['remote'])
-    expect(s.jev).toEqual({ profile_text: '{}', yoe_context: 'MS.', version: 1, actor: 'config', changed_at: null })
+    const s = await getCandidateProfile()
+    expect(s.profile).toMatchObject({ locations: ['remote'], packs: 'custom', version: 1, actor: 'config', triage_configured: false })
+    expect(JSON.stringify(s.profile)).not.toContain('private')   // pack texts stay out of the read
     expect(s.reassessOnChange).toBe(1)
 })

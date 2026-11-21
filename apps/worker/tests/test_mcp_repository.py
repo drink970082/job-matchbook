@@ -1089,21 +1089,22 @@ def test_override_on_a_legacy_null_revision_survives_an_unchanged_refresh(db_pat
     assert repo.get_job(job)["jev"]["status"] == "keep"
 
 
-# --- preferences and setup status (#157) -------------------------------------------
+# --- candidate profile and setup status (#224) ---------------------------------------
 
 def test_setup_status_on_a_fresh_install_lists_what_is_missing(tmp_path):
     repo = ReadOnlyATSRepository(bootstrap_db(tmp_path / "s.db"))
-    assert repo.get_preferences() == {"preferences": None}
+    assert repo.get_candidate_profile() == {"candidate_profile": None, "reassess_on_change": 0}
     status = repo.get_setup_status()
-    assert status["preferences"] == {"configured": False, "version": None, "changed_at": None,
-                                     "new_postings_screened_before_change": None}
+    assert status["candidate_profile"] == {
+        "configured": False, "triage_configured": False, "version": None, "changed_at": None,
+        "new_postings_screened_before_change": None}
     assert status["sources"] == 0 and len(status["missing"]) == 2
 
 
 def test_setup_status_counts_new_postings_screened_before_the_last_change(tmp_path):
     path = bootstrap_db(tmp_path / "s.db")
     conn = sqlite3.connect(path)
-    conn.execute("INSERT INTO candidate_preferences (id, locations, exclude_internships, version, "
+    conn.execute("INSERT INTO candidate_profile (id, locations, exclude_internships, version, "
                  "actor, changed_at, updated_at) VALUES (1, '[\"remote\"]', 1, 3, 'mcp', "
                  "'2026-11-10T00:00:00.000Z', '2026-11-10T00:00:00.000Z')")
     conn.execute("INSERT INTO watched_companies (source, slug, name, created_at) "
@@ -1119,22 +1120,26 @@ def test_setup_status_counts_new_postings_screened_before_the_last_change(tmp_pa
                      "'screen-v1', ?, ?, ?)", (pid, done, done, done))
     conn.commit()
     repo = ReadOnlyATSRepository(path)
-    prefs = repo.get_preferences()["preferences"]
-    assert (prefs["locations"], prefs["exclude_internships"], prefs["version"]) == (["remote"], True, 3)
+    prof = repo.get_candidate_profile()["candidate_profile"]
+    assert (prof["locations"], prof["exclude_internships"], prof["version"]) == (["remote"], True, 3)
     status = repo.get_setup_status()
-    assert status["preferences"]["configured"] is True
-    assert status["preferences"]["new_postings_screened_before_change"] == 1
+    assert status["candidate_profile"]["configured"] is True
+    assert status["candidate_profile"]["triage_configured"] is False
+    assert status["candidate_profile"]["new_postings_screened_before_change"] == 1
     assert status["missing"] == []
 
 
-def test_get_jev_profile_reports_the_row_and_the_in_window_reassessment_count(tmp_path):
+def test_get_candidate_profile_derives_background_and_counts_the_in_window_reassessment(tmp_path):
     path = bootstrap_db(tmp_path / "j.db")
     repo = ReadOnlyATSRepository(path, clock=lambda: datetime(2026, 11, 19, 12, tzinfo=timezone.utc))
-    assert repo.get_jev_profile() == {"jev_profile": None, "reassess_on_change": 0}
     conn = sqlite3.connect(path)
-    conn.execute("INSERT INTO jev_profile (id, profile_text, c_pack, yoe_pack, yoe_context, actor, "
-                 "updated_at) VALUES (1, '{\"profile\":1}', '{\"questions\":[{\"id\":\"preference\"}]}', "
-                 "'not json', 'MS.', 'config', '2026-11-19T00:00:00Z')")
+    conn.execute("INSERT INTO candidate_profile (id, title_include, education, experience, "
+                 "target_roles, custom_packs, actor, updated_at) VALUES (1, '[\"engineer\"]', "
+                 "'[{\"degree\":\"bachelor''s\",\"field\":\"CS\"},{\"degree\":\"master''s\",\"field\":\"CS\"}]', "
+                 "'[{\"title\":\"SWE\",\"company\":\"A\",\"years\":1.25},{\"title\":\"TA\",\"company\":\"U\",\"years\":0.5}]', "
+                 "'[\"Backend\"]', ?, 'migration', '2026-11-19T00:00:00Z')",
+                 (json.dumps({"preference_pack": '{"questions":[{"id":"preference"}]}',
+                              "yoe_pack": "not json"}),))
     for pid, posted, status, result in ((1, "2026-11-12", "new", '{"disqualified":false}'),
                                         (2, "2026-11-11", "new", '{"disqualified":false}'),
                                         (3, "2026-11-18", "new", '{"disqualified":true}'),
@@ -1146,7 +1151,12 @@ def test_get_jev_profile_reports_the_row_and_the_in_window_reassessment_count(tm
                      "evaluator_version, last_attempted_at, created_at) VALUES (?, 'complete', ?, 'ollama', "
                      "'screen-v1', 'x', 'x')", (pid, result))
     conn.commit()
-    out = repo.get_jev_profile()
+    out = repo.get_candidate_profile()
     assert out["reassess_on_change"] == 1          # only id 1: in window, eligible, new
-    assert out["jev_profile"]["pack_questions"] == {"preference_pack": ["preference"], "yoe_pack": []}
-    assert (out["jev_profile"]["version"], out["jev_profile"]["actor"]) == (1, "config")
+    prof = out["candidate_profile"]
+    assert (prof["highest_degree"], prof["total_years"]) == ("master's", 1.75)
+    assert prof["title_include"] == ["engineer"] and prof["custom_triage_context"] is None
+    assert prof["triage"] == {"configured": True, "packs": "custom",
+                              "pack_questions": {"preference_pack": ["preference"], "yoe_pack": []}}
+    assert (prof["version"], prof["actor"]) == (1, "migration")
+    assert "custom_packs" not in prof               # private pack texts stay out of the read

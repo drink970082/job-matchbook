@@ -26,7 +26,7 @@ from pathlib import Path
 import requests
 
 from . import config as config_mod
-from . import db, jev, pipeline
+from . import db, jev, pipeline, profile
 from .fetch import fetch_company, fetch_one_company, smartrecruiters
 from .feed import embedded_gh, simplify
 from .screen_providers import PROVIDERS, RETIRED
@@ -191,14 +191,16 @@ def run_once(cfg, *, db_path, env,
                       f"(enable_browser_sources is off): {names}")
             companies = [c for c in companies if c["source"] != "browser"]
 
-        # Build the screening checklist (candidate hard-requirements) once, up front:
-        # run_fetch uses it for the deterministic pre-screen gate, and screen_fn below
-        # reuses it. Empty candidate => None => no gate, no SCREEN call.
-        candidate = _candidate_for_pass(conn, cfg, now=now)
+        # The candidate profile, read once up front: its search scope filters fetch, its
+        # hard requirements drive the deterministic pre-screen gate and the screen, and
+        # triage reads it below. No row or no requirement => no gate, no SCREEN call.
+        prof = _profile_for_pass(conn, cfg, now=now)
+        candidate = prof.screen_candidate() if prof else None
+        scope = prof or profile.CandidateProfile()
 
-        pipeline.run_fetch(conn, companies, cfg.title_filter, now=now,
-                           fetch_fn=fetch_company, title_exclude=cfg.title_exclude,
-                           max_age_days=cfg.max_age_days, candidate=candidate)
+        pipeline.run_fetch(conn, companies, list(scope.title_include), now=now,
+                           fetch_fn=fetch_company, title_exclude=list(scope.title_exclude),
+                           max_age_days=scope.max_age_days, candidate=candidate)
 
         # Discovery feeds: broad listing streams resolved back to boards. Runs
         # before the screen so feed-discovered 'new' rows are screened this same pass.
@@ -221,10 +223,10 @@ def run_once(cfg, *, db_path, env,
                     # The same three coarse filters run_fetch gets above. The feed
                     # is the firehose (~18k listings), so this is where they save
                     # the most: without them the majority of what the feed's own
-                    # gate passes is material this config already refuses.
-                    title_filter=cfg.title_filter,
-                    title_exclude=cfg.title_exclude,
-                    max_age_days=cfg.max_age_days,
+                    # gate passes is material this profile already refuses.
+                    title_filter=list(scope.title_include),
+                    title_exclude=list(scope.title_exclude),
+                    max_age_days=scope.max_age_days,
                 )
 
         # Re-check a capped batch of live postings and expire the dead ones, so a
@@ -274,26 +276,25 @@ def run_once(cfg, *, db_path, env,
                 os.path.dirname(os.path.realpath(db_path)), QUOTA_FILE), screen_backend)
         if jev_enabled:
             if jev_backend == "extract":
-                _run_jev_extract(conn, cfg, extract=screen_extract, limit=jev_limit, now=now,
+                _run_jev_extract(conn, prof, extract=screen_extract, limit=jev_limit, now=now,
                                  max_description_chars=num_ctx * 2,
                                  model=f"extract:{jev.EXTRACT_PROMPT_VERSION}:{screen_backend}:"
                                        f"{effective_model}:{effective_effort}:jd{num_ctx * 2}")
             else:
-                _run_jev(conn, cfg, env=env, limit=jev_limit, max_usd=jev_max_usd, now=now)
+                _run_jev(conn, prof, env=env, limit=jev_limit, max_usd=jev_max_usd, now=now)
     finally:
         conn.close()
 
 
-def _run_jev(conn, cfg, *, env, limit: int, max_usd: Decimal, now: str) -> None:
+def _run_jev(conn, prof, *, env, limit: int, max_usd: Decimal, now: str) -> None:
     """Wire the real OpenRouter transport into pipeline.run_jev. A missing key or an
     unreachable model endpoint skips the stage loudly; fetch and screen already ran."""
     key = (env.get("OPENROUTER_API_KEY") or os.environ.get("OPENROUTER_API_KEY") or "").strip()
     if not key:
         print("[jev] OPENROUTER_API_KEY is not set; skipping the JEV filter this pass")
         return
-    inputs = _jev_inputs(conn, cfg, now=now)
+    inputs = _triage_inputs(prof)
     if inputs is None:
-        print("[jev] no stored JEV profile and no jev_dir; skipping the JEV filter this pass")
         return
     client = jev.OpenRouterClient(requests.Session(), key)
     try:
@@ -308,14 +309,13 @@ def _run_jev(conn, cfg, *, env, limit: int, max_usd: Decimal, now: str) -> None:
                                           resolved_model=resolved))
 
 
-def _run_jev_extract(conn, cfg, *, extract, limit: int, model: str, now: str,
+def _run_jev_extract(conn, prof, *, extract, limit: int, model: str, now: str,
                      max_description_chars: int | None = None) -> None:
     """JEV_BACKEND=extract: the packs through the screen provider. `model` names the
     backend, model and effort, so it joins policy_sha and a switch re-queues every verdict.
     The seam reports no cost: --jev-limit is the cap and --jev-max-usd never trips."""
-    inputs = _jev_inputs(conn, cfg, now=now)
+    inputs = _triage_inputs(prof)
     if inputs is None:
-        print("[jev] no stored JEV profile and no jev_dir; skipping the JEV filter this pass")
         return
     print(f"[jev] backend {model} (UNVALIDATED; no cost reported, --jev-limit caps postings)")
     pipeline.run_jev(
@@ -325,76 +325,49 @@ def _run_jev_extract(conn, cfg, *, extract, limit: int, model: str, now: str,
                                                   max_description_chars=max_description_chars))
 
 
-def _has_stored_jev_profile(db_path) -> bool:
-    """Read-only probe (never creates the file): is there a stored JEV profile row?"""
-    import sqlite3
-    from contextlib import closing
-    try:
-        with closing(sqlite3.connect(f"file:{Path(db_path).resolve()}?mode=ro", uri=True)) as conn:
-            return conn.execute("SELECT 1 FROM jev_profile WHERE id=1").fetchone() is not None
-    except sqlite3.Error:
-        return False
-
-
-def _jev_inputs(conn, cfg, *, now: str):
-    """The JEV inputs from the DB row, seeded once from `jev_dir` when absent; after
-    that the row wins and differing files are reported, not applied. None = neither."""
-    stored = db.get_jev_profile(conn)
-    files = None
-    if cfg.jev_dir:
-        try:
-            files = jev.read_files(cfg.jev_dir)
-        except OSError:
-            if stored is None:
-                raise                     # nothing stored: the seed is the only source
-            print("[jev] jev_dir is unreadable; using the stored JEV profile")
-    if stored is None and files is not None:
-        jev.inputs_from_texts(files)          # validate before storing
-        db.seed_jev_profile(conn, files, now=now)
-        print("[jev] seeded the JEV profile from jev_dir")
-        stored = db.get_jev_profile(conn)
-    if stored is None:
+def _triage_inputs(prof):
+    """The triage (JEV) inputs from the candidate profile, or None (logged) when triage
+    has nothing to judge against or the stored custom packs are invalid."""
+    texts = prof.triage_texts() if prof else None
+    if texts is None:
+        print("[triage] the candidate profile has no target role and no custom triage "
+              "context; skipping triage this pass (set them in Settings or with "
+              "set_candidate_profile)")
         return None
-    texts = {k: stored[k] for k in jev.INPUT_TEXTS}
-    if files is not None and files != texts:
-        print("[jev] jev_dir files differ from the stored JEV profile; using the stored one "
-              "(change it with the MCP set_jev_profile tool)")
     try:
         return jev.inputs_from_texts(texts)
     except ValueError as exc:
-        # Packs are seed-only, so editing jev_dir cannot repair a stored row: say how.
-        print(f"[jev] the stored JEV profile is invalid ({exc}); skipping the JEV filter. "
-              "Fix the packs in jev_dir, then DELETE FROM jev_profile so the next pass "
-              "re-seeds from them")
+        print(f"[triage] the stored custom question packs are invalid ({exc}); skipping "
+              "triage. Clear them (set_candidate_profile custom_packs=null) to use the "
+              "committed default packs")
         return None
 
 
-def _candidate_dict(c) -> dict:
-    return {"highest_degree": c.highest_degree, "work_authorization": c.work_authorization,
-            "security_clearance": c.security_clearance, "locations": list(c.locations),
-            "exclude_internships": c.exclude_internships, "exclude_contract": c.exclude_contract}
+def _profile_for_pass(conn, cfg, *, now: str):
+    """The candidate profile this pass runs under, read from the DB.
 
-
-def _candidate_for_pass(conn, cfg, *, now: str) -> dict | None:
-    """The hard requirements this pass screens against, read from the DB.
-
-    config.yaml `candidate:` seeds the row once when none exists (an empty block seeds
-    nothing, so a fresh install is configured through MCP instead); after that the DB
-    wins and a differing config block is reported, not applied. The stored row goes back
-    through the config parser, so an off-vocabulary value fails the pass loudly.
+    config.yaml seeds the row once when none exists (title_filter, title_exclude,
+    max_age_days, `candidate:` and the `jev_dir` texts); a config with none of them seeds
+    nothing, so a fresh install is configured in Settings or with set_candidate_profile.
+    After that the row wins and set config keys are reported, not applied. A malformed
+    stored row raises (profile.ProfileError), failing the pass loudly.
     """
-    stored = db.get_preferences(conn)
-    if stored is None and not cfg.candidate.is_empty():
-        db.seed_preferences(conn, _candidate_dict(cfg.candidate), now=now)
-        print("[preferences] seeded candidate requirements from config.yaml")
-        stored = db.get_preferences(conn)
+    stored = profile.load(conn)
     if stored is None:
-        return None
-    parsed = config_mod._parse_candidate({k: stored[k] for k in db.PREFERENCE_FIELDS})
-    if not cfg.candidate.is_empty() and _candidate_dict(cfg.candidate) != _candidate_dict(parsed):
-        print("[preferences] config.yaml `candidate:` differs from the stored requirements; "
-              "using the stored ones (change them with the MCP set_preferences tool)")
-    return None if parsed.is_empty() else _candidate_dict(parsed)
+        jev_texts = jev.read_files(cfg.jev_dir) if cfg.jev_dir else None
+        if jev_texts is not None:
+            jev.inputs_from_texts(jev_texts)  # validate before storing
+        values = profile.seed_values(cfg, jev_texts=jev_texts)
+        if values is None:
+            return None
+        db.write_candidate_profile(conn, values, actor="config", now=now)
+        print("[profile] seeded the candidate profile from config.yaml")
+        return profile.load(conn)
+    drift = profile.config_drift(cfg, stored)
+    if drift:
+        print(f"[profile] config.yaml {', '.join(drift)} ignored: the stored candidate "
+              "profile wins (edit it in Settings or with set_candidate_profile)")
+    return stored
 
 
 def _companies_as_dicts(cfg) -> list[dict]:
@@ -704,9 +677,9 @@ def main(argv=None) -> None:
                         help="clear successful screen cache for eligible 'new' rows; "
                              "requires --once")
     parser.add_argument("--jev", action="store_true",
-                        help="after the screen, run the JEV keep/skip filter (needs jev_dir in "
-                             "config; the default openrouter-native backend is paid and "
-                             "needs OPENROUTER_API_KEY)")
+                        help="after the screen, run triage, the keep/skip stage, with the JEV "
+                             "provider (reads the candidate profile; the default "
+                             "openrouter-native backend is paid and needs OPENROUTER_API_KEY)")
     parser.add_argument("--jev-backend", default=os.environ.get("JEV_BACKEND", "openrouter-native"),
                         help="openrouter-native (default, measured) or extract (the screen "
                              "backend answers the same packs; UNVALIDATED, no USD cap)")
@@ -777,9 +750,6 @@ def main(argv=None) -> None:
         if args.fetch_only or args.refresh_unscored:
             parser.error("--jev runs after the screen; it cannot combine with "
                          "--fetch-only or --refresh-unscored")
-        if not cfg.jev_dir and not _has_stored_jev_profile(args.db):
-            parser.error("--jev needs `jev_dir` in config.yaml (see config.yaml.example) "
-                         "or a stored JEV profile")
         if args.jev_backend not in JEV_BACKENDS:
             parser.error(f"--jev-backend/JEV_BACKEND must be one of {', '.join(JEV_BACKENDS)}")
         if args.jev_backend == "extract" and args.screen_backend == "none":
@@ -859,13 +829,11 @@ def main(argv=None) -> None:
         once(foreground=True)
         return
 
-    # Seed the stored settings at startup, not at the first wall-clock slot: until a row
-    # exists MCP reports it missing, and a set_preferences would pre-empt the seed.
+    # Seed the candidate profile at startup, not at the first wall-clock slot: until a
+    # row exists MCP reports it missing, and a set_candidate_profile would pre-empt it.
     conn = db.connect(args.db)
     try:
-        _candidate_for_pass(conn, cfg, now=_now())
-        if args.jev:
-            _jev_inputs(conn, cfg, now=_now())
+        _profile_for_pass(conn, cfg, now=_now())
     finally:
         conn.close()
 

@@ -16,7 +16,7 @@ from mcp import Client  # noqa: E402
 from ats_worker.mcp.read_repository import ReadOnlyATSRepository  # noqa: E402
 from ats_worker.mcp.server import create_server  # noqa: E402
 
-WRITE_TOOLS = {"set_preferences", "set_jev_profile", "record_application", "mark_job_applied", "update_application_status", "override_triage",
+WRITE_TOOLS = {"set_candidate_profile", "record_application", "mark_job_applied", "update_application_status", "override_triage",
                "update_application_notes"}
 
 
@@ -356,45 +356,43 @@ async def test_override_triage_sets_and_clears_through_the_api(tmp_path):
     ]
 
 
-# --- preferences (#157) ----------------------------------------------------------
+# --- candidate profile (#224) -----------------------------------------------------
 
 @pytest.mark.anyio
-async def test_set_preferences_sends_only_given_fields_through_the_api(tmp_path):
-    writer, session = _client(FakeResponse(200, {"data": {"version": 2}}))
-    server = create_server(ReadOnlyATSRepository(bootstrap_db(tmp_path / "m.db")), writer)
-    async with Client(server, raise_exceptions=True) as client:
-        ok = await client.call_tool("set_preferences", {"locations": ["remote"], "exclude_internships": False})
-        assert ok.structured_content == {"preferences": {"version": 2}}
-        bad = await client.call_tool("set_preferences", {"work_authorization": "F-1 OPT"})
-        assert bad.is_error is True
-        empty = await client.call_tool("set_preferences", {})
-        assert empty.is_error is True
-        assert empty.content[0].text.endswith("Give at least one preference field")
-    assert [(c["method"], c["url"].removeprefix("http://web.test"), c["json"]) for c in session.calls] == [
-        ("PUT", "/api/v1/preferences", {"locations": ["remote"], "exclude_internships": False}),
-    ]
-
-
-@pytest.mark.anyio
-async def test_set_jev_profile_sends_the_text_verbatim(tmp_path):
-    writer, session = _client(FakeResponse(200, {"data": {"version": 2, "unchanged": False}}),
-                              FakeResponse(200, {"data": {"version": 3, "unchanged": False}}))
+async def test_set_candidate_profile_sends_only_given_fields_through_the_api(tmp_path):
+    writer, session = _client(*[FakeResponse(200, {"data": {"version": n}}) for n in (2, 3, 4)])
     server = create_server(ReadOnlyATSRepository(bootstrap_db(tmp_path / "m.db")), writer)
     text = '{\n  "profile": {"wants": "infra"}\n}  '
     async with Client(server, raise_exceptions=True) as client:
-        ok = await client.call_tool("set_jev_profile", {"profile_text": text})
-        assert ok.structured_content == {"jev_profile": {"version": 2, "unchanged": False}}
-        empty = await client.call_tool("set_jev_profile", {})
-        assert empty.content[0].text.endswith("Give the structured fields, or profile_text and/or yoe_context")
-        both = await client.call_tool("set_jev_profile", {"open_to": ["Data"], "profile_text": text})
+        ok = await client.call_tool("set_candidate_profile", {
+            "locations": ["remote"], "exclude_internships": False, "title_include": ["engineer"],
+            "education": [{"degree": "master's", "field": "CS"}],
+            "experience": [{"title": "SWE", "company": "Acme", "years": 2}]})
+        assert ok.structured_content == {"candidate_profile": {"version": 2}}
+        bad = await client.call_tool("set_candidate_profile", {"work_authorization": "F-1 OPT"})
+        assert bad.is_error is True
+        empty = await client.call_tool("set_candidate_profile", {})
+        assert empty.content[0].text.endswith("Give at least one profile field")
+        half = await client.call_tool("set_candidate_profile", {"custom_profile_text": text})
+        assert half.content[0].text.endswith("together")
+        both = await client.call_tool("set_candidate_profile", {
+            "custom_profile_text": text, "custom_yoe_context": "MS.", "clear_custom_triage_context": True})
         assert both.is_error is True
-        form = await client.call_tool("set_jev_profile", {
-            "open_to": ["Data"], "experience": [{"title": "SWE", "company": "Acme", "years": 2}]})
-        assert form.is_error is False
+        raw = await client.call_tool("set_candidate_profile", {
+            "custom_profile_text": text, "custom_yoe_context": "MS."})
+        assert raw.is_error is False
+        cleared = await client.call_tool("set_candidate_profile", {
+            "clear_custom_triage_context": True, "clear_custom_packs": True})
+        assert cleared.is_error is False
     assert [(c["method"], c["url"].removeprefix("http://web.test"), c["json"]) for c in session.calls] == [
-        ("PUT", "/api/v1/jev-profile", {"profile_text": text}),
-        ("PUT", "/api/v1/jev-profile", {"form": {
-            "open_to": ["Data"], "experience": [{"title": "SWE", "company": "Acme", "years": 2}]}}),
+        ("PUT", "/api/v1/candidate-profile", {
+            "locations": ["remote"], "exclude_internships": False, "title_include": ["engineer"],
+            "education": [{"degree": "master's", "field": "CS"}],
+            "experience": [{"title": "SWE", "company": "Acme", "years": 2}]}),
+        # The text goes verbatim (the policy hash covers its bytes).
+        ("PUT", "/api/v1/candidate-profile", {
+            "custom_triage_context": {"profile_text": text, "yoe_context": "MS."}}),
+        ("PUT", "/api/v1/candidate-profile", {"custom_triage_context": None, "custom_packs": None}),
     ]
 
 

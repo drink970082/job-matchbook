@@ -67,9 +67,9 @@ export function ActivityTab({ status, initial, loadMore }: Props) {
                         <Stat label="Last new posting" value={status.lastFetchedAt ? ago(status.lastFetchedAt) : 'never'} warn={stale} />
                         <Stat label="New postings, 24h" value={String(status.new24h)} />
                         <Stat label="New postings, 7d" value={String(status.new7d)} />
-                        <Stat label="JEV assessed, 24h" value={String(status.assessed24h)} />
-                        <Stat label="JEV cost, 7d" value={`USD ${status.spend7dUsd.toFixed(status.spend7dUsd < 0.01 ? 4 : 2)}`} />
-                        <Stat label="JEV failures, 24h" value={String(status.failures24h)} warn={status.failures24h > 0} />
+                        <Stat label="Triage assessed, 24h" value={String(status.assessed24h)} />
+                        <Stat label="Triage cost, 7d" value={`USD ${status.spend7dUsd.toFixed(status.spend7dUsd < 0.01 ? 4 : 2)}`} />
+                        <Stat label="Triage failures, 24h" value={String(status.failures24h)} warn={status.failures24h > 0} />
                     </div>
                     {stale && (
                         <p className="text-xs text-amber-600">No new posting in over a day: the worker may be stopped.</p>

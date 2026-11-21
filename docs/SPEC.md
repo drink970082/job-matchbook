@@ -468,14 +468,11 @@ worker modules are pure and dependency-injected; real services are wired only in
   leading/trailing/doubled `/` — since the worker interpolates it straight into a fetch
   URL host/path (`ConfigError` on a bad slug). Exposes `companies` (each with an optional
   `recipe: dict | None`), `enable_browser_sources` (opt-in gate for `browser` rows, default off),
-  `title_filter`, `title_exclude` (negative title list — drop a posting whose title
-  carries any listed keyword **as a whole word**, the complement of `title_filter`;
-  note the deliberate asymmetry — the keep-list is substring, this is not), `max_age_days`
-  (fetch-time freshness gate — drop a posting whose `posted_at` is older than N days;
-  `0`/omitted = off; a null/unparseable `posted_at` is always kept), `candidate` (with
-  `is_empty()`; a one-time seed: the screen reads the DB-owned `candidate_preferences` row,
-  inserted from this block only when no row exists — after that the row wins and a
-  differing block is logged each pass, not applied; an empty block seeds nothing), `feeds`, `schedule_hours` (hours between wall-clock passes; must be a
+  `title_filter`, `title_exclude`, `max_age_days`, `candidate` (with `is_empty()`) and
+  `jev_dir` — all five **seed-only** (#224): they fill the DB-owned `candidate_profile`
+  row (below) once, when no row exists; after that the row wins and each set key that
+  differs is logged every pass (`[profile] config.yaml ... ignored`), not applied; a
+  config with none of them seeds nothing, `feeds`, `schedule_hours` (hours between wall-clock passes; must be a
   **divisor of 24** — `1, 2, 3, 4, 6, 8, 12, 24` — and `config.py` raises `ConfigError`
   otherwise, with a separate message for `0`/negative. Two failure modes justify the
   bound: a non-divisor leaves a `24 % h` gap across midnight that is always *tighter*
@@ -825,7 +822,39 @@ worker modules are pure and dependency-injected; real services are wired only in
   posting is still `new`; a provider call interrupted before commit can be repeated on
   a later pass (at-least-once external execution).
 
-  **JEV keep/skip filter** (`jev.py`, `pipeline.run_jev`, opt-in `--jev`). After the
+  **Candidate profile** (`profile.py`, #224). One `candidate_profile` row (§8), the only
+  candidate input; `run._profile_for_pass` reads it once per pass. Fetch reads the search
+  scope: `title_include` (keep a title containing any keyword, substring), `title_exclude`
+  (drop a title carrying any keyword **as a whole word**; the deliberate asymmetry) and
+  `max_age_days` (drop a parsed `posted_at` older than N days; `0` = off; a
+  null/unparseable date is kept). The screen reads `screen_candidate()`: the hard
+  requirements plus the **derived** highest degree (`profile.highest_degree`, the
+  highest `DEGREES` value over the education rows, `''` with none, so degree is then not
+  screened); `None` when nothing is set (no gate, no screen call). Triage reads
+  `triage_texts()`: the background and preferences rendered as the context (the #206
+  form's exact bytes: `profile_text` a JSON document of target roles, open to, not
+  interested, education and experience; `yoe_context` three lines ending in the derived
+  total years, the sum of the experience rows), or `custom_triage_context` verbatim when
+  set; the committed default packs (`ats_worker/triage_packs/`) unless `custom_packs` is
+  set. Triage has nothing to judge, and is skipped with a log line, without a target role
+  or a custom context. `DEGREES` (`none`, `high school`, `associate`, `bachelor's`,
+  `master's`, `phd`) is the screen's own `DEGREE_RANK`; the web derives both fields with
+  the same rule, and both sides run `tests/fixtures/candidate-profile-cases.json`. A
+  malformed or off-vocabulary stored row raises (`profile.ProfileError`) and fails the
+  pass. **Seeding:** `profile.seed_values` builds the one-time row from config.yaml (fresh
+  install, `actor` `config`) or, in the operator migration
+  (`python3 -m ats_worker.migrate_profile`), from the legacy `candidate_preferences` /
+  `jev_profile` rows read out of the pre-push backup plus the config scope keys (and
+  `jev_dir` when no `jev_profile` row exists; `actor` `migration`, `confirmed_at` set).
+  Nothing a stored verdict depends on moves: the legacy degree becomes one education row
+  at the same `_degree_rank` (none when it was blank); the triage context is rendered
+  from the fields only when that reproduces the stored bytes, else carried verbatim; packs
+  equal to the defaults are dropped, others carried. The migration refuses (writes
+  nothing) unless the new row screens the same and keeps the JEV policy hash, replaces
+  only an untouched config seed, and reports "already migrated" on a rerun.
+
+  **JEV keep/skip filter** (`jev.py`, `pipeline.run_jev`, opt-in `--jev`). User-facing
+  this is **triage**, the keep/skip stage; JEV is its one provider. After the
   screen, each screened, not-disqualified `new` posting gets two native OpenRouter JEV
   calls (`typesafe/jev-1.13`): the preference question pack with the approved profile,
   and a one-question required-experience pack with education/experience facts only. The
@@ -853,24 +882,9 @@ worker modules are pure and dependency-injected; real services are wired only in
   changes. Each pass records its policy hash in `app_settings`
   (`jev_current_policy_sha256`) so MCP can label older verdicts stale. Without
   `OPENROUTER_API_KEY` or model metadata the stage is skipped with a log line; fetch and
-  screen have already run. Inputs are the `jev_profile` row (§8): config `jev_dir` (four
-  private files, `config.yaml.example`) seeds it once with the texts exactly as read, so
-  the policy hash is the files' hash; after that the row wins and differing files are
-  logged. `--jev` refuses to start with neither a `jev_dir` nor a stored row. Only the
-  profile and experience context are editable (`set_jev_profile`); the question packs
-  come from `jev_dir` only. Their source of truth is a form (`lib/jev-profile-form.ts`):
-  target roles / open to / not interested, education rows (degree, field) and experience
-  rows (title, company, years; total = the sum). It renders `profile_text` (a JSON
-  document of those fields) and `yoe_context` deterministically, so an unchanged form
-  re-saves the same bytes. A stored profile counts as a form only when re-rendering
-  reproduces both texts exactly; otherwise (e.g. a `jev_dir` seed) the web edits it as
-  the JSON it is: one input per string/number, nested objects and lists, `{id, text}`
-  entries as one row, list entries added (a copy of the last entry's shape, so a list
-  keeps at least one) or removed; an unchanged save keeps the stored bytes and an edit
-  keeps compact JSON compact (else 2-space indent). Advanced (collapsed) is the same
-  profile as raw text, shown indented; edits in either view update the other. The
-  5-field form appears only for a form-written profile; converting one is MCP
-  `set_jev_profile` with all five form fields. Measured basis (2026-11, model-proxy, not human truth):
+  screen have already run. The four inputs (`profile_text`, both packs, `yoe_context`)
+  come from the candidate profile (`triage_texts()` above); `--jev` needs no other
+  setup. Measured basis (2026-11, model-proxy, not human truth):
   preference skips 57-69% of screened candidates per day with 0 of 7 real applications
   skipped; the experience question agreed with a blind review on 50 of 52; together they
   leave about a quarter of screened candidates. Ranking within `keep` was measured and
@@ -889,18 +903,19 @@ worker modules are pure and dependency-injected; real services are wired only in
   OpenRouter key is needed. Refused with `--screen-backend none`. **UNVALIDATED**: the
   measured basis above is native-only.
 
-  **Pack format** (`jev_dir`, four files; a synthetic set is committed as
-  `apps/worker/jev.example/`). `profile-binding.json` and `yoe-context.txt` are sent
-  verbatim as candidate context; the profile must be a JSON object (web/MCP
-  `set_jev_profile` rejects anything else). The two packs
-  are `{"version": str, "questions": [...]}`; each question is `{"id", "type",
-  "instructions"}` plus `criteria` — an object of `key: description` for `choice`, an
-  ordered list of labels for `score`, none for `noul` (`ranking/native.py` validates).
-  `question-pack.json` must hold a `choice` question `preference` whose keys include
-  `weak`; `yoe-pack.json` must hold `required_yoe_for_candidate` whose keys include
-  `three_plus` or `above_candidate` (`jev._pack` refuses a pack without them). The
-  example YOE pack uses `above_candidate`, so it fits any experience level once
-  `yoe-context.txt` states the candidate's years. The example packs are unmeasured. Other questions are answered and stored but do not change the verdict.
+  **Pack format.** The committed defaults are `ats_worker/triage_packs/preference-pack.json`
+  and `yoe-pack.json`; `custom_packs` holds the same two texts (the operator's measured
+  packs). A pack is `{"version": str, "questions": [...]}`; each question is `{"id",
+  "type", "instructions"}` plus `criteria` — an object of `key: description` for
+  `choice`, an ordered list of labels for `score`, none for `noul` (`ranking/native.py`
+  validates). The preference pack must hold a `choice` question `preference` whose keys
+  include `weak`; the YOE pack must hold `required_yoe_for_candidate` whose keys include
+  `three_plus` or `above_candidate` (`jev._pack` refuses a pack without them; invalid
+  stored custom packs skip triage with a repair hint). The default YOE pack uses
+  `above_candidate`, so it fits any experience level; the defaults are unmeasured (#182).
+  Other questions are answered and stored but do not change the verdict. The legacy
+  `jev_dir` layout (`profile-binding.json`, `question-pack.json`, `yoe-pack.json`,
+  `yoe-context.txt`; `jev.read_files`) is read only to seed.
 
   **Import boundary.** No fit module exists to import, and no résumé is loaded.
   Provider-free review-batch, rehearsal, profile, and replay imports are guarded in fresh
@@ -1029,7 +1044,7 @@ worker modules are pure and dependency-injected; real services are wired only in
   `candidate.work_authorization` is a **closed vocabulary** validated at config load
   (`citizen` | `permanent resident` | `authorized-no-sponsorship` | `needs visa
   sponsorship`, case-insensitive; blank = don't screen on it), enforced again by the web
-  API on `set_preferences` and by the worker when it reads the stored row. It has to be closed
+  API on `set_candidate_profile` and by the worker when it reads the stored row. It has to be closed
   because `_needs_sponsorship` reads the value by substring — an off-vocabulary string
   like `F-1 OPT` would read as "needs no sponsorship" and silently disable the whole
   authorization check, so `config.py` raises `ConfigError` instead.
@@ -1339,16 +1354,16 @@ worker modules are pure and dependency-injected; real services are wired only in
   database, seeds settings, or performs DDL. `ATS_DB_PATH` selects the database; when
   unset, the repository resolves the web Prisma database path from the checkout.
   The `MCPServer` entrypoint is `python -m ats_worker.mcp` and its default transport is
-  stdio; it binds no listener. Fourteen read tools are always registered:
+  stdio; it binds no listener. Thirteen read tools are always registered:
   `get_ats_overview`, `list_jobs`, `get_job`, `get_job_description`,
   `list_applications`, `get_application`, `get_application_notes`,
   `list_application_history`, `list_ats_records`, `get_ats_record`, `list_sources`,
-  `get_setup_status`, `get_jev_profile`, `get_preferences`. They carry read-only/
+  `get_setup_status`, `get_candidate_profile`. They carry read-only/
   closed-world annotations, and the connection-level SQLite settings enforce the
-  boundary. With `ATS_API_KEY` set, nine write tools are added, each a call to the web's
+  boundary. With `ATS_API_KEY` set, eight write tools are added, each a call to the web's
   loopback `/api/v1` (never a DB write): `record_application`, `mark_job_applied`,
   `update_application_status`, `update_application_notes`, `override_triage`,
-  `set_preferences`, `set_jev_profile`, `add_source` (known-ATS boards only) and
+  `set_candidate_profile`, `add_source` (known-ATS boards only) and
   `remove_source`. The seven entity names are a closed enum, identifiers are selected
   from an internal allowlist, values are bound, and no tool accepts SQL, filesystem
   paths or HTTP targets.
@@ -1426,13 +1441,13 @@ worker modules are pure and dependency-injected; real services are wired only in
   status, which a backdated `recorded` change does not move), `add_source(name, url? | source + slug)` (known-ATS boards; a
   `url` is resolved by the web's `lib/board-url.ts`, the Sources tab's resolver; web's
   slug/source/duplicate checks and messages), `remove_source(source_id)` (returns the
-  removed row), `override_triage(job_id, keep|skip|clear, reason?)`, `set_preferences`
-  (the screen's hard requirements; omitted fields keep their value, `locations` replaces
-  the list), `set_jev_profile(target_roles?, open_to?, not_interested?, education?,
-  experience?)` (the web form's fields, sent as `{form}`: the given fields replace the
-  stored form's, a free-text profile needs all five once), or Advanced
-  `profile_text?`/`yoe_context?` (replaces the text verbatim; typed plain `str` because
-  the SDK JSON-decodes JSON-looking `str | None` arguments), and `update_application_notes(application_id, text)`, which appends
+  removed row), `override_triage(job_id, keep|skip|clear, reason?)`,
+  `set_candidate_profile` (every profile field, all optional: omitted fields keep their
+  value, a list replaces the whole list; Advanced `custom_profile_text` +
+  `custom_yoe_context` set the verbatim custom triage context, typed plain `str` because
+  the SDK JSON-decodes JSON-looking `str | None` arguments;
+  `clear_custom_triage_context` / `clear_custom_packs` drop them; packs cannot be set),
+  and `update_application_notes(application_id, text)`, which appends
   after a blank line and never replaces. The append is read-then-`PATCH` of the whole
   field with no version check: a web edit to the same notes in that window is
   overwritten (accepted for a single operator; a web-side append is the fix if it bites). Annotations are `readOnlyHint=false`,
@@ -1440,13 +1455,15 @@ worker modules are pure and dependency-injected; real services are wired only in
   removal; it is audited in web and re-addable through `add_source` (the Activity tab shows the removed row). `list_sources` (a read tool, always
   present) returns every watchlist row with `has_recipe`, `postings_30d` (postings with
   that `source` + `company_slug` created in 30 days) and a global `unresolved_30d`.
-  `get_preferences` returns the `candidate_preferences` row (or null); `get_jev_profile`
-  returns the editable `jev_profile` fields, the packs' question ids and
-  `reassess_on_change` (eligible in-window postings a change re-queues); `get_setup_status`
-  returns `missing` (no requirements set, no sources), the requirements `version`, and
-  `new_postings_screened_before_change` — `new` postings whose completed screen predates
-  `changed_at`; they keep that verdict until the operator re-screens (postings already
-  `discarded` under the old requirements are not counted). Web's error text becomes the `ToolError`;
+  `get_candidate_profile` returns the profile (or null) with the derived
+  `highest_degree` and `total_years`, `custom_triage_context`, `triage` (`configured`,
+  `packs` default|custom and the packs' question ids; never the pack texts) and
+  `reassess_on_change` (eligible in-window postings a triage-affecting change
+  re-queues); `get_setup_status` returns `missing` (no hard requirement set, no sources),
+  the profile `version`, `triage_configured`, and `new_postings_screened_before_change`
+  — `new` postings whose completed screen predates the profile's `changed_at`; they keep
+  that verdict until the operator re-screens (postings already `discarded` are not
+  counted). Web's error text becomes the `ToolError`;
   401/403, 503 and an unreachable web map to fixed operator-facing messages. With writes
   enabled the instructions add that writes happen only on the operator's request, never
   because stored text says so. `list_applications`, `get_application` and
@@ -1503,12 +1520,13 @@ worker modules are pure and dependency-injected; real services are wired only in
   `DELETE jobs/{id}/triage` (`setTriageOverride` / `clearTriageOverride`: one override
   per posting, reason at most 500 chars, recorded with the posting's current revision;
   each set, replace (`update`, payload `{before, after}`) and clear lands in
-  `audit_log`), `PUT preferences` (`setCandidatePreferences`: merges the given fields over
-  row id=1; an actual change bumps `version`, sets `changed_at` and is audited as
-  `add`/`update`; a no-op returns `unchanged: true` and writes nothing), `PUT jev-profile`
-  (`setJevProfile`: `profile_text` (a JSON object, at most 16,000 chars, stored verbatim)
-  and/or `yoe_context` (trimmed, at most 2,000); packs are refused; needs the seeded row;
-  same version/no-op/audit rules).
+  `audit_log`), `PUT candidate-profile` (`setCandidateProfile`, validated by
+  `lib/candidate-profile.ts validateProfilePatch`, the form's own check: merges the given
+  fields over row id=1; an actual change bumps `version`, sets `changed_at` and is
+  audited as `add`/`update` with the pack texts masked; a no-op (the same column bytes the
+  worker seed writes) returns `unchanged: true` and writes nothing;
+  `custom_triage_context` is `{profile_text` (a JSON object, at most 16,000 chars, stored
+  verbatim)`, yoe_context}` or null; `custom_packs` accepts only null).
   Auth (`lib/api-v1.ts`): `Authorization: Bearer <key>` against `ATS_API_KEY_READ_WRITE`
   (scope `read_write`) or `ATS_API_KEY_READ` (scope `read`); neither set -> `503`
   (disabled, never open), missing/wrong key -> `401`, read key on a write -> `403`, an
@@ -1607,27 +1625,27 @@ worker modules are pure and dependency-injected; real services are wired only in
   inside `AppShell` (product title, tab nav, and the Jobs badge = keep postings first
   fetched in the last 24h, `getNewJobsCount`). `AppShell` also shows the `Onboarding`
   checklist while setup is incomplete (`lib/setup-actions.ts` `getSetupStatus`, the web
-  counterpart of MCP `get_setup_status`: hard requirements set, a board watched, a
-  posting fetched; connecting an AI client — any `mcp` audit row — and JEV are optional
-  steps). The checklist carries copy-paste MCP client configs and starter prompts read
+  counterpart of MCP `get_setup_status`: a hard requirement set in the candidate
+  profile, a board watched, a posting fetched; connecting an AI client — any `mcp` audit
+  row — and triage (a target role or custom context) are optional steps). The checklist carries copy-paste MCP client configs and starter prompts read
   from `apps/web/templates/mcp/` (plain text, placeholder keys only; the Docker image
   copies the directory).
 - **`components/`** — `ApplicationsView` (KPI grid, Export/Import CSV, the
   Applications table/form/charts and history modal) and `JobsView` (Discovered Jobs, the
   Mark Applied flow and Not interested); only Applications, Settings, Mark Applied and Not
   interested write;
-  `SettingsPanel` (hard requirements as controls: degree and clearance selects with
-  `(do not screen)`, locations with an explicit "open to anywhere" blank state and a
-  remote checkbox writing the `remote` entry, internship and contract checkboxes) and
-  `JevProfileForm` (the JEV form, or the structured JSON editor for a profile the form did not write, plus the Advanced raw editor; the save confirms the
-  paid re-assessment estimate) and `CategoriesEditor` (the category
+  `SettingsPanel` (the one candidate profile form, §6 "Settings": authorization and
+  clearance selects with `(do not screen)`, locations with an explicit "open to anywhere"
+  blank state and a remote checkbox writing the `remote` entry, internship and contract
+  checkboxes, education rows with a `DEGREES` select; built from `ProfileEditors`
+  `ListEditor` and `CustomContextEditor`) and `CategoriesEditor` (the category
   vocabulary) make up `/settings`; `ApplicationTable` (inline status edit; job title links to `application_url`; Details opens the history/edit modal; dates show the year outside the current one; Company / Date / Status headers sort server-side via `getApplications` `sort`/`dir`, default date desc), `KPIGrid`,
   `StatusHistoryModal`, `AddApplicationForm`, `DiscoveredJobsTable` (a job-board list of "postings for you", #207: title link,
   company, location, posted age ("3d ago"); actions Apply (the `job_url` via `safeHref`,
   new tab), Mark applied, Not interested and View JD; filters search, Search in JD and
   posted within 24h / 7d / 30d, newest posted first; no stage tabs, counts or debug
   cells. `JobsView` controls the filters with request-version checks, states the active
-  mode and JEV's 7-day window in one line, and makes Not interested a triage `skip`
+  mode and triage's 7-day window in one line, and makes Not interested a triage `skip`
   override (actor `web`) with an Undo toast that clears it), `Pagination` (reusable: first/last, numbered pages, go-to), `ApplyCategoryDialog`
   (category picker on Mark Applied), `ImportCSVDialog` (drag-and-drop or browse file
   picker behind the Import CSV button, with the column contract — required columns,
@@ -1663,10 +1681,10 @@ worker modules are pure and dependency-injected; real services are wired only in
 
 *Class: **Snapshot** — mirrors `schema.prisma` (the real source of truth); if they disagree, update this spec.*
 
-Twelve tables, owned solely by `apps/web/prisma/schema.prisma` (`applications`,
+Eleven tables, owned solely by `apps/web/prisma/schema.prisma` (`applications`,
 `status_history`, `job_postings`, `watched_companies`, `audit_log`, `feed_unresolved`,
 `app_settings`, `job_screenings`, `job_jev_assessments`,
-`job_triage_overrides`, `candidate_preferences`, `jev_profile`). Dates are stored as **ISO-8601 strings** for sortability and
+`job_triage_overrides`, `candidate_profile`). Dates are stored as **ISO-8601 strings** for sortability and
 timezone-independence (`date_applied` as `YYYY-MM-DD`; timestamps as full ISO with
 millisecond precision to match Prisma / the worker's `_now()`).
 
@@ -1799,7 +1817,7 @@ model watched_companies {        // the DB-owned watchlist (web-managed)
   @@unique([source, slug])       // dedup key
 }
 
-model audit_log {                // append-only write record (web writes): watchlist, override, preferences, applications
+model audit_log {                // append-only write record (web writes): watchlist, override, candidate profile, applications
   id        Int    @id @default(autoincrement())
   at        String
   actor     String // web | mcp
@@ -1830,30 +1848,28 @@ model app_settings {             // web-only key-value prefs (worker never reads
   updated_at  String?
 }
 
-model candidate_preferences {    // the screen's hard requirements; one row, id=1
-  id                  Int     @id
-  highest_degree      String  @default("")
-  work_authorization  String  @default("")   // closed vocabulary (§7.1)
-  security_clearance  String  @default("")
-  locations           String  @default("[]") // JSON string array
-  exclude_internships Boolean @default(false)
-  exclude_contract    Boolean @default(false) // contract / part-time / temporary titles
-  version             Int     @default(1)    // +1 per actual change
-  actor               String                 // config (seed) | web | mcp
-  changed_at          String?                // last change after the seed; null = seeded values
-  updated_at          String
-}
-
-model jev_profile {              // JEV filter inputs; one row, id=1, seeded from jev_dir
-  id           Int     @id
-  profile_text String             // profile-binding.json, verbatim (policy hash input)
-  c_pack       String             // question-pack.json text (seed only)
-  yoe_pack     String             // yoe-pack.json text (seed only)
-  yoe_context  String
-  version      Int     @default(1)
-  actor        String             // config (seed) | web | mcp
-  changed_at   String?
-  updated_at   String
+model candidate_profile {        // the one candidate input (§7.1 "Candidate profile"); one row, id=1
+  id                    Int     @id
+  title_include         String  @default("[]") // search scope (fetch): JSON string arrays
+  title_exclude         String  @default("[]")
+  max_age_days          Int     @default(0)    // 0 = off
+  locations             String  @default("[]") // hard requirements (screen)
+  work_authorization    String  @default("")   // closed vocabulary (§7.1)
+  security_clearance    String  @default("")
+  exclude_internships   Boolean @default(false)
+  exclude_contract      Boolean @default(false)
+  education             String  @default("[]") // background: [{degree (DEGREES), field}]
+  experience            String  @default("[]") // [{title, company, years}]
+  target_roles          String  @default("[]") // preferences (triage)
+  open_to               String  @default("[]")
+  not_interested        String  @default("[]")
+  custom_packs          String?                // {preference_pack, yoe_pack} texts; null = defaults
+  custom_triage_context String?                // {profile_text, yoe_context} verbatim; null = rendered
+  version               Int     @default(1)    // +1 per actual change
+  actor                 String                 // config | migration (seeds) | web | mcp
+  changed_at            String?                // last change after the seed; null = seeded values
+  confirmed_at          String?                // reserved for the confirmation gate (#227)
+  updated_at            String
 }
 ```
 
@@ -1902,12 +1918,18 @@ not change other adapters.
   Engineering, Data & Analytics, Product, Design, Finance, Marketing, Operations, Sales,
   Others) is only the seed/fallback before the user chooses. Category values are free-form
   labels — nothing in the pipeline reads them.
-- **Settings:** the header **Settings** button opens a dialog over the two stored worker
-  settings (§8): the hard requirements (`setCandidatePreferences`) and the JEV profile
-  text and experience context (`setJevProfile`), with actor `web`. It loads on open
-  (`getSettings`, which also counts the in-window postings a JEV change re-assesses) and
-  asks for confirmation, with that count and an estimated cost, before a JEV save. With no
-  stored JEV profile it explains the `jev_dir` seed instead of offering an editor.
+- **Settings:** `/settings` holds the one candidate profile form (`SettingsPanel`, §8
+  `candidate_profile`): search scope, hard requirements, background (education rows with
+  a degree select, experience rows; the derived highest degree and total years shown),
+  preferences (target roles / open to / not interested) and triage (default or custom
+  packs, with "use the default packs"; a stored custom context is edited as the JSON it
+  is: one input per string/number, nested objects and lists, `{id, text}` entries as one
+  row, list entries added or removed, with the raw text under Advanced; an unedited
+  context keeps its stored bytes, an edit keeps compact JSON compact). One Save sends
+  every field through `setCandidateProfile` (actor `web`); it loads with
+  `getCandidateProfile`, which also counts the in-window postings a triage-affecting
+  change re-assesses, and a change to what triage reads asks for confirmation with that
+  count and an estimated cost first.
 
 **Schema changes and migrations.** The schema is applied with `prisma db push`
 (`make db-push`), so there is **no migration history**. This is a deliberate tradeoff
@@ -1960,7 +1982,7 @@ to other adapters.
 
 - **Postings for you** (`stage` `for_you`, the default; #207). Not applied (`new`),
   not `source_state` `closed`, no applying `skip` override; then funnel stage `keep` when
-  JEV is configured (a `jev_profile` row and at least one assessment), else triage
+  JEV is configured (a `candidate_profile` row and at least one assessment), else triage
   `candidate` (passed the hard requirements), so an install without JEV does not see an
   empty list. `getJobsMode` reports which; the Jobs nav badge counts this view's rows
   first fetched in the last 24h. `postedSince` (a `YYYY-MM-DD` cutoff the UI computes in the viewer's local days for 1 / 7 / 30, matching the row's "3d ago") bounds `posted_at`; the only
@@ -2332,6 +2354,7 @@ automated coverage — those rely on code review or the human in the loop, not a
 | Standalone screen assessment times are sampled after each provider result on the DB thread and passed from `run.py` | `tests/test_screen_pipeline.py::test_screen_saves_sample_clock_after_each_result_on_the_db_thread`, `tests/test_run.py::test_run_once_defaults_codex_to_luna_medium` |
 | Worker SQL fixture ↔ `schema.prisma`, including `job_screenings`, in sync | `test_schema_sync.py` + `tools/check_schema_drift.mjs` (CI) |
 | JEV: skip only on weak preference or a YOE skip key (`three_plus` / `above_candidate`); caps, re-queue on policy/source change, unknown charge stops the pass; MCP default hides only current skips | `test_jev.py`, `test_mcp_repository.py::test_jev_filter_*` |
+| Candidate profile (#224): one row drives the fetch scope, the screen and triage; config.yaml seeds it once, then set keys are ignored and logged; a fresh install is configured by the row alone; highest degree and total years derive from the background rows identically on web and worker (one fixture); a malformed row fails the pass; the migration keeps the screen decision and the JEV policy hash, touches no stored verdict, is idempotent and never overwrites an edited row; the form, the route and MCP share one validation | `test_profile.py`, `test_migrate_profile.py`, `test_run.py` (`test_run_once_seeds_the_profile_once_then_reads_the_db`, `test_fresh_install_without_config_is_configured_by_the_row_alone`, `test_run_once_rejects_an_off_vocabulary_stored_value`), `test_jev.py` (`test_triage_reads_the_structured_profile_with_the_default_packs`, `test_jev_dir_seeds_the_profile_and_keeps_the_policy_hash_of_the_files`), `test_mcp_repository.py::test_get_candidate_profile_*`, `test_mcp_write.py::test_set_candidate_profile_*`, `web/src/lib/__tests__/candidate-profile.test.ts`, `web/src/__tests__/api-v1.int.test.ts`, `web/src/components/__tests__/SettingsPanel.test.tsx` |
 | No private file (`.env` / résumé / db / `config.yaml`) tracked by git | `tools/check_privacy.mjs` (+ `--self-test`; CI) |
 
 ---
@@ -2494,8 +2517,8 @@ copies (only when the target is absent); then fill in the copied files. Longhand
 1. `cp apps/worker/config.yaml.example apps/worker/config.yaml` — set `companies`
    (`source` ∈ the eleven watchlist-capable boards {greenhouse, lever, ashby,
    workday, pinpoint, smartrecruiters, workable, icims, phenom, custom, browser},
-   board `slug`, `name`), optional `title_filter`, the `candidate` hard-constraint
-   block, `schedule_hours` (24). Workday's `slug` packs `tenant/datacenter/site`
+   board `slug`, `name`), optional seed-only `title_filter` / `candidate` block (or set
+   the candidate profile in Settings later), `schedule_hours` (24). Workday's `slug` packs `tenant/datacenter/site`
    (quote it).
 2. `cp apps/worker/.env.example apps/worker/.env` — fill `OLLAMA_HOST`
    (`http://localhost:11434`), or for `--screen-backend api` `SCREEN_MODEL` plus

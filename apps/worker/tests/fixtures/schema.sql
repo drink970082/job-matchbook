@@ -141,29 +141,27 @@ CREATE TABLE "app_settings" (
     "updated_at" TEXT
 );
 
-CREATE TABLE "candidate_preferences" (
+CREATE TABLE "candidate_profile" (
     "id" INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
-    "highest_degree" TEXT NOT NULL DEFAULT '',
+    "title_include" TEXT NOT NULL DEFAULT '[]',
+    "title_exclude" TEXT NOT NULL DEFAULT '[]',
+    "max_age_days" INTEGER NOT NULL DEFAULT 0,
+    "locations" TEXT NOT NULL DEFAULT '[]',
     "work_authorization" TEXT NOT NULL DEFAULT '',
     "security_clearance" TEXT NOT NULL DEFAULT '',
-    "locations" TEXT NOT NULL DEFAULT '[]',
     "exclude_internships" BOOLEAN NOT NULL DEFAULT false,
     "exclude_contract" BOOLEAN NOT NULL DEFAULT false,
+    "education" TEXT NOT NULL DEFAULT '[]',
+    "experience" TEXT NOT NULL DEFAULT '[]',
+    "target_roles" TEXT NOT NULL DEFAULT '[]',
+    "open_to" TEXT NOT NULL DEFAULT '[]',
+    "not_interested" TEXT NOT NULL DEFAULT '[]',
+    "custom_packs" TEXT,
+    "custom_triage_context" TEXT,
     "version" INTEGER NOT NULL DEFAULT 1,
     "actor" TEXT NOT NULL,
     "changed_at" TEXT,
-    "updated_at" TEXT NOT NULL
-);
-
-CREATE TABLE "jev_profile" (
-    "id" INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
-    "profile_text" TEXT NOT NULL,
-    "c_pack" TEXT NOT NULL,
-    "yoe_pack" TEXT NOT NULL,
-    "yoe_context" TEXT NOT NULL,
-    "version" INTEGER NOT NULL DEFAULT 1,
-    "actor" TEXT NOT NULL,
-    "changed_at" TEXT,
+    "confirmed_at" TEXT,
     "updated_at" TEXT NOT NULL
 );
 

@@ -188,58 +188,34 @@ def import_watchlist(conn: sqlite3.Connection, companies, *, now: str) -> int:
     return inserted
 
 
-# --- candidate preferences --------------------------------------------------
-# The screen's hard requirements are DB-owned (one `candidate_preferences` row, id=1,
-# written by the web API / MCP). config.yaml `candidate:` seeds it once when absent.
+# --- candidate profile --------------------------------------------------------
+# The one candidate input (#224): one `candidate_profile` row, id=1, written by the web
+# API / MCP. Parsed and derived by ats_worker/profile.py; config.yaml seeds it once.
 
-PREFERENCE_FIELDS = ("highest_degree", "work_authorization", "security_clearance",
-                     "locations", "exclude_internships", "exclude_contract")
-
-
-def get_preferences(conn: sqlite3.Connection) -> dict | None:
-    """The stored hard requirements, or None when no row exists yet."""
-    row = conn.execute("SELECT * FROM candidate_preferences WHERE id=1").fetchone()
-    if row is None:
-        return None
-    out = dict(row)
-    out["locations"] = json.loads(out["locations"] or "[]")
-    out["exclude_internships"] = bool(out["exclude_internships"])
-    out["exclude_contract"] = bool(out["exclude_contract"])
-    return out
-
-
-def seed_preferences(conn: sqlite3.Connection, candidate: dict, *, now: str) -> bool:
-    """Insert the one-time config seed; a no-op (False) once any row exists."""
-    values = {k: candidate[k] for k in PREFERENCE_FIELDS}
-    # Same bytes as the web's JSON.stringify, so restating the seed is a no-op there.
-    values["locations"] = json.dumps(list(values["locations"]), ensure_ascii=False,
-                                     separators=(",", ":"))
-    values["exclude_internships"] = int(bool(values["exclude_internships"]))
-    values["exclude_contract"] = int(bool(values["exclude_contract"]))
-    cur = conn.execute(
-        "INSERT INTO candidate_preferences (id, highest_degree, work_authorization, "
-        "security_clearance, locations, exclude_internships, exclude_contract, version, actor, updated_at) "
-        "VALUES (1, :highest_degree, :work_authorization, :security_clearance, "
-        ":locations, :exclude_internships, :exclude_contract, 1, 'config', :now) "
-        "ON CONFLICT(id) DO NOTHING", {**values, "now": now})
-    conn.commit()
-    return cur.rowcount == 1
-
-
-# --- JEV profile --------------------------------------------------------------
-# The JEV inputs are DB-owned (one `jev_profile` row, id=1); config `jev_dir` seeds it
-# once when absent. Texts are stored exactly as read so the policy hash is unchanged.
-
-def get_jev_profile(conn: sqlite3.Connection) -> dict | None:
-    row = conn.execute("SELECT * FROM jev_profile WHERE id=1").fetchone()
+def get_candidate_profile(conn: sqlite3.Connection) -> dict | None:
+    """The stored row as a dict, or None when none exists yet."""
+    row = conn.execute("SELECT * FROM candidate_profile WHERE id=1").fetchone()
     return dict(row) if row else None
 
 
-def seed_jev_profile(conn: sqlite3.Connection, texts: dict, *, now: str) -> bool:
-    cur = conn.execute(
-        "INSERT INTO jev_profile (id, profile_text, c_pack, yoe_pack, yoe_context, version, "
-        "actor, updated_at) VALUES (1, :profile_text, :c_pack, :yoe_pack, :yoe_context, 1, "
-        "'config', :now) ON CONFLICT(id) DO NOTHING", {**texts, "now": now})
+def write_candidate_profile(conn: sqlite3.Connection, values: dict, *, actor: str, now: str,
+                            confirmed_at: str | None = None, changed_at: str | None = None,
+                            replace: bool = False) -> bool:
+    """Insert the one-time seed (a no-op, False, once a row exists), or with `replace`
+    overwrite the row's profile fields (the migration replacing an untouched config seed).
+    `values` holds profile.PROFILE_FIELDS; booleans are stored as 0/1."""
+    cols = {**values, "exclude_internships": int(bool(values["exclude_internships"])),
+            "exclude_contract": int(bool(values["exclude_contract"])),
+            "actor": actor, "updated_at": now, "confirmed_at": confirmed_at,
+            "changed_at": changed_at}
+    names = sorted(cols)
+    if replace:
+        sql = (f"UPDATE candidate_profile SET {', '.join(f'{n}=:{n}' for n in names)}, "
+               "version=1 WHERE id=1")
+    else:
+        sql = (f"INSERT INTO candidate_profile (id, version, {', '.join(names)}) "
+               f"VALUES (1, 1, {', '.join(':' + n for n in names)}) ON CONFLICT(id) DO NOTHING")
+    cur = conn.execute(sql, cols)
     conn.commit()
     return cur.rowcount == 1
 

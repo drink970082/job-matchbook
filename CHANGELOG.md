@@ -35,7 +35,20 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 
 ### Changed
 
-- **Closed postings leave every Discovered Jobs stage** (#265): `source_state='closed'`
+- **One candidate profile** (#224, epic #223): a single `candidate_profile` row (search
+  scope, hard requirements, background, preferences, triage packs) replaces
+  `candidate_preferences`, `jev_profile`, config `title_filter` / `title_exclude` /
+  `max_age_days` and `jev_dir`; fetch, the screen and triage all read it. Highest degree
+  and total years are derived from the education and experience rows. The question packs
+  are committed defaults (`ats_worker/triage_packs/`, formerly `jev.example/`), with
+  optional custom packs. One Settings form, one MCP pair (`get_candidate_profile` /
+  `set_candidate_profile`, replacing `get/set_preferences` and `get/set_jev_profile`) and
+  one `PUT /api/v1/candidate-profile` (replacing `/preferences` and `/jev-profile`).
+  The config keys only seed the row once and are then ignored (logged). The keep/skip
+  stage is named **triage** in the UI and MCP; JEV is its provider. Existing installs
+  migrate once with `python3 -m ats_worker.migrate_profile` (backup, schema push, then
+  migrate from the backup); the migration refuses unless the screen and the JEV policy
+  hash are unchanged.: `source_state='closed'`
   files a posting under a new `closed` funnel stage, ahead of every other stage, so a
   closed `keep` no longer sits in `keep`. MCP `list_jobs` takes `closed`
   (`exclude` default, `only`, `all`) and the overview's `jev_filter_counts` leave closed

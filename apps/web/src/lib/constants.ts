@@ -24,6 +24,11 @@ export type Actor = (typeof ACTORS)[number]
 // config.VALID_WORK_AUTHORIZATION (the screen reads the value by substring).
 export const WORK_AUTHORIZATIONS = ['citizen', 'permanent resident', 'authorized-no-sponsorship', 'needs visa sponsorship'] as const
 
+// candidate_profile education degrees, ranked lowest first; must match the worker's
+// profile.DEGREES (the screen's DEGREE_RANK), which compares the highest one by rank.
+// Pinned on both sides by worker/tests/fixtures/candidate-profile-cases.json.
+export const DEGREES = ['none', 'high school', 'associate', "bachelor's", "master's", 'phd'] as const
+
 // The vocabulary the CHARTS key on: every real status plus 'No Response', the
 // pseudo-status getStatusFlow synthesizes for an application that never left
 // 'Applied' (see analytics-actions.ts). It is deliberately not a real status — nothing is ever

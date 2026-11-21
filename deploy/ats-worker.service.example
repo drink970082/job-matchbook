@@ -68,7 +68,8 @@ WorkingDirectory=/home/YOU/ats/apps/worker
 # EDIT the flags too. `--screen-limit` caps provider calls per pass (default 40, or
 # SCREEN_LIMIT); on a paid SCREEN_BACKEND it is the per-pass spend ceiling, and the
 # daemon applies it to EVERY slot. Add `--jev --jev-limit 300 --jev-max-usd 0.10` to run
-# the paid keep/skip filter after the screen (needs `jev_dir` + OPENROUTER_API_KEY).
+# triage, the paid keep/skip stage, after the screen (needs a target role in the
+# candidate profile + OPENROUTER_API_KEY).
 ExecStart=/usr/bin/python3 -m ats_worker.run --screen-limit 40
 
 # LOAD-BEARING. The pipeline's progress lines are plain `print()` with no flush=, so under

@@ -6,7 +6,8 @@ import json
 
 import pytest
 
-from ats_worker import db, jev, pipeline, run
+from ats_worker import config as cfgmod
+from ats_worker import db, jev, pipeline, profile, run
 from tests._helpers import NOW, bootstrap_db, make_posting
 
 MODEL = "fake-jev-resolved-v1"
@@ -321,19 +322,15 @@ def test_save_jev_validates_state_and_skips_non_new_rows(tmp_path):
 
 # --- run.py wiring --------------------------------------------------------
 
-class _Cfg:
-    jev_dir = "unused"
-
-
 def test_run_jev_without_a_key_skips_loudly(capsys):
-    run._run_jev(None, _Cfg(), env={}, limit=1, max_usd=Decimal("1"), now=NOW)
+    run._run_jev(None, None, env={}, limit=1, max_usd=Decimal("1"), now=NOW)
     assert "OPENROUTER_API_KEY" in capsys.readouterr().out
 
 
 def test_run_jev_wires_the_client_into_the_pipeline(monkeypatch, tmp_path):
     conn = _screened_db(tmp_path, ["a"])
     monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
-    monkeypatch.setattr(run, "_jev_inputs", lambda conn, cfg, now: _inputs())
+    monkeypatch.setattr(run, "_triage_inputs", lambda prof: _inputs())
 
     class Client:
         def __init__(self, session, key):
@@ -344,14 +341,14 @@ def test_run_jev_wires_the_client_into_the_pipeline(monkeypatch, tmp_path):
 
         post = staticmethod(fake_post("plausible", "three_plus"))
     monkeypatch.setattr(jev, "OpenRouterClient", Client)
-    run._run_jev(conn, _Cfg(), env={"OPENROUTER_API_KEY": "sk-x"}, limit=5,
+    run._run_jev(conn, None, env={"OPENROUTER_API_KEY": "sk-x"}, limit=5,
                  max_usd=Decimal("1"), now=NOW)
     row = _rows(conn)["a"]
     assert row["verdict"] == "skip" and row["policy_sha256"] == _inputs().policy_sha(MODEL)
 
 
 def test_run_jev_metadata_failure_skips_the_stage(monkeypatch, capsys):
-    monkeypatch.setattr(run, "_jev_inputs", lambda conn, cfg, now: _inputs())
+    monkeypatch.setattr(run, "_triage_inputs", lambda prof: _inputs())
 
     class Client:
         def __init__(self, session, key):
@@ -360,7 +357,7 @@ def test_run_jev_metadata_failure_skips_the_stage(monkeypatch, capsys):
         def resolve_model(self):
             raise OSError("down")
     monkeypatch.setattr(jev, "OpenRouterClient", Client)
-    run._run_jev(None, _Cfg(), env={"OPENROUTER_API_KEY": "k"}, limit=1,
+    run._run_jev(None, None, env={"OPENROUTER_API_KEY": "k"}, limit=1,
                  max_usd=Decimal("1"), now=NOW)
     assert "metadata unavailable" in capsys.readouterr().out
 
@@ -380,12 +377,16 @@ def test_cli_validates_jev_flags(tmp_path, capsys, extra, message):
     assert message in capsys.readouterr().err
 
 
-def test_cli_jev_requires_jev_dir(tmp_path, capsys):
+def test_cli_jev_needs_no_jev_dir(tmp_path, monkeypatch):
+    # Triage reads the candidate profile and the committed default packs; a profile
+    # without a target role skips the stage at run time, loudly (below).
     cfg = tmp_path / "config.yaml"
     cfg.write_text("max_age_days: 1\n")
-    with pytest.raises(SystemExit):
-        run.main(["--once", "--config", str(cfg), "--jev"])
-    assert "jev_dir" in capsys.readouterr().err
+    seen = []
+    monkeypatch.setattr(run, "run_once", lambda cfg, **kw: seen.append(kw["jev_enabled"]))
+    run.main(["--once", "--config", str(cfg), "--jev", "--db", str(tmp_path / "p.db"),
+              "--env", str(tmp_path / "none.env")])
+    assert seen == [True]
 
 
 def test_run_jev_records_the_current_policy_for_mcp(tmp_path):
@@ -433,7 +434,7 @@ def test_run_jev_does_not_retry_an_error_that_aged_out_and_falls_back_to_created
     assert _rows(conn)["aged"]["state"] == "provider_error"
 
 
-# --- stored JEV profile (#157): jev_dir seeds the row once, then the row wins --------
+# --- triage reads the candidate profile (#224) -------------------------------------
 
 def _write_jev_dir(path, profile='{"profile": {"note": "café "}, "domains": {}}  '):
     path.mkdir()
@@ -446,71 +447,84 @@ def _write_jev_dir(path, profile='{"profile": {"note": "café "}, "domains": {}}
     return path
 
 
-class _DirCfg:
-    def __init__(self, jev_dir):
-        self.jev_dir = str(jev_dir)
+def _insert_profile(conn, **cols):
+    cols = {"actor": "web", "updated_at": NOW, **cols}
+    conn.execute(f"INSERT INTO candidate_profile (id, {', '.join(cols)}) "
+                 f"VALUES (1, {', '.join('?' * len(cols))})", tuple(cols.values()))
+    conn.commit()
 
 
-def test_seeded_profile_keeps_the_policy_hash_of_the_files(tmp_path, capsys):
+STRUCTURED = dict(
+    target_roles='["Backend engineer"]', not_interested='["Sales engineering"]',
+    education='[{"degree":"master\'s","field":"CS"}]',
+    experience='[{"title":"SWE","company":"Acme","years":1.5},{"title":"Intern","company":"B","years":0.5}]')
+
+
+def test_triage_reads_the_structured_profile_with_the_default_packs(tmp_path):
+    conn = db.connect(bootstrap_db(tmp_path / "p.db"))
+    _insert_profile(conn, **STRUCTURED)
+    inputs = run._triage_inputs(profile.load(conn))
+    defaults = profile.default_packs()
+    assert inputs.c_pack == json.loads(defaults["preference_pack"])
+    assert inputs.yoe_pack == json.loads(defaults["yoe_pack"])
+    assert json.loads(inputs.profile_text)["target_roles"] == ["Backend engineer"]
+    # Background facts are entered once: the YOE context carries the derived total.
+    assert inputs.yoe_context == ("Education: master's in CS.\n"
+                                  "Experience: SWE at Acme, 1.5 years; Intern at B, 0.5 years.\n"
+                                  "Total years of experience: 2.")
+
+
+def test_jev_dir_seeds_the_profile_and_keeps_the_policy_hash_of_the_files(tmp_path, capsys):
     jev_dir = _write_jev_dir(tmp_path / "jev")
     conn = db.connect(bootstrap_db(tmp_path / "p.db"))
-    from_db = run._jev_inputs(conn, _DirCfg(jev_dir), now=NOW)
-    assert "seeded the JEV profile" in capsys.readouterr().out
-    assert from_db.policy_sha(MODEL) == jev.load_inputs(jev_dir).policy_sha(MODEL)
-    assert db.get_jev_profile(conn)["profile_text"] == (jev_dir / "profile-binding.json").read_text(encoding="utf-8")
+    cfg = cfgmod.load_config(f"jev_dir: {jev_dir}\n")
+    prof = run._profile_for_pass(conn, cfg, now=NOW)
+    assert "seeded the candidate profile" in capsys.readouterr().out
+    assert run._triage_inputs(prof).policy_sha(MODEL) == jev.load_inputs(jev_dir).policy_sha(MODEL)
+    assert prof.custom_triage_context["profile_text"] == (jev_dir / "profile-binding.json").read_text(encoding="utf-8")
+    assert prof.custom_packs is not None                  # not the committed defaults
     # Read back with no jev_dir at all: still the same policy.
-    assert run._jev_inputs(conn, _DirCfg(""), now=NOW).policy_sha(MODEL) == from_db.policy_sha(MODEL)
+    again = run._profile_for_pass(conn, cfgmod.Config(), now=NOW)
+    assert run._triage_inputs(again).policy_sha(MODEL) == jev.load_inputs(jev_dir).policy_sha(MODEL)
 
 
-def test_stored_profile_wins_over_edited_files_and_is_reported(tmp_path, capsys):
+def test_stored_profile_wins_over_an_edited_jev_dir_and_is_reported(tmp_path, capsys):
     jev_dir = _write_jev_dir(tmp_path / "jev")
     conn = db.connect(bootstrap_db(tmp_path / "p.db"))
-    run._jev_inputs(conn, _DirCfg(jev_dir), now=NOW)
-    conn.execute("UPDATE jev_profile SET profile_text='{\"profile\":\"from mcp\"}', version=2")
+    cfg = cfgmod.load_config(f"jev_dir: {jev_dir}\n")
+    run._profile_for_pass(conn, cfg, now=NOW)
+    conn.execute("""UPDATE candidate_profile SET custom_triage_context=
+        '{"profile_text":"{\\"profile\\":\\"from mcp\\"}","yoe_context":"c"}', version=2""")
     conn.commit()
     (jev_dir / "profile-binding.json").write_text('{"profile":"edited file"}', encoding="utf-8")
     capsys.readouterr()
-    assert run._jev_inputs(conn, _DirCfg(jev_dir), now=NOW).profile_text == '{"profile":"from mcp"}'
-    assert "differ from the stored JEV profile" in capsys.readouterr().out
+    inputs = run._triage_inputs(run._profile_for_pass(conn, cfg, now=NOW))
+    assert inputs.profile_text == '{"profile":"from mcp"}'
+    assert "jev_dir ignored" in capsys.readouterr().out
 
 
-def test_no_jev_dir_and_no_row_skips_the_stage(tmp_path, monkeypatch, capsys):
+def test_a_profile_without_a_target_role_skips_triage(tmp_path, capsys):
     conn = db.connect(bootstrap_db(tmp_path / "p.db"))
-    assert run._jev_inputs(conn, _DirCfg(""), now=NOW) is None
-    run._run_jev(conn, _DirCfg(""), env={"OPENROUTER_API_KEY": "k"}, limit=1,
+    _insert_profile(conn, locations='["USA"]', education='[{"degree":"phd","field":""}]')
+    run._run_jev(conn, profile.load(conn), env={"OPENROUTER_API_KEY": "k"}, limit=1,
                  max_usd=Decimal("1"), now=NOW)
-    assert "no stored JEV profile" in capsys.readouterr().out
+    run._run_jev(conn, None, env={"OPENROUTER_API_KEY": "k"}, limit=1,
+                 max_usd=Decimal("1"), now=NOW)
+    assert capsys.readouterr().out.count("no target role") == 2
 
 
-def test_cli_jev_accepts_a_stored_profile_without_jev_dir(tmp_path, monkeypatch):
-    conn = db.connect(bootstrap_db(tmp_path / "p.db"))
-    db.seed_jev_profile(conn, jev.read_files(_write_jev_dir(tmp_path / "jev")), now=NOW)
-    conn.close()
-    cfg = tmp_path / "config.yaml"
-    cfg.write_text("max_age_days: 1\n")
-    seen = []
-    monkeypatch.setattr(run, "run_once", lambda cfg, **kw: seen.append(kw["jev_enabled"]))
-    run.main(["--once", "--config", str(cfg), "--jev", "--db", str(tmp_path / "p.db"),
-              "--env", str(tmp_path / "none.env")])
-    assert seen == [True]
-
-
-def test_stored_profile_survives_a_missing_jev_dir_and_packs_may_carry_a_bom(tmp_path, capsys):
+def test_seeded_profile_survives_a_missing_jev_dir_and_packs_may_carry_a_bom(tmp_path):
     jev_dir = _write_jev_dir(tmp_path / "jev")
     pack = jev_dir / "question-pack.json"
     pack.write_bytes(b"\xef\xbb\xbf" + pack.read_bytes())
     conn = db.connect(bootstrap_db(tmp_path / "p.db"))
-    first = run._jev_inputs(conn, _DirCfg(jev_dir), now=NOW)
-    assert first.policy_sha(MODEL) == _inputs_from(jev_dir).policy_sha(MODEL)
+    cfg = cfgmod.load_config(f"jev_dir: {jev_dir}\n")
+    first = run._triage_inputs(run._profile_for_pass(conn, cfg, now=NOW))
+    assert first.policy_sha(MODEL) == jev.load_inputs(jev_dir).policy_sha(MODEL)
     for f in jev_dir.iterdir():
         f.unlink()
-    capsys.readouterr()
-    assert run._jev_inputs(conn, _DirCfg(jev_dir), now=NOW).policy_sha(MODEL) == first.policy_sha(MODEL)
-    assert "jev_dir is unreadable" in capsys.readouterr().out
-
-
-def _inputs_from(jev_dir):
-    return jev.load_inputs(jev_dir)
+    again = run._triage_inputs(run._profile_for_pass(conn, cfg, now=NOW))
+    assert again.policy_sha(MODEL) == first.policy_sha(MODEL)
 
 
 # --- JEV_BACKEND=extract ---------------------------------------------------
@@ -577,8 +591,8 @@ def test_assess_extract_maps_provider_failure_and_oversize():
 
 def test_run_jev_extract_keys_policy_on_the_backend(monkeypatch, tmp_path):
     conn = _screened_db(tmp_path, ["a", "b"])
-    monkeypatch.setattr(run, "_jev_inputs", lambda conn, cfg, now: _inputs())
-    run._run_jev_extract(conn, _Cfg(), extract=fake_extract("plausible", "three_plus"),
+    monkeypatch.setattr(run, "_triage_inputs", lambda prof: _inputs())
+    run._run_jev_extract(conn, None, extract=fake_extract("plausible", "three_plus"),
                          limit=1, model="extract:ollama:m:None", now=NOW)
     rows = _rows(conn)
     done = [r for r in rows.values() if r["verdict"]]
@@ -658,27 +672,22 @@ def test_cli_jev_limit_default_depends_on_backend(backend, limit, monkeypatch, t
     assert seen["jev_limit"] == limit and seen["jev_backend"] == backend
 
 
-# --- the committed example packs (jev.example/) run on a fresh checkout ----------
+# --- the committed default packs run on a fresh install --------------------------
 
-EXAMPLE_DIR = __import__("pathlib").Path(__file__).resolve().parents[1] / "jev.example"
-
-
-def test_example_packs_run_through_extract_from_a_fresh_db(monkeypatch, tmp_path):
+def test_default_packs_run_through_extract_from_a_fresh_profile(tmp_path):
     conn = _screened_db(tmp_path, ["a", "b"])
-
-    class Cfg:
-        jev_dir = str(EXAMPLE_DIR)
+    _insert_profile(conn, **STRUCTURED)
     picks = {"preference": "strong", "required_yoe_for_candidate": "above_candidate"}
-    run._run_jev_extract(conn, Cfg(), extract=lambda p, s: {k: picks[k] for k in s["properties"]},
+    run._run_jev_extract(conn, profile.load(conn),
+                         extract=lambda p, s: {k: picks[k] for k in s["properties"]},
                          limit=5, model="extract:test", now=NOW)
     rows = _rows(conn)
     assert len(rows) == 2 and all(r["verdict"] == "skip" for r in rows.values())
     assert json.loads(rows["a"]["reasons_json"]) == ["required_yoe_above_candidate"]
-    assert db.get_jev_profile(conn) is not None          # seeded from the example dir
 
 
-def test_example_packs_validate_on_the_native_path():
-    inputs = jev.load_inputs(EXAMPLE_DIR)
+def test_default_packs_validate_on_the_native_path():
+    inputs = run._triage_inputs(profile.from_row(dict(STRUCTURED)))
 
     def post(raw):
         body = json.loads(raw)
@@ -689,14 +698,11 @@ def test_example_packs_validate_on_the_native_path():
     assert out["verdict"] == "keep"
 
 
-def test_invalid_stored_profile_skips_the_stage_with_a_repair_hint(tmp_path, capsys):
+def test_invalid_custom_packs_skip_triage_with_a_repair_hint(tmp_path, capsys):
     conn = _screened_db(tmp_path, ["a"])
     no_skip = json.loads(json.dumps(YOE_PACK))
     no_skip["questions"][0]["criteria"].pop("three_plus")
-    db.seed_jev_profile(conn, {"profile_text": "{}", "c_pack": json.dumps(C_PACK),
-                               "yoe_pack": json.dumps(no_skip), "yoe_context": "c"}, now=NOW)
-
-    class Cfg:
-        jev_dir = None
-    assert run._jev_inputs(conn, Cfg(), now=NOW) is None
-    assert "DELETE FROM jev_profile" in capsys.readouterr().out
+    _insert_profile(conn, target_roles='["x"]', custom_packs=json.dumps(
+        {"preference_pack": json.dumps(C_PACK), "yoe_pack": json.dumps(no_skip)}))
+    assert run._triage_inputs(profile.load(conn)) is None
+    assert "custom_packs=null" in capsys.readouterr().out
