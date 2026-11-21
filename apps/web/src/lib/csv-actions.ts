@@ -2,7 +2,7 @@
 
 import { prisma } from '@/lib/db'
 import { LEGACY_STATUS_MAP, STATUSES } from '@/lib/constants'
-import { writeInitialHistory, CATEGORY_FALLBACK } from '@/lib/action-helpers'
+import { applicationAudit, writeInitialHistory, CATEGORY_FALLBACK } from '@/lib/action-helpers'
 
 const CSV_COLUMNS = [
     'company_name',
@@ -194,6 +194,7 @@ export async function importApplicationsCSV(csvText: string) {
                         },
                     })
                     await writeInitialHistory(tx, created)
+                    await tx.audit_log.create({ data: applicationAudit('web', 'add', created.id, created) })
                     a++
                 }
 

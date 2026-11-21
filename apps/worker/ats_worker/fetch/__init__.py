@@ -4,6 +4,8 @@ from __future__ import annotations
 import re
 from datetime import date
 
+from ats_worker import recipe_schema
+
 from . import (ashby, browser, custom, greenhouse, icims, jobvite, lever, oracle,
                phenom, pinpoint, smartrecruiters, workable, workday)
 
@@ -50,6 +52,23 @@ STUB_GATE_NOW_SOURCES = frozenset({"workday"})
 # Sources fetched ONE job at a time (no public board-list endpoint), via
 # adapter.fetch_one. The feed's detail-fetch path routes these.
 DETAIL_SOURCES = frozenset(s for s, m in ADAPTERS.items() if hasattr(m, "fetch_one"))
+
+# Board sources whose successful fetch accounts for EVERY listed id — in the returned
+# postings or through the `keep` stub gate — so an id missing from it is absent from
+# the board, and repeated absence can close a stored posting (pipeline.run_fetch).
+# Left out, each for a list that can be short without raising:
+#   workday         stubs carry jobReqId, not the stored GUID; a failed detail drops the row
+#   smartrecruiters a failed or inactive detail drops the row
+#   phenom          a throttled board is salvaged as its first pages
+#   browser         pagination ends on a render that timed out or was walled
+#   icims           pagination ends on the first page with no parsed cards (a 200
+#                   interstitial reads as the end of the board)
+#   custom          a recipe may fetch one capped page (`limit=100`, page none) or page
+#                   wrongly; a recipe-level "complete list" opt-in could re-admit it
+# workday and smartrecruiters are per-listing sources, so run_expire's per-id check
+# still closes them.
+ABSENCE_CLOSURE_SOURCES = frozenset(
+    {"greenhouse", "lever", "ashby", "pinpoint", "workable"})
 
 
 def filter_postings(postings: list[dict], title_filter: list[str] | None) -> list[dict]:
@@ -148,6 +167,9 @@ def fetch_company(source: str, slug: str, company_name: str, *,
     if keep is not None and source in STUB_GATE_SOURCES:
         kwargs["keep"] = keep
     if source in RECIPE_SOURCES:
+        # Before any request: an invalid stored recipe raises here, naming the key, and
+        # run_fetch logs it and skips just this board.
+        recipe_schema.check(source, recipe)
         return adapter.fetch(slug, company_name, recipe=recipe, **kwargs)
     return adapter.fetch(slug, company_name, **kwargs)
 
@@ -165,7 +187,7 @@ def fetch_one_company(source: str, slug: str, external_id: str,
 
 
 __all__ = [
-    "ADAPTERS", "DETAIL_SOURCES", "STUB_GATE_SOURCES", "STUB_GATE_NOW_SOURCES",
+    "ADAPTERS", "ABSENCE_CLOSURE_SOURCES", "DETAIL_SOURCES", "STUB_GATE_SOURCES", "STUB_GATE_NOW_SOURCES",
     "filter_postings", "prefilter_postings",
     "fetch_company", "fetch_one_company",
     "ashby", "greenhouse", "lever", "workday", "pinpoint", "smartrecruiters",

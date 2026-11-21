@@ -169,6 +169,21 @@ test('updateApplicationStatus returns the recomputed current status and the reco
         .toEqual({ success: true, data: { status: 'Interviewing', recorded: 'Rejected' } })
 })
 
+test('the status audit row snapshots the recomputed status, not the requested one', async () => {
+    const res = await addApplication({ company_name: 'Acme', job_title: 'Eng', date_applied: '2026-10-20' })
+    const id = res.data!.id
+    await updateApplicationStatus(id, 'Interviewing', '2026-11-10')
+    await updateApplicationStatus(id, 'Rejected', '2026-11-01')
+    const audit = await prisma.audit_log.findFirstOrThrow({ where: { action: 'status' }, orderBy: { id: 'desc' } })
+    const payload = JSON.parse(audit.payload!)
+    expect(payload.after.status).toBe('Interviewing')
+    expect(payload.history.status).toBe('Rejected')
+
+    await deleteHistoryItem(payload.history.id)
+    const removed = await prisma.audit_log.findFirstOrThrow({ where: { action: 'remove_history' } })
+    expect(JSON.parse(removed.payload!).after.status).toBe('Interviewing')
+})
+
 test('deleting the backdated row leaves the later one current', async () => {
     const res = await addApplication({ company_name: 'Acme', job_title: 'Eng', date_applied: '2026-10-20' })
     const id = res.data!.id

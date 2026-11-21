@@ -157,6 +157,8 @@ describe('Backend Actions', () => {
 
   describe('updateApplicationDetails', () => {
     it('keeps a free-form category', async () => {
+      mockPrisma.$transaction.mockImplementation(async (cb: any) => cb(mockPrisma))
+      mockPrisma.applications.findUnique.mockResolvedValue({ id: 1 } as any)
       mockPrisma.applications.update.mockResolvedValue({ id: 1 } as any)
 
       await updateApplicationDetails(1, { company_name: 'A', job_title: 'B', category: 'Investment Banking' })
@@ -177,10 +179,11 @@ describe('Backend Actions', () => {
       mockPrisma.$transaction.mockImplementation(async (callback: any) => await callback(mockPrisma))
       // Status is read back from the latest history row (#243).
       mockPrisma.status_history.findFirst.mockResolvedValue({ status: newStatus } as any)
+      mockPrisma.applications.update.mockResolvedValue({ id: appId, status: newStatus } as any)
 
       const result = await updateApplicationStatus(appId, newStatus)
 
-      expect(result.success).toBe(true)
+      expect(result).toEqual({ success: true, data: { status: newStatus, recorded: newStatus } })
       expect(mockPrisma.applications.update).toHaveBeenCalledWith(expect.objectContaining({
         where: { id: appId },
         data: expect.objectContaining({ status: newStatus })

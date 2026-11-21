@@ -329,3 +329,13 @@ test('watchlist add by careers URL resolves through the shared resolver (#208)',
     const both = await addWatch(req({ url: 'https://jobs.lever.co/x', source: 'lever', slug: 'x', name: 'X' }, RW))
     expect(both.status).toBe(400)
 })
+
+test('watchlist add validates a recipe against the recipe schema (#238)', async () => {
+    const recipe = { url: 'https://boards.example.com/api/jobs', item_path: 'jobs', fields: { title: 'title', external_id: 'id' } }
+    const add = (r: object) => addWatch(req({ source: 'custom', slug: 'acme', name: 'Acme', recipe: JSON.stringify(r) }, RW))
+    const typo = await add({ ...recipe, item_path: undefined, item_pth: 'jobs' })
+    expect(typo.status).toBe(400)
+    expect((await typo.json()).error).toMatch(/invalid custom recipe: .*item_pth/)
+    expect(await prisma.watched_companies.count()).toBe(0)
+    expect((await add(recipe)).status).toBe(200)
+})

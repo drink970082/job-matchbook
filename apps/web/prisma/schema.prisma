@@ -52,6 +52,7 @@ model job_postings {
   posted_at       String? // board posting date normalized to YYYY-MM-DD; scrape-date fallback when the board gives none; null only on legacy pre-backfill rows
   source_state                    String  @default("unknown") // unknown | available | closed; independent of pipeline_status
   source_last_seen_at             String? // latest exact identity seen in a listing or detail response
+  source_absent_count             Int     @default(0) // consecutive successful, non-empty board lists without this id; 3 closes it
   source_last_check_attempted_at  String? // latest selected detail refresh attempt
   source_last_checked_at          String? // latest conclusive exact-ID detail check
   source_last_check_outcome        String  @default("not_checked") // not_checked | found | confirmed_closed | inconclusive

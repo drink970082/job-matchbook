@@ -45,6 +45,10 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
   dated today is stamped now, not noon. `updateApplicationStatus`, `/api/v1` and MCP
   `update_application_status` return the current status and the recorded one, and the
   UI says when a backdated change did not become current.
+- **`run_expire` writes `source_state='closed'`** (#230) on a 404/410 instead of
+  `pipeline_status='expired'`; lifecycle and `updated_at` stay untouched. `expired` is a
+  legacy status nothing writes; `prisma/migrate-expired-230.mjs` turns stored `expired`
+  rows into `new` + `closed`.
 
 - **Product direction**: Job Matchbook is an elimination filter, not a recommender, for
   new graduates and international students
@@ -171,6 +175,33 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 
 ### Added
 
+- **Recipe JSON Schema, validated at every entry point** (#238).
+  `apps/web/src/lib/recipe.schema.json` declares every key the `custom` and `browser`
+  executors read, with one example per mode, and rejects any other key. Web add and
+  `POST /api/v1/watchlist` validate with zod's `fromJSONSchema` (MCP `add_source` carries
+  no recipe until #239); the
+  config seed, `add_watched.py` and `fetch_company` validate with `jsonschema` (new worker
+  dependency). An invalid stored recipe skips only its board, logged with the offending
+  key. All 15 recipe rows on the operator's watchlist validated when this shipped.
+
+- **Closure detection from board lists** (#230): `run_fetch` stamps
+  `source_last_seen_at` for every id a successful board list carried, before any
+  filter, including stubs the `keep` gate dropped. A stored posting absent from 3
+  consecutive successful, non-empty lists of its board becomes `source_state='closed'`
+  (new `job_postings.source_absent_count`); a failed or empty fetch never counts and a
+  relisting reopens it. Only `fetch.ABSENCE_CLOSURE_SOURCES` (greenhouse, lever, ashby,
+  pinpoint, workable) count absence: workday (stubs carry `jobReqId`, not the stored
+  GUID), smartrecruiters, phenom, browser, icims and custom can return a short list
+  without raising and are excluded. Closed postings leave the
+  screen, JEV and recheck queues. Deploy: back up `db/`, `make db-push` (additive
+  column), then `node apps/web/prisma/migrate-expired-230.mjs <DATABASE_URL>`.
+
+- **Application deletes free the posting; application writes are audited** (#242).
+  Deleting an application sets each linked `applied` posting back to `new` in the same
+  transaction, so it can be marked applied again. Create (including CSV import), detail edit,
+  status change, history-item delete and delete each write one `audit_log` row with the
+  actor and the row before/after; `PATCH /api/v1/applications/{id}` now stamps
+  `actor='mcp'`. The Activity tab lists edits and deletes.
 - **Example JEV packs and a per-stage provider guide** (#179). `apps/worker/jev.example/`
   holds a synthetic `jev_dir` (profile, both packs, experience context) a fresh checkout
   can run `--jev` against; SPEC documents the pack format; SETUP Path C2 adds a

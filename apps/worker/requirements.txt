@@ -2,6 +2,8 @@ requests>=2.31
 beautifulsoup4>=4.12
 apscheduler>=3.10
 PyYAML>=6.0
+# Recipe validation against apps/web/src/lib/recipe.schema.json (ats_worker/recipe_schema.py).
+jsonschema>=4.18
 # PINNED, not floored: tests/fixtures/location_corpus.jsonl gates exact leak counts
 # over 1,611 real location strings, so the gazetteer DATA is part of the contract.
 # An upstream population or subdivision update silently flips cases; a pinned
