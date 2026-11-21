@@ -71,6 +71,9 @@ async def test_in_memory_protocol_lists_read_only_tools_and_returns_structured_d
         assert result.is_error is not True
         assert result.structured_content["items"][0]["job_title"] == "Engineer"
         assert "description" not in result.structured_content["items"][0]
+        closed_only = await client.call_tool("list_jobs", {"closed": "only"})
+        assert closed_only.structured_content["items"] == []
+        assert closed_only.structured_content["closed_filter"]["applied"] == "only"
         overview = await client.call_tool("get_ats_overview", {})
         assert overview.structured_content["table_counts"]["applications"] == 1
 

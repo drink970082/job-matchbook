@@ -107,6 +107,9 @@ _TRIAGE_STATUS_SET = frozenset(TRIAGE_STATUSES)
 # never assessed, whose assessment failed, or whose source changed since is shown.
 JEV_STATUSES = ("keep", "skip", "unassessed", "failed", "stale")
 _JEV_FILTERS = frozenset({"keep", "skip", "all"})
+# A posting closed at its source (source_state='closed') is hidden by default, as the
+# web files it only under its `closed` stage (tests/fixtures/closed-stage-cases.json).
+_CLOSED_FILTERS = {"exclude": "p.source_state<>'closed'", "only": "p.source_state='closed'", "all": None}
 _KNOWN_PIPELINE_STATUSES = frozenset(PIPELINE_STATUSES)
 _ACTIVE_CANDIDATE_STATUSES = frozenset({"new", "scored", "notified"})
 _SUPPORTED_SCREEN_CHECKS = frozenset({
@@ -1155,7 +1158,8 @@ class ReadOnlyATSRepository:
                                 for row in triage_count_rows}
             jev_count_map = {row["status"]: int(row["count"]) for row in conn.execute(
                 f"SELECT {_jev_status_sql()} AS status,COUNT(*) AS count FROM job_postings p"
-                + _JEV_JOIN + " WHERE p.pipeline_status='new' GROUP BY status").fetchall()}
+                + _JEV_JOIN + " WHERE p.pipeline_status='new' AND p.source_state<>'closed' "
+                "GROUP BY status").fetchall()}
             screening_records = self._group_counts(conn, "job_screenings", "state")
             pipeline_counts = self._group_counts(conn, "job_postings", "pipeline_status")
             application_counts = self._group_counts(conn, "applications", "status")
@@ -1197,10 +1201,11 @@ class ReadOnlyATSRepository:
                     ],
                 },
                 "jev_filter_counts": {
-                    "scope": "pipeline_status=new",
+                    "scope": "pipeline_status=new, not source_state=closed",
                     "counts": [{"status": status, "count": jev_count_map.get(status, 0)}
                                for status in JEV_STATUSES],
-                    "semantics": "list_jobs hides only skip by default (jev='keep')",
+                    "semantics": ("list_jobs hides skip (jev='keep') and closed "
+                                  "(closed='exclude') by default"),
                 },
                 "eligible_screen_backlog": {
                     "scope": "pipeline_status=new",
@@ -1225,12 +1230,14 @@ class ReadOnlyATSRepository:
                   posted_from: str | None = None, posted_to: str | None = None,
                   screening_updated_from: str | None = None,
                   screening_updated_to: str | None = None,
-                  application_id: int | None = None, jev: str = "keep",
+                  application_id: int | None = None, jev: str = "keep", closed: str = "exclude",
                   limit: int = DEFAULT_PAGE_SIZE,
                   cursor: str | None = None) -> dict[str, Any]:
         limit = _page_size(limit)
         if jev not in _JEV_FILTERS:
             raise QueryInputError("jev must be keep, skip or all")
+        if closed not in _CLOSED_FILTERS:
+            raise QueryInputError("closed must be exclude, only or all")
         search = _bounded_text(search, "search", MAX_SEARCH_CHARS)
         source = _bounded_text(source, "source", MAX_FILTER_CHARS)
         pipeline_status = _bounded_text(pipeline_status, "pipeline_status", MAX_FILTER_CHARS)
@@ -1270,7 +1277,8 @@ class ReadOnlyATSRepository:
                    "screening_updated_to": screening_updated_to,
                    "created_from": created_from,
                    "created_to": created_to, "posted_from": posted_from,
-                   "posted_to": posted_to, "application_id": application_id, "jev": jev}
+                   "posted_to": posted_to, "application_id": application_id, "jev": jev,
+                   "closed": closed}
         scope = _filter_scope("jobs", filters)
         decoded = _cursor_decode(cursor, scope, "int", composite=True)
         clauses: list[str] = []
@@ -1315,6 +1323,8 @@ class ReadOnlyATSRepository:
         if posted_to:
             clauses.append("substr(p.posted_at, 1, 10) <= ?")
             params.append(posted_to)
+        if _CLOSED_FILTERS[closed]:
+            clauses.append(_CLOSED_FILTERS[closed])
         if decoded and decoded.extra is not None and decoded.key > decoded.extra:
             raise QueryInputError("cursor is malformed")
         unfiltered_clauses, unfiltered_params = list(clauses), list(params)
@@ -1427,6 +1437,11 @@ class ReadOnlyATSRepository:
                           "failed and stale postings are shown. hidden_skip_count is "
                           "reported on the first page of a keep listing only. A skip is "
                           "advisory; read them with jev='skip'."),
+        }
+        page["closed_filter"] = {
+            "applied": closed,
+            "semantics": ("exclude (default) hides postings closed at their source "
+                          "(source_state=closed); only lists just those; all lists both."),
         }
         page["traversal"] = {
             "id_ceiling": ceiling,

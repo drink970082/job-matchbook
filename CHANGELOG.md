@@ -35,6 +35,12 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 
 ### Changed
 
+- **Closed postings leave every Discovered Jobs stage** (#265): `source_state='closed'`
+  files a posting under a new `closed` funnel stage, ahead of every other stage, so a
+  closed `keep` no longer sits in `keep`. MCP `list_jobs` takes `closed`
+  (`exclude` default, `only`, `all`) and the overview's `jev_filter_counts` leave closed
+  rows out; both sides are pinned by `worker/tests/fixtures/closed-stage-cases.json`.
+
 - **`run_expire` writes `source_state='closed'`** (#230) on a 404/410 instead of
   `pipeline_status='expired'`; lifecycle and `updated_at` stay untouched. `expired` is a
   legacy status nothing writes; `prisma/migrate-expired-230.mjs` turns stored `expired`
