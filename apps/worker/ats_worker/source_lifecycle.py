@@ -89,3 +89,29 @@ def observation_error_category(exc: Exception) -> str:
     if isinstance(exc, (ValueError, json.JSONDecodeError)):
         return "malformed_response"
     return "refresh_error"
+
+
+def verify_board(fetch_fn, source: str, slug: str, name: str) -> str | None:
+    """Fetch a board once before it joins the watchlist (#231). None when the board lists
+    at least one posting; otherwise the reason to reject it, so a wrong slug or a company
+    that moved ATS never becomes a silent zero row.
+
+    `fetch_fn` has `fetch.fetch_company`'s shape. A two-step board's stub gate drops every
+    stub (each counted as listed), so verifying never makes a per-posting detail call."""
+    listed = 0
+
+    def keep(_stub):
+        nonlocal listed
+        listed += 1
+        return "drop"
+
+    try:
+        postings = fetch_fn(source, slug, name, keep=keep)
+    except Exception as exc:  # noqa: BLE001 - any failure leaves the board unverified
+        category = observation_error_category(exc)
+        if category == "http_404":
+            return "board not found (HTTP 404): check the slug, or the company moved ATS"
+        return f"could not verify the board ({category}); try again later"
+    if not listed and not postings:
+        return "board lists no postings: check the slug, or the company moved ATS"
+    return None

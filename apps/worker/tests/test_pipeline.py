@@ -529,3 +529,88 @@ def test_run_fetch_health_line_on_an_empty_board(db_path, capsys):
     line = [l for l in capsys.readouterr().out.splitlines() if "lever/gone" in l][0]
     assert "fetched=0" in line and "desc_median=0" in line
     assert "TEASER" not in line, "an empty board is not a teaser board"
+
+
+# --- per-board health record (#231): the health line, persisted on the watchlist row ---
+
+_HEALTH_COLS = ("last_fetched_at", "last_fetch_status", "last_fetched", "last_kept",
+                "last_new", "last_bodyless", "last_desc_median")
+
+
+def _watch(conn, *boards):
+    for source, slug in boards:
+        conn.execute("INSERT INTO watched_companies (source, slug, name, created_at) "
+                     "VALUES (?, ?, ?, ?)", (source, slug, slug.title(), NOW))
+    conn.commit()
+
+
+def _health(conn, source, slug):
+    row = conn.execute(f"SELECT {', '.join(_HEALTH_COLS)} FROM watched_companies "
+                       "WHERE source=? AND slug=?", (source, slug)).fetchone()
+    return dict(zip(_HEALTH_COLS, row))
+
+
+def test_run_fetch_records_each_boards_health_on_its_watchlist_row(db_path):
+    conn = db.connect(db_path)
+    _watch(conn, ("greenhouse", "acme"))
+
+    def fetch_fn(source, slug, name, **kw):
+        return [_posting("a", job_title="Engineer", description="x" * 2000),
+                _posting("b", job_title="Engineer", description="y" * 2200),
+                _posting("c", job_title="Engineer", description=""),
+                _posting("d", job_title="Sales Rep")]
+
+    pipeline.run_fetch(conn, [{"source": "greenhouse", "slug": "acme", "name": "Acme"}],
+                       ["engineer"], now=NOW, fetch_fn=fetch_fn)
+    assert _health(conn, "greenhouse", "acme") == {
+        "last_fetched_at": NOW, "last_fetch_status": "ok", "last_fetched": 4,
+        "last_kept": 2, "last_new": 2, "last_bodyless": 1, "last_desc_median": 2200}
+
+    # A second pass: the same postings are already stored, so nothing is new.
+    pipeline.run_fetch(conn, [{"source": "greenhouse", "slug": "acme", "name": "Acme"}],
+                       ["engineer"], now=LATER, fetch_fn=fetch_fn)
+    h = _health(conn, "greenhouse", "acme")
+    assert (h["last_fetched_at"], h["last_new"], h["last_kept"]) == (LATER, 0, 2)
+
+
+def test_a_failing_board_records_its_error_category_and_the_pass_goes_on(db_path):
+    conn = db.connect(db_path)
+    _watch(conn, ("greenhouse", "moved"), ("lever", "fine"))
+    pipeline.run_fetch(conn, [{"source": "lever", "slug": "fine", "name": "Fine"}],
+                       None, now=NOW, fetch_fn=lambda *a, **kw: [_posting("1", source="lever")])
+
+    def fetch_fn(source, slug, name, **kw):
+        if slug == "moved":
+            raise _HTTPError(404)
+        return []
+
+    pipeline.run_fetch(conn, [{"source": "greenhouse", "slug": "moved", "name": "Moved"},
+                              {"source": "lever", "slug": "fine", "name": "Fine"}],
+                       None, now=LATER, fetch_fn=fetch_fn)
+    assert _health(conn, "greenhouse", "moved") == {
+        "last_fetched_at": LATER, "last_fetch_status": "http_404", "last_fetched": None,
+        "last_kept": None, "last_new": None, "last_bodyless": None, "last_desc_median": None}
+    # The board after it was still fetched, and its record is this pass's (empty), not
+    # the previous one's.
+    assert _health(conn, "lever", "fine") == {
+        "last_fetched_at": LATER, "last_fetch_status": "ok", "last_fetched": 0,
+        "last_kept": 0, "last_new": 0, "last_bodyless": 0, "last_desc_median": 0}
+
+
+def test_a_stub_gate_board_counts_what_it_listed_not_what_it_returned(db_path):
+    """A two-step board drops off-title stubs before their detail call, so what comes
+    back understates the board. `fetched` is what it listed: 3 stubs, 2 dropped."""
+    conn = db.connect(db_path)
+    _watch(conn, ("phenom", "big"))
+
+    def fetch_fn(source, slug, name, *, keep, **kw):
+        stubs = [{"external_id": "1", "job_title": "Engineer"},
+                 {"external_id": "2", "job_title": "Sales"},
+                 {"external_id": "3", "job_title": "Chef"}]
+        return [_posting(s["external_id"], source="phenom", job_title=s["job_title"])
+                for s in stubs if keep(s) != "drop"]
+
+    pipeline.run_fetch(conn, [{"source": "phenom", "slug": "big", "name": "Big"}],
+                       ["engineer"], now=NOW, fetch_fn=fetch_fn)
+    h = _health(conn, "phenom", "big")
+    assert (h["last_fetched"], h["last_kept"], h["last_new"]) == (3, 1, 1)

@@ -9,6 +9,20 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 
 ### Added
 
+- **Per-board fetch health (#231)**: every pass writes each watchlist board's result on
+  its `watched_companies` row (`last_fetched_at`, `last_fetch_status` = `ok` or the
+  closed error category, `last_fetched`, `last_kept`, `last_new`, `last_bodyless`,
+  `last_desc_median`); a failing board records its category and the pass goes on. A
+  stub-gate board's `fetched` (and its health log line) is now the stubs it listed, not
+  the postings that came back. The Sources tab's Last fetch column and Health filter tell
+  apart never fetched, fetch failed, board listed nothing, filters kept 0 and teaser
+  descriptions, replacing the 48h "Pending first fetch" guess; MCP `list_sources`
+  returns the same columns and `health`. MCP `add_source` fetches the board once through
+  the worker's adapter (after a web `dry_run` of the add) and rejects a 404, an empty
+  board or a fetch error with the reason; a web add stays unverified until the next
+  pass. **Operator step:** `make db-push` (seven new nullable columns), then restart
+  ats-web and the MCP server.
+
 - **Evaluate each posting once (#225)**: the screen and triage share one window
   (`posted_at`, else `created_at`, within 7 days) and run at most once per posting; each
   result records the `candidate_profile.version` it ran under. The worker writes the new

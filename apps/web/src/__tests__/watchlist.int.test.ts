@@ -3,6 +3,8 @@
  * Covers what the mocked unit tests can't — the (source, slug) unique constraint
  * and round-tripping list/add/remove through Prisma.
  */
+import { readFileSync } from 'node:fs'
+import path from 'node:path'
 import { addWatchedCompany, getWatchedCompanies, removeWatchedCompany } from '@/lib/watchlist-actions'
 import { prisma, resetDb } from '@/test-utils/db'
 import { makeJobPosting, makeWatchedCompany } from '@/test-utils/factories'
@@ -66,11 +68,34 @@ test('getWatchedCompanies counts each board\'s postings fetched in the last 30 d
     expect(data.map((c) => [c.slug, c.postings_30d])).toEqual([['acme', 2], ['quiet', 0]])
 })
 
-test('a new board with no postings yet is pending; an old one is dead (#208)', async () => {
-    await prisma.watched_companies.create({ data: makeWatchedCompany({ source: 'greenhouse', slug: 'old', name: 'Old', created_at: '2025-12-01T00:00:00.000Z' }) })
-    await addWatchedCompany({ source: 'greenhouse', slug: 'new', name: 'New' })
-    await addWatchedCompany({ source: 'lever', slug: 'live', name: 'Live' })
-    await prisma.job_postings.create({ data: makeJobPosting({ source: 'lever', company_slug: 'live', created_at: '2025-01-01T00:00:00.000Z' }) })
+// #231: each board's last-pass record, case by case from the fixture MCP list_sources
+// reads too (apps/worker/tests/fixtures/board-health-cases.json).
+type HealthCase = { name: string; health: string; row: Record<string, string | number | null> }
+const HEALTH_CASES: HealthCase[] = JSON.parse(readFileSync(
+    path.join(__dirname, '../../../worker/tests/fixtures/board-health-cases.json'), 'utf8')).cases
+
+test('getWatchedCompanies returns each board\'s last-pass health, as MCP does', async () => {
+    for (const [i, c] of HEALTH_CASES.entries()) {
+        await prisma.watched_companies.create({ data: makeWatchedCompany({ slug: `b${i}`, name: `${i} ${c.name}`, ...c.row }) })
+    }
+    const cols = Object.keys(HEALTH_CASES[0].row)
     const { data } = await getWatchedCompanies()
-    expect(data.map((r) => [r.name, r.pending, r.postings_30d])).toEqual([['Live', false, 0], ['New', true, 0], ['Old', false, 0]])
+    expect(data.map((r: any) => ({ ...Object.fromEntries(cols.map((k) => [k, r[k]])), health: r.health })))
+        .toEqual(HEALTH_CASES.map((c) => ({ ...c.row, health: c.health })))
+})
+
+test('a board just added is never fetched until a worker pass records it', async () => {
+    await addWatchedCompany({ source: 'greenhouse', slug: 'new', name: 'New' })
+    const { data } = await getWatchedCompanies()
+    expect([data[0].health, data[0].last_fetched_at]).toEqual(['never_fetched', null])
+})
+
+test('a dry run validates and resolves without adding', async () => {
+    const res = await addWatchedCompany({ url: 'https://jobs.lever.co/acme', name: 'Acme', dryRun: true })
+    expect(res).toEqual({ success: true, data: { source: 'lever', slug: 'acme', name: 'Acme', recipe: null } })
+    expect(await prisma.watched_companies.count()).toBe(0)
+    expect(await prisma.audit_log.count()).toBe(0)
+    await addWatchedCompany({ source: 'lever', slug: 'acme', name: 'Acme' })
+    const dup = await addWatchedCompany({ source: 'lever', slug: 'acme', name: 'Acme', dryRun: true })
+    expect(dup).toEqual({ success: false, error: 'lever/acme is already on the watchlist' })
 })

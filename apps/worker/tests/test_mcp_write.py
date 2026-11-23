@@ -2,13 +2,14 @@
 
 from __future__ import annotations
 
+import json
 import sqlite3
 
 import pytest
 import requests
 
 from ats_worker.mcp.write_client import ATSWriteClient, WriteAPIError, write_client_from_env
-from tests._helpers import bootstrap_db
+from tests._helpers import FIXTURES, bootstrap_db
 
 mcp_sdk = pytest.importorskip("mcp", reason="install requirements-mcp.txt for protocol tests")
 from mcp import Client  # noqa: E402
@@ -284,12 +285,32 @@ def test_list_sources_counts_recent_postings_per_board(tmp_path):
     repo = ReadOnlyATSRepository(path, clock=lambda: datetime(2026, 11, 18, tzinfo=timezone.utc))
     out = repo.list_sources()
     assert out["unresolved_30d"] == 1
+    never = {"last_fetched_at": None, "last_fetch_status": None, "last_fetched": None,
+             "last_kept": None, "last_new": None, "last_bodyless": None,
+             "last_desc_median": None, "health": "never_fetched"}
     assert out["sources"] == [
         {"id": 1, "source": "greenhouse", "slug": "acme", "name": "Acme", "has_recipe": False,
-         "created_at": "2026-01-01T00:00:00.000Z", "postings_30d": 1},
+         "created_at": "2026-01-01T00:00:00.000Z", "postings_30d": 1, **never},
         {"id": 2, "source": "custom", "slug": "beta", "name": "Beta", "has_recipe": True,
-         "created_at": "2026-01-02T00:00:00.000Z", "postings_30d": 0},
+         "created_at": "2026-01-02T00:00:00.000Z", "postings_30d": 0, **never},
     ]
+
+
+HEALTH_CASES = json.loads((FIXTURES / "board-health-cases.json").read_text())["cases"]
+
+
+def test_list_sources_returns_each_boards_last_pass_health(tmp_path):
+    """The shared cases the web Sources page reads too (board-health-cases.json)."""
+    path = bootstrap_db(tmp_path / "m.db")
+    with sqlite3.connect(path) as conn:
+        for i, case in enumerate(HEALTH_CASES):
+            cols = ", ".join(case["row"])
+            conn.execute(f"INSERT INTO watched_companies (source, slug, name, created_at, {cols}) "
+                         f"VALUES ('greenhouse', ?, ?, 'x', {', '.join('?' * len(case['row']))})",
+                         (f"b{i}", case["name"], *case["row"].values()))
+    sources = ReadOnlyATSRepository(path).list_sources()["sources"]
+    assert [{k: s[k] for k in case["row"]} | {"health": s["health"]} for s in sources] == [
+        {**case["row"], "health": case["health"]} for case in HEALTH_CASES]
 
 
 @pytest.mark.anyio
@@ -298,8 +319,11 @@ async def test_source_tools_call_the_watchlist_api(tmp_path):
     _seed_sources(path)
     row = {"id": 1, "source": "greenhouse", "slug": "acme", "name": "Acme", "recipe": None,
            "created_at": "2026-01-01T00:00:00.000Z"}
-    writer, session = _client(FakeResponse(200, {"data": {**row, "id": 3}}), FakeResponse(200, {"data": row}))
-    async with Client(create_server(ReadOnlyATSRepository(path), writer), raise_exceptions=True) as client:
+    gamma = {"source": "lever", "slug": "gamma", "name": "Gamma", "recipe": None}
+    writer, session = _client(FakeResponse(200, {"data": gamma}), FakeResponse(200, {"data": {**row, "id": 3}}),
+                              FakeResponse(200, {"data": row}))
+    server = create_server(ReadOnlyATSRepository(path), writer, verify_fetch=lambda *a, **kw: [{}])
+    async with Client(server, raise_exceptions=True) as client:
         tools = {t.name: t.model_dump(by_alias=True)["annotations"] for t in (await client.list_tools()).tools}
         assert tools["list_sources"]["readOnlyHint"] is True
         assert tools["add_source"]["destructiveHint"] is False
@@ -311,6 +335,7 @@ async def test_source_tools_call_the_watchlist_api(tmp_path):
         removed = await client.call_tool("remove_source", {"source_id": 1})
         assert removed.structured_content == {"removed": row}
     assert [(c["method"], c["url"].removeprefix("http://web.test"), c["json"]) for c in session.calls] == [
+        ("POST", "/api/v1/watchlist", {"source": "lever", "slug": "gamma", "name": "Gamma", "dry_run": True}),
         ("POST", "/api/v1/watchlist", {"source": "lever", "slug": "gamma", "name": "Gamma"}),
         ("DELETE", "/api/v1/watchlist/1", None),
     ]
@@ -319,11 +344,14 @@ async def test_source_tools_call_the_watchlist_api(tmp_path):
 @pytest.mark.anyio
 async def test_add_source_reports_the_web_validation_message(tmp_path):
     writer, _ = _client(FakeResponse(400, {"error": "slug contains invalid characters"}))
-    server = create_server(ReadOnlyATSRepository(bootstrap_db(tmp_path / "m.db")), writer)
+    fetched = []
+    server = create_server(ReadOnlyATSRepository(bootstrap_db(tmp_path / "m.db")), writer,
+                           verify_fetch=lambda *a, **kw: fetched.append(a))
     async with Client(server, raise_exceptions=True) as client:
         res = await client.call_tool("add_source", {"source": "greenhouse", "slug": "a@b", "name": "X"})
     assert res.is_error is True
     assert res.content[0].text.endswith(": slug contains invalid characters")
+    assert fetched == [], "the web's slug guard runs before any fetch uses the slug"
 
 
 @pytest.mark.anyio
@@ -398,12 +426,76 @@ async def test_set_candidate_profile_sends_only_given_fields_through_the_api(tmp
 
 @pytest.mark.anyio
 async def test_add_source_by_url_sends_the_url_for_web_resolution(tmp_path):
-    writer, session = _client(FakeResponse(200, {"data": {"id": 4}}))
-    server = create_server(ReadOnlyATSRepository(bootstrap_db(tmp_path / "m.db")), writer)
+    resolved = {"source": "lever", "slug": "acme", "name": "Acme", "recipe": None}
+    writer, session = _client(FakeResponse(200, {"data": resolved}), FakeResponse(200, {"data": {"id": 4}}))
+    fetched = []
+    server = create_server(ReadOnlyATSRepository(bootstrap_db(tmp_path / "m.db")), writer,
+                           verify_fetch=lambda *a, **kw: fetched.append(a) or [{"external_id": "1"}])
     async with Client(server, raise_exceptions=True) as client:
         await client.call_tool("add_source", {"url": "https://jobs.lever.co/acme", "name": "Acme"})
         both = await client.call_tool("add_source", {"url": "https://jobs.lever.co/acme", "source": "lever",
                                                      "slug": "acme", "name": "Acme"})
         neither = await client.call_tool("add_source", {"name": "Acme"})
     assert both.is_error and neither.is_error
-    assert [c["json"] for c in session.calls] == [{"url": "https://jobs.lever.co/acme", "name": "Acme"}]
+    # The web resolves and validates first (dry run), the board the web resolved is the
+    # one fetched, then the add.
+    assert [c["json"] for c in session.calls] == [
+        {"url": "https://jobs.lever.co/acme", "name": "Acme", "dry_run": True},
+        {"url": "https://jobs.lever.co/acme", "name": "Acme"}]
+    assert fetched == [("lever", "acme", "Acme")]
+
+
+def _raises(status):
+    def fetch(*a, **kw):
+        err = requests.HTTPError(str(status))
+        err.response = type("R", (), {"status_code": status})()
+        raise err
+    return fetch
+
+
+@pytest.mark.parametrize("fetch, reason", [
+    (_raises(404), "board not found (HTTP 404)"),
+    (lambda *a, **kw: [], "board lists no postings"),
+    (_raises(503), "could not verify the board (http_5xx)"),
+], ids=["404", "empty", "5xx"])
+@pytest.mark.anyio
+async def test_add_source_rejects_a_board_its_fetch_cannot_verify(tmp_path, fetch, reason):
+    """A wrong slug or a company that moved ATS never becomes a silent zero row (#231)."""
+    resolved = {"source": "greenhouse", "slug": "gone", "name": "Gone", "recipe": None}
+    writer, session = _client(FakeResponse(200, {"data": resolved}))
+    server = create_server(ReadOnlyATSRepository(bootstrap_db(tmp_path / "m.db")), writer,
+                           verify_fetch=fetch)
+    async with Client(server, raise_exceptions=True) as client:
+        res = await client.call_tool("add_source", {"source": "greenhouse", "slug": "gone", "name": "Gone"})
+    assert res.is_error is True
+    assert reason in res.content[0].text and "greenhouse/gone" in res.content[0].text
+    assert [c["json"].get("dry_run") for c in session.calls] == [True], "nothing was inserted"
+
+
+@pytest.mark.anyio
+async def test_add_source_verifies_a_two_step_board_from_its_list_alone(tmp_path):
+    """A stub-gate board is verified by what it lists: every stub is dropped, so no
+    detail call is made, and a listing board passes even though none come back."""
+    resolved = {"source": "workday", "slug": "t/wd1/site", "name": "T", "recipe": None}
+    writer, session = _client(FakeResponse(200, {"data": resolved}), FakeResponse(200, {"data": {"id": 5}}))
+    verdicts = []
+
+    def fetch(source, slug, name, *, keep, **kw):
+        verdicts.extend(keep({"external_id": str(i), "job_title": "Eng"}) for i in range(3))
+        return []
+
+    server = create_server(ReadOnlyATSRepository(bootstrap_db(tmp_path / "m.db")), writer,
+                           verify_fetch=fetch)
+    async with Client(server, raise_exceptions=True) as client:
+        res = await client.call_tool("add_source", {"source": "workday", "slug": "t/wd1/site", "name": "T"})
+    assert res.is_error is False and verdicts == ["drop"] * 3
+    assert len(session.calls) == 2
+
+
+@pytest.mark.anyio
+async def test_add_source_without_a_fetcher_refuses_rather_than_adding_unverified(tmp_path):
+    writer, session = _client()
+    server = create_server(ReadOnlyATSRepository(bootstrap_db(tmp_path / "m.db")), writer)
+    async with Client(server, raise_exceptions=True) as client:
+        res = await client.call_tool("add_source", {"source": "lever", "slug": "x", "name": "X"})
+    assert res.is_error is True and session.calls == []

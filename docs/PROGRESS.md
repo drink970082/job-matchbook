@@ -14,8 +14,8 @@ behavior. Completed work belongs in CHANGELOG, not this queue.
   `policy_sha256` and the `stale` rule) and #227 remain.
 
 - **Per-board fetch health persisted and shown** `[WORKER+WEB+MCP · M]` (#231, part of
-  #229). Branch `feat/231-board-health`: health columns on `watched_companies`, Sources
-  page + `list_sources` read them, MCP `add_source` verifies with one fetch.
+  #229). Branch `feat/231-board-health`, landed, unmerged: awaits review and the
+  operator's `make db-push` (seven nullable `watched_companies` columns) at deploy.
 
 These references reserve unfinished work; they do not claim the branches are currently
 executing or establish merge readiness. Inspect actual refs/worktrees and coordinate

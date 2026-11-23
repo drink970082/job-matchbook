@@ -157,6 +157,16 @@ test('an invalid slug is rejected with the UI message and nothing is audited', a
     expect(await prisma.audit_log.count()).toBe(0)
 })
 
+test('a watchlist dry run returns the resolved board and adds nothing (#231)', async () => {
+    const res = await addWatch(req({ url: 'https://boards.greenhouse.io/acme', name: 'Acme', dry_run: true }, RW))
+    expect(res.status).toBe(200)
+    expect((await res.json()).data).toEqual({ source: 'greenhouse', slug: 'acme', name: 'Acme', recipe: null })
+    expect(await prisma.watched_companies.count()).toBe(0)
+    const bad = await addWatch(req({ source: 'greenhouse', slug: 'acme', name: 'Acme', dry_run: 'yes' }, RW))
+    expect(bad.status).toBe(400)
+    expect(await prisma.watched_companies.count()).toBe(0)
+})
+
 test('removing a missing watchlist row is a 400 and nothing is audited', async () => {
     const res = await removeWatch(req(undefined, RW, 'DELETE'), params(99))
     expect(res.status).toBe(400)
@@ -167,7 +177,7 @@ test('removing a missing watchlist row is a 400 and nothing is audited', async (
 test('UI watchlist writes are audited as web, newest first in the activity list', async () => {
     const added = await addWatchedCompany({ source: 'lever', slug: 'beta', name: 'Beta' })
     expect(added.success).toBe(true)
-    await removeWatchedCompany(added.data!.id)
+    await removeWatchedCompany((added.data as { id: number }).id)
     const { items } = await getActivityTimeline()
     expect(items.map((a) => [a.actor, a.text])).toEqual([
         ['web', 'Removed board Beta'],

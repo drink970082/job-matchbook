@@ -50,7 +50,9 @@ def run_fetch(conn, companies, title_filter, *, now, fetch_fn=None,
     then upsert. Returns rows inserted.
 
     A failing company is logged-and-skipped (no posting to mark failed yet —
-    nothing is in the db), so the remaining companies still ingest.
+    nothing is in the db), so the remaining companies still ingest. Each board's result
+    is written to its watchlist row (`db.record_board_health`): `ok` with the health-line
+    figures, or the failure's error category.
 
     Before any filter, every id the board listed — returned, or seen only by the stub
     gate — is recorded as observed (`db.record_board_listing`). For a source in
@@ -126,11 +128,12 @@ def run_fetch(conn, companies, title_filter, *, now, fetch_fn=None,
             if verdicts["calls"]:
                 # Every stub the gate passed should come back; one that did not lost its
                 # detail call (workday returns None on a failed detail GET).
-                tally["listed"] += verdicts["calls"]
+                listed = verdicts["calls"]
                 tally["detail_failed"] += max(
                     0, verdicts["calls"] - verdicts["drop"] - len(postings))
             else:
-                tally["listed"] += len(postings)
+                listed = len(postings)
+            tally["listed"] += listed
             closed = db.record_board_listing(
                 conn, c["source"], c["slug"], gated | returned, now=now,
                 count_absence=c["source"] in ABSENCE_CLOSURE_SOURCES)
@@ -175,10 +178,15 @@ def run_fetch(conn, companies, title_filter, *, now, fetch_fn=None,
                 kept = [p for p in kept if id(p) not in drop_ids]
             added = db.upsert_postings(conn, kept, now=now)
             tally["inserted"] += added
-            _log_board_health(c, postings, kept, bodyless, added)
+            figures = _board_health(listed, kept, bodyless, added)
+            _log_board_health(c, figures)
+            db.record_board_health(conn, c["source"], c["slug"], now=now, status="ok",
+                                   figures=figures)
         except Exception as exc:  # noqa: BLE001 — one bad board must not abort the rest
             tally["boards_failed"] += 1
             print(f"[fetch] {c.get('source')}/{c.get('slug')}: skipped after error: {exc}")
+            db.record_board_health(conn, c.get("source"), c.get("slug"), now=now,
+                                   status=observation_error_category(exc))
             continue
     return tally["inserted"]
 
@@ -221,28 +229,30 @@ def _valid_posting(p: dict) -> bool:
     return all(str((p or {}).get(k) or "").strip() for k in _REQUIRED_FIELDS)
 
 
-# A description SHORTER than this is a teaser, not a job description. Not a gate —
-# nothing is dropped on it — purely the threshold at which the health line says so.
-# Healthy boards measure 1,900-2,200 median chars; the boards that turned out to be
-# serving a summary measured 250-850, and the gap between them is empty.
-_TEASER_MEDIAN_CHARS = 1500
+def _board_health(listed: int, kept, bodyless, added: int) -> dict:
+    """One board's figures for this pass (db.BOARD_HEALTH_FIGURES): what it listed,
+    what the filters kept (bodyless already dropped), how many were new, how many came
+    with no description, and the kept postings' median description length."""
+    lengths = sorted(len(p.get("description") or "") for p in kept)
+    return {"fetched": listed, "kept": len(kept), "new": added, "bodyless": len(bodyless),
+            "desc_median": lengths[len(lengths) // 2] if lengths else 0}
 
 
-def _log_board_health(company, fetched, kept, bodyless, added) -> None:
+def _log_board_health(company, h: dict) -> None:
     """One line per board per pass: what it returned and how much JD came with it.
 
     `_valid_posting` already catches a description that is EMPTY, which is how a moved
     selector announces itself. It cannot catch a board that serves a 250-character
     summary — that reads as a healthy fetch and silently starves the screen and JEV, which
     is why finding it took a manual query over the stored rows rather than a log. The
-    median is the cheapest thing that would have said so.
+    median is the cheapest thing that would have said so. The same figures are stored on
+    the watchlist row (db.record_board_health) for the Sources page and list_sources.
     """
-    lengths = sorted(len(p.get("description") or "") for p in kept)
-    median = lengths[len(lengths) // 2] if lengths else 0
-    note = " TEASER? (board may need a detail step)" if kept and median < _TEASER_MEDIAN_CHARS else ""
-    print(f"[fetch] {company['source']}/{company['slug']}: fetched={len(fetched)} "
-          f"kept={len(kept)} new={added} bodyless={len(bodyless)} "
-          f"desc_median={median}{note}")
+    teaser = h["kept"] and h["desc_median"] < db.TEASER_MEDIAN_CHARS
+    note = " TEASER? (board may need a detail step)" if teaser else ""
+    print(f"[fetch] {company['source']}/{company['slug']}: fetched={h['fetched']} "
+          f"kept={h['kept']} new={h['new']} bodyless={h['bodyless']} "
+          f"desc_median={h['desc_median']}{note}")
 
 
 def _detail_fetch(detail_fetch_fn, source: str, slug: str, ids,

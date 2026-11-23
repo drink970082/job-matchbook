@@ -1342,7 +1342,9 @@ worker modules are pure and dependency-injected; real services are wired only in
   gate miss is stored with its requirements result and verdict `discarded` right there
   at fetch time — visible in the Discovered rejected buckets with its reason —
   **without** an Ollama call; a company that raises is
-  logged-and-skipped so the rest of the watchlist still ingests. Finally, a surviving
+  logged-and-skipped so the rest of the watchlist still ingests, its error category
+  recorded on its watchlist row (§9 Watchlist, with the figures a successful board
+  records). Finally, a surviving
   posting with **no description is dropped, logged, and recorded in `feed_unresolved`**
   (`feed="watchlist"`, `reason="empty_description"`) — `_valid_posting`, the same
   body-required guard the feed path applies: a bodyless row is permanent
@@ -1529,7 +1531,12 @@ worker modules are pure and dependency-injected; real services are wired only in
   status, date?)` (returns `{application_id, status, recorded}`: `status` is the current
   status, which a backdated `recorded` change does not move), `add_source(name, url? | source + slug)` (known-ATS boards; a
   `url` is resolved by the web's `lib/board-url.ts`, the Sources tab's resolver; web's
-  slug/source/duplicate checks and messages), `remove_source(source_id)` (returns the
+  slug/source/duplicate checks and messages, run first as a `dry_run` POST that returns
+  the resolved board; then **one fetch of that board through the worker's adapter**
+  (`source_lifecycle.verify_board`, its stub gate dropping every stub so no detail call
+  is made): a 404, a board that lists nothing, or any fetch error is rejected with the
+  reason and nothing is added; the fetcher is injected into `create_server`, and a server
+  built without one refuses `add_source`), `remove_source(source_id)` (returns the
   removed row), `override_triage(job_id, keep|skip|clear, reason?)`,
   `set_candidate_profile` (every profile field, all optional: omitted fields keep their
   value, a list replaces the whole list; Advanced `custom_profile_text` +
@@ -1543,7 +1550,9 @@ worker modules are pure and dependency-injected; real services are wired only in
   `destructiveHint=false`, except `remove_source` (`destructiveHint=true`), the one
   removal; it is audited in web and re-addable through `add_source` (the Activity tab shows the removed row). `list_sources` (a read tool, always
   present) returns every watchlist row with `has_recipe`, `postings_30d` (postings with
-  that `source` + `company_slug` created in 30 days) and a global `unresolved_30d`.
+  that `source` + `company_slug` created in 30 days), the seven `last_*` last-pass columns
+  as stored and `health` (`db.board_health`, the web's rule too), and a global
+  `unresolved_30d`.
   `get_candidate_profile` returns the profile (or null) with the derived
   `highest_degree` and `total_years`, `custom_triage_context`, `triage` (`configured`,
   `packs` default|custom and the packs' question ids; never the pack texts); an edit
@@ -1661,10 +1670,8 @@ worker modules are pure and dependency-injected; real services are wired only in
     unchanged; candidates are not presented as qualified.
   - *Watchlist:* `getWatchedCompanies` (name asc, each row with `postings_30d`: postings
     with that `source` + `company_slug` created in the last 30 days, the MCP
-    `list_sources` figure, and `pending` for a board that never produced a posting and
-    was added in the last 48h — a heuristic, the worker recording no per-board fetch: a
-    worker stopped for 48h shows a new board as "No postings in 30 days", and a bad slug
-    reads pending for its first 48h); `addWatchedCompany`
+    `list_sources` figure, and `health` from the row's last-pass columns,
+    `lib/board-health.ts`); `addWatchedCompany`
     (takes a careers/job `url`, resolved by `lib/board-url.ts`; Ashby/SmartRecruiters slugs
     may hold single inner spaces, as those boards are named by company — a site it cannot resolve
     gets the onboard-board recipe message — or `source` + `slug`, not both; validates
@@ -1672,7 +1679,10 @@ worker modules are pure and dependency-injected; real services are wired only in
     `[A-Za-z0-9._/-]` or containing `..`/leading-trailing-doubled `/` — the slug is
     interpolated into a fetch URL host/path by the worker, so this blocks
     host-injection metacharacters while still allowing multi-part slugs like
-    workday's `tenant/dc/site`) and `removeWatchedCompany` back the Sources tab and the
+    workday's `tenant/dc/site`; `dryRun` returns the resolved `{source, slug, name,
+    recipe}` after every check and adds nothing, for MCP `add_source`'s verify; a web add
+    is not fetched, the row reading `never_fetched` until the next worker pass) and
+    `removeWatchedCompany` back the Sources tab and the
     MCP write API. `lib/board-url.ts` (`resolveBoardUrl`) maps board and job URLs on
     greenhouse, lever, ashby, smartrecruiters, workable, workday, pinpoint and icims to
     `(source, slug)`; `worker/tests/fixtures/board-url-cases.json` runs in both suites, and
@@ -1740,8 +1750,10 @@ worker modules are pure and dependency-injected; real services are wired only in
   stated inline; guards on the `.csv` extension, not the MIME type, since Excel on
   Windows reports a CSV as `application/vnd.ms-excel`), `SourcesTab` (#208: watched boards, 25 per
   page, search by company, Source select, sortable Company and Postings (30d), slug on
-  hover; "Pending first fetch" and "No postings in 30 days" flags with an "Only boards with
-  no postings" filter; add by pasting a careers URL — resolved as you type, name
+  hover; a Last fetch column per board's `health` — "Never fetched", "Fetch failed:
+  <category>", "Board listed nothing", "N listed, filters kept 0", "Teaser descriptions
+  (median N chars)" or "N listed, K kept, M new", the pass time on hover — with a Health
+  select (any, needs attention = failed/empty/kept 0/teaser, or one state); add by pasting a careers URL — resolved as you type, name
   prefilled from the slug, unresolvable sites pointed at the onboard-board skill — and
   per-row remove after a confirm, any source type), `ActivityTab` (a system status strip — last new
   posting, amber after a day; new postings 24h / 7d; JEV assessed 24h, spend 7d and
@@ -1907,6 +1919,14 @@ model watched_companies {        // the DB-owned watchlist (web-managed)
   name        String
   recipe      String? // JSON recipe for source=custom|browser (declarative fetch); NULL otherwise
   created_at  String
+  // last worker pass (#231), all NULL until the first: written by run_fetch
+  last_fetched_at   String?
+  last_fetch_status String?  // ok | an observation_error_category (counts NULL then)
+  last_fetched      Int?     // listed (stub-gate boards: stubs seen)
+  last_kept         Int?     // after title/age filters, minus bodyless
+  last_new          Int?
+  last_bodyless     Int?
+  last_desc_median  Int?     // kept postings' median description chars
   @@unique([source, slug])       // dedup key
 }
 
@@ -2204,6 +2224,18 @@ Triage evidence with duplicate object members at its root, screen map, or check 
   an `audit_log` row (actor, full row as JSON) in the same transaction; the Activity tab
   lists them, and the payload keeps what a re-add through MCP needs. The worker never
   reads `audit_log`.
+- **Each board's last pass is on its row (#231).** `run_fetch` overwrites the seven
+  `last_*` columns per board per pass (`db.record_board_health`): `ok` with the figures
+  the `[fetch] ... fetched= kept= new= bodyless= desc_median=` line prints, or a failed
+  fetch's closed error category with NULL counts, and the pass goes on to the next board
+  (PRINCIPLES 6). One rule reads them as `health` — `never_fetched` (status NULL),
+  `fetch_failed`, `empty` (listed 0), `kept_zero` (listed, kept 0), `teaser` (kept median
+  under 1500 chars), `ok` — in the worker (`db.board_health`, for MCP `list_sources`) and
+  the web (`lib/board-health.ts`, for the Sources tab), pinned by
+  `worker/tests/fixtures/board-health-cases.json` in both suites.
+- **Adds are verified where a fetch can run.** MCP `add_source` (on the host) fetches
+  the board once and adds it only if it lists a posting; the web add cannot fetch, so its
+  row reads `never_fetched` until the next pass records it.
 
 **Web ↔ pipeline seam** (`lib/job-actions.ts`):
 
@@ -2458,6 +2490,7 @@ automated coverage — those rely on code review or the human in the loop, not a
 | Integration-harness self-check (real Prisma round-trip on the temp DB) | `web/src/__tests__/harness.int.test.ts` |
 | Dead-link sweep: 404/410 → `source_state='closed'` (lifecycle untouched), every other error, a missing recheck key or an adapter `None` records `inconclusive`, a served posting records `found` (clearing an earlier category), every check rotates the row, workday is fetched by the `/job/...` path from the stored `job_url` (never the GUID), closed rows not rechecked | `test_pipeline.py` (`run_expire`), `test_fetch_new.py` (`recheck_id`, `test_stored_workday_row_rechecks_at_a_well_formed_job_url`) |
 | Board absence closes: 3rd consecutive successful non-empty list without the id closes it, a failed or empty fetch never counts, relisting reopens; filter- and stub-gate-dropped ids still stamped seen; board-scoped stamp and count; workday/smartrecruiters/phenom/browser/icims/custom never close by absence; closed rows leave the screen and JEV queues | `test_closure.py` |
+| Per-board last-pass record: run_fetch writes `ok` + figures or the error category (NULL counts) and fetches the next board; a stub-gate board counts the stubs it listed; MCP `list_sources` and web `getWatchedCompanies` read the same columns and `health` from one shared fixture; the Sources tab tells never fetched / failed / empty / kept 0 / teaser apart; MCP `add_source` adds only a board one fetch verifies (404, empty or error rejected, the web dry run first), a web add is not fetched | `test_pipeline.py` (`test_run_fetch_records_each_boards_health_on_its_watchlist_row`, `test_a_failing_board_records_its_error_category_and_the_pass_goes_on`, `test_a_stub_gate_board_counts_what_it_listed_not_what_it_returned`), `test_mcp_write.py` (`test_list_sources_returns_each_boards_last_pass_health`, `test_add_source_rejects_a_board_its_fetch_cannot_verify`, `test_add_source_verifies_a_two_step_board_from_its_list_alone`, `test_add_source_without_a_fetcher_refuses_rather_than_adding_unverified`), `web/src/__tests__/watchlist.int.test.ts`, `api-v1.int.test.ts`, `web/src/components/__tests__/SourcesTab.test.tsx` |
 | Explicit one-shot source refresh stays within 1–25 SmartRecruiters requests without following redirects, selects only unscored/unlinked rows without fit assessment, validates identity and visible core JD content, preserves state on inconclusive/closed results, reopens source availability without relabeling detail-check time, and skips concurrent eligibility changes | `test_source_lifecycle.py`, `test_run.py::test_run_once_unscored_refresh_runs_as_an_isolated_source_only_mode`, `test_smartrecruiters.py` |
 | Explicitly inactive SmartRecruiters details cannot insert or reopen a source observation on normal feed/watchlist ingestion; missing `active` remains compatible and normal ingest never records closure | `test_smartrecruiters.py` (`test_fetch_one_rejects_an_explicitly_inactive_detail`, `test_fetch_skips_explicitly_inactive_detail_but_keeps_missing_active_compatibility`), `test_feed_pipeline.py` (`test_run_feed_does_not_insert_smartrecruiters_explicitly_inactive_detail`, `test_run_fetch_does_not_reopen_closed_smartrecruiters_row_from_inactive_detail`), `test_source_lifecycle.py` |
 | Complete source content is hashed/revisioned; duplicate listings only advance seen time; completed fit and standalone assessments capture the source revision; changed content never triggers a provider rerun | `test_source_lifecycle.py`, `test_db.py`, `test_screen_pipeline.py` |

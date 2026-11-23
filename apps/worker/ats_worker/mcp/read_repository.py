@@ -1043,14 +1043,19 @@ class ReadOnlyATSRepository:
             conn.execute("BEGIN")
             rows = conn.execute(
                 "SELECT w.id,w.source,w.slug,w.name,w.recipe IS NOT NULL AS has_recipe,w.created_at,"
+                "w.last_fetched_at,w.last_fetch_status,w.last_fetched,w.last_kept,w.last_new,"
+                "w.last_bodyless,w.last_desc_median,"
                 "(SELECT COUNT(*) FROM job_postings p WHERE p.source=w.source AND p.company_slug=w.slug "
                 " AND ats_instant_cmp(p.created_at, ?) >= 0) AS postings_30d "
                 "FROM watched_companies w ORDER BY w.id", (cutoff,)).fetchall()
             unresolved = conn.execute(
                 "SELECT COUNT(*) FROM feed_unresolved WHERE ats_instant_cmp(created_at, ?) >= 0",
                 (cutoff,)).fetchone()[0]
+        from ..db import board_health  # the one health rule, shared with the worker's log
+
         return {
-            "sources": [{**dict(r), "has_recipe": bool(r["has_recipe"])} for r in rows],
+            "sources": [{**dict(r), "has_recipe": bool(r["has_recipe"]), "health": board_health(r)}
+                        for r in rows],
             "unresolved_30d": int(unresolved),
         }
 

@@ -7,14 +7,16 @@ jest.mock('next/navigation', () => ({ useRouter: () => ({ refresh }) }))
 jest.mock('@/lib/watchlist-actions')
 jest.mock('sonner', () => ({ toast: { success: jest.fn(), error: jest.fn() } }))
 
+const OK = { health: 'ok', last_fetched_at: '2026-11-21T08:00:00.000Z', last_fetch_status: 'ok',
+    last_fetched: 30, last_kept: 6, last_new: 2, last_bodyless: 0, last_desc_median: 2100 } as const
 const row = (id: number, over: Partial<WatchedSource> = {}): WatchedSource =>
-    ({ id, source: 'greenhouse', slug: `co${id}`, name: `Company ${String(id).padStart(2, '0')}`, postings_30d: id, ...over })
+    ({ id, source: 'greenhouse', slug: `co${id}`, name: `Company ${String(id).padStart(2, '0')}`, postings_30d: id, ...OK, ...over })
 
 beforeEach(() => jest.clearAllMocks())
 
-test('pages 25 at a time, searches, filters by source and flags dead and pending boards', () => {
+test('pages 25 at a time, searches and filters by source', () => {
     const rows = [...Array.from({ length: 30 }, (_, i) => row(i + 1)),
-        row(31, { name: 'Dead Co', postings_30d: 0 }), row(32, { name: 'New Co', postings_30d: 0, pending: true, source: 'lever' })]
+        row(31, { name: 'Dead Co', postings_30d: 0 }), row(32, { name: 'Lever Co', source: 'lever' })]
     render(<SourcesTab sources={rows} />)
     expect(screen.getAllByRole('row')).toHaveLength(26)            // header + 25
     expect(screen.queryByText('co1')).toBeNull()                    // slug only on hover
@@ -23,12 +25,36 @@ test('pages 25 at a time, searches, filters by source and flags dead and pending
     expect(screen.getAllByRole('row')).toHaveLength(2)
     expect(screen.getByText('Dead Co')).toBeInTheDocument()
     fireEvent.change(screen.getByLabelText('Search boards'), { target: { value: '' } })
-    fireEvent.click(screen.getByLabelText('Only boards with no postings'))
-    expect(screen.getByText('No postings in 30 days')).toBeInTheDocument()
-    expect(screen.queryByText('New Co')).toBeNull()                 // pending is not dead
-    fireEvent.click(screen.getByLabelText('Only boards with no postings'))
     fireEvent.change(screen.getByLabelText('Source'), { target: { value: 'lever' } })
-    expect(screen.getByText('Pending first fetch')).toBeInTheDocument()
+    expect(screen.getAllByRole('row')).toHaveLength(2)
+    expect(screen.getByText('Lever Co')).toBeInTheDocument()
+})
+
+test('tells apart a failed fetch, filters keeping none, teasers and a board never fetched (#231)', () => {
+    const never = { health: 'never_fetched', last_fetched_at: null, last_fetch_status: null, last_fetched: null,
+        last_kept: null, last_new: null, last_bodyless: null, last_desc_median: null } as const
+    render(<SourcesTab sources={[
+        row(1, { name: 'Healthy Co' }),
+        row(2, { name: 'Moved Co', health: 'fetch_failed', last_fetch_status: 'http_404', last_fetched: null, last_kept: null }),
+        row(3, { name: 'Empty Co', health: 'empty', last_fetched: 0, last_kept: 0, last_new: 0 }),
+        row(4, { name: 'Filtered Co', health: 'kept_zero', last_fetched: 40, last_kept: 0, last_new: 0 }),
+        row(5, { name: 'Teaser Co', health: 'teaser', last_desc_median: 600 }),
+        row(6, { name: 'Fresh Co', ...never }),
+    ]} />)
+    const cell = (name: string) => screen.getByText(name).closest('tr')!
+    expect(cell('Healthy Co')).toHaveTextContent('30 listed, 6 kept, 2 new')
+    expect(cell('Moved Co')).toHaveTextContent('Fetch failed: http_404')
+    expect(cell('Empty Co')).toHaveTextContent('Board listed nothing')
+    expect(cell('Filtered Co')).toHaveTextContent('40 listed, filters kept 0')
+    expect(cell('Teaser Co')).toHaveTextContent('Teaser descriptions (median 600 chars)')
+    expect(cell('Fresh Co')).toHaveTextContent('Never fetched')
+    fireEvent.change(screen.getByLabelText('Health'), { target: { value: 'fetch_failed' } })
+    expect(screen.getAllByRole('row')).toHaveLength(2)
+    expect(screen.getByText('Moved Co')).toBeInTheDocument()
+    fireEvent.change(screen.getByLabelText('Health'), { target: { value: 'attention' } })
+    expect(screen.getAllByRole('row').map((r) => r.textContent)).toEqual([
+        expect.stringContaining('Company'), expect.stringContaining('Empty Co'), expect.stringContaining('Filtered Co'),
+        expect.stringContaining('Moved Co'), expect.stringContaining('Teaser Co')])
 })
 
 test('sorts by postings', () => {

@@ -189,6 +189,50 @@ def get_watchlist(conn: sqlite3.Connection) -> list[dict]:
     return out
 
 
+BOARD_HEALTH_FIGURES = ("fetched", "kept", "new", "bodyless", "desc_median")
+
+# A kept median description SHORTER than this is a teaser, not a job description. Not a
+# gate (nothing is dropped on it), only the threshold the health line and the `teaser`
+# state use. Healthy boards measure 1,900-2,200 median chars; the boards that turned out
+# to be serving a summary measured 250-850, and the gap between them is empty. The web
+# Sources page holds the same number (lib/board-health.ts), pinned by
+# tests/fixtures/board-health-cases.json.
+TEASER_MEDIAN_CHARS = 1500
+
+
+def board_health(row) -> str:
+    """The state a watchlist row's last-pass record reads as (#231): never_fetched,
+    fetch_failed, empty (listed nothing), kept_zero (listed, filters kept none), teaser,
+    or ok. `row` is a mapping of the watched_companies last_* columns."""
+    status = row["last_fetch_status"]
+    if not status:
+        return "never_fetched"
+    if status != "ok":
+        return "fetch_failed"
+    if not row["last_fetched"]:
+        return "empty"
+    if not row["last_kept"]:
+        return "kept_zero"
+    if row["last_desc_median"] < TEASER_MEDIAN_CHARS:
+        return "teaser"
+    return "ok"
+
+
+def record_board_health(conn: sqlite3.Connection, source: str, slug: str, *, now: str,
+                        status: str, figures: dict | None = None) -> None:
+    """Overwrite a watchlist row's last-pass record (#231): `status` is `ok` or a closed
+    error category; `figures` (BOARD_HEALTH_FIGURES) is None for a failed fetch, so a
+    failure never shows the previous pass's counts. A board not on the watchlist (a
+    config-only company) updates nothing."""
+    f = figures or {}
+    conn.execute(
+        "UPDATE watched_companies SET last_fetched_at=?, last_fetch_status=?, "
+        + ", ".join(f"last_{k}=?" for k in BOARD_HEALTH_FIGURES)
+        + " WHERE source=? AND slug=?",
+        (now, status, *(f.get(k) for k in BOARD_HEALTH_FIGURES), source, slug))
+    conn.commit()
+
+
 def count_watchlist(conn: sqlite3.Connection) -> int:
     return conn.execute("SELECT COUNT(*) FROM watched_companies").fetchone()[0]
 
