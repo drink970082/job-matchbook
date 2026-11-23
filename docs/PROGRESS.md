@@ -14,6 +14,7 @@ behavior. Completed work belongs in CHANGELOG, not this queue.
   is done: stop it; `python3 -m ats_worker.migrate_profile backup --db <db>`; deploy and
   `npx prisma db push --accept-data-loss`; `python3 -m ats_worker.migrate_profile migrate
   --db <db> --legacy-db <backup> --config config.yaml`; start the worker. #225 is next.
+  - #225 (Slice B, evaluate once) in flight on `feat/225-evaluate-once`.
 
 These references reserve unfinished work; they do not claim the branches are currently
 executing or establish merge readiness. Inspect actual refs/worktrees and coordinate
