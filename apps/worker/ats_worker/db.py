@@ -357,7 +357,7 @@ def needs_evaluate_once_migration(conn: sqlite3.Connection) -> bool:
         "AND s.state='complete' AND json_valid(s.result_json) "
         "AND COALESCE(json_extract(s.result_json,'$.disqualified'),0)=1) "
         "OR EXISTS (SELECT 1 FROM job_jev_assessments j WHERE j.job_posting_id=p.id "
-        "AND j.state='complete')))").fetchone()[0] == 1
+        "AND j.state='complete' AND j.verdict IN ('keep','skip'))))").fetchone()[0] == 1
 
 
 def age_out(conn: sqlite3.Connection, *, since: str, now: str, commit: bool = True) -> int:

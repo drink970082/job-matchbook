@@ -18,11 +18,12 @@ LEGACY = {"screen": {"location": {"pass": False, "note": "on-site in China"}},
           "disqualified": True, "disqualification_reason": "location: on-site in China"}
 
 
-def _db(tmp_path, *, triage_roles='["Backend engineer"]'):
+def _db(tmp_path, *, triage_roles='["Backend engineer"]', profile=True):
     path = bootstrap_db(tmp_path / "applications.db")
     conn = db.connect(path)
-    conn.execute("INSERT INTO candidate_profile (id, target_roles, actor, updated_at) "
-                 "VALUES (1, ?, 'migration', ?)", (triage_roles, NOW))
+    if profile:
+        conn.execute("INSERT INTO candidate_profile (id, target_roles, actor, updated_at) "
+                     "VALUES (1, ?, 'migration', ?)", (triage_roles, NOW))
     conn.execute("INSERT INTO app_settings (key, value) VALUES ('jev_current_policy_sha256', 'sha')")
     conn.commit()
     return path, conn
@@ -146,6 +147,51 @@ def test_without_triage_a_passing_screen_backfills_keep(tmp_path):
     conn.close()
     assert mig.migrate(path, now=NOW, out=lambda _l: None) == 0
     assert _verdicts(path) == {"passed": "keep"}
+
+
+def test_a_rerun_is_a_no_op_even_after_triage_is_unconfigured(tmp_path):
+    """The migration commits a marker with its writes; a later rerun reads it and does
+    not settle a pass left pending under triage as `keep` (SPEC: nothing does)."""
+    path, conn = _db(tmp_path)
+    _add(conn, "kept", screen=("complete", False), jev=("complete", "keep"))
+    _add(conn, "waiting", at=RECENT, screen=("complete", False))
+    conn.close()
+    assert mig.migrate(path, now=NOW, out=lambda _l: None) == 0
+    with sqlite3.connect(path) as c:
+        assert c.execute("SELECT value FROM app_settings WHERE key=?",
+                         (mig.MARKER,)).fetchone()[0] == NOW
+        c.execute("UPDATE candidate_profile SET target_roles='[]'")
+    lines = []
+    assert mig.migrate(path, now=NOW, out=lines.append) == 0
+    assert lines == [mig.ALREADY]
+    assert _verdicts(path) == {"kept": "keep", "waiting": "pending"}
+
+
+def test_refuses_triage_rows_without_a_candidate_profile(tmp_path):
+    """Without the profile row (migrate_profile not run) triage looks unused and every
+    pending pass would become keep: refuse, write nothing."""
+    path, conn = _db(tmp_path, profile=False)
+    _add(conn, "kept", screen=("complete", False), jev=("complete", "keep"))
+    _add(conn, "waiting", at=RECENT, screen=("complete", False))
+    conn.close()
+    lines = []
+    assert mig.migrate(path, now=NOW, out=lines.append) == 2
+    assert "migrate_profile" in lines[0]
+    assert set(_verdicts(path).values()) == {"pending"}
+    assert not list(Path(path).parent.glob("*.backup-*"))
+
+
+def test_without_triage_a_premature_pass_aged_out_is_backfilled_keep(tmp_path):
+    """A no-triage pass run before the migration ages old passing screens out; the
+    backfill settles them `keep` as it would have, and leaves a discarded one alone."""
+    path, conn = _db(tmp_path, triage_roles="[]")
+    _add(conn, "passed", screen=("complete", False))
+    _add(conn, "unscreened")
+    conn.execute("UPDATE job_postings SET verdict='not_evaluated', verdict_at=?", (NOW,))
+    conn.commit()
+    conn.close()
+    assert mig.migrate(path, now=NOW, out=lambda _l: None) == 0
+    assert _verdicts(path) == {"passed": "keep", "unscreened": "not_evaluated"}
 
 
 @pytest.mark.parametrize("detail,why", [

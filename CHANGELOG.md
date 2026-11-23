@@ -23,7 +23,9 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
   worker stopped, `make db-push`, then `python3 -m ats_worker.migrate_evaluate_once
   migrate --db <db>`: it backs the DB up, moves the legacy `pipeline_status='discarded'`
   rows into the new shape, backfills every verdict once from today's status rules and
-  drops the `jev_current_policy_sha256` setting, in one transaction. A pass and the
+  drops the `jev_current_policy_sha256` setting, in one transaction that also records
+  `evaluate_once_migrated_at`; it refuses triage rows without a `candidate_profile` row
+  (run `migrate_profile` first). A pass and the
   daemon refuse while a legacy discard or a pending posting with a finished screen
   discard or triage verdict remains. MCP `jev_filter_counts` leaves out discarded
   postings.

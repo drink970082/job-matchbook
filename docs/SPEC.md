@@ -888,13 +888,15 @@ worker modules are pure and dependency-injected; real services are wired only in
   `discarded` at its `created_at`), backfills every verdict once from today's status
   rules (disqualifying screen `discarded`; completed triage keep/skip stands, stale or
   not; a passing screen `keep` unless the readers' triage mode is on — a target role or
-  custom context and at least one triage row; unfinished work `pending` in the window,
-  else `not_evaluated`), and deletes the retired `jev_current_policy_sha256` setting, all
-  in one transaction (a kill leaves the DB as it was). It refuses, writing nothing, before
-  the push or on a `discarded` row that is not exactly the legacy shape or already has a
-  screen row. "Already migrated" is `db.needs_evaluate_once_migration` false (and no
-  untriaged pass to keep), the same test the pass and daemon refuse on; a rerun then
-  writes nothing.
+  custom context and at least one triage row — including one a premature no-triage pass
+  already aged to `not_evaluated`; unfinished work `pending` in the window, else
+  `not_evaluated`), and deletes the retired `jev_current_policy_sha256` setting, all in
+  one transaction committed with the `evaluate_once_migrated_at` setting (a kill leaves
+  the DB as it was). It refuses, writing nothing, before the push, when triage rows exist
+  without a `candidate_profile` row (run `migrate_profile` first), or on a `discarded` row
+  that is not exactly the legacy shape or already has a screen row. A rerun with the
+  marker set and `db.needs_evaluate_once_migration` false (the worker's refusal test)
+  reports "already migrated" and writes nothing.
 
   **Candidate profile** (`profile.py`, #224). One `candidate_profile` row (§8), the only
   candidate input; `run._profile_for_pass` reads it once per pass. Fetch reads the search

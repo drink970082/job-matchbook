@@ -19,11 +19,13 @@ Run it once, with the worker stopped, after the schema push that adds
    the window and becomes `not_evaluated` outside it.
 3. Deletes the retired `jev_current_policy_sha256` setting.
 
-It refuses, writing nothing, before the schema push, or when a `discarded` row is not
-exactly the legacy shape (or already has a screen row): those need a look by hand.
-All of it is one transaction. "Already migrated" is db.needs_evaluate_once_migration
-being false, the same test that makes a pass and the daemon refuse; a second run
-reports it and writes nothing.
+It refuses, writing nothing, before the schema push, when triage rows exist but no
+`candidate_profile` row does (run `ats_worker.migrate_profile` first), or when a
+`discarded` row is not exactly the legacy shape (or already has a screen row): those
+need a look by hand. All of it is one transaction, committed with the
+`evaluate_once_migrated_at` setting; a rerun with that marker set and nothing left for
+db.needs_evaluate_once_migration (the worker's refusal test) reports "already
+migrated" and writes nothing.
 """
 from __future__ import annotations
 
@@ -40,6 +42,7 @@ from . import db, pipeline
 _LEGACY_KEYS = {"screen", "disqualified", "disqualification_reason", "source_content_revision"}
 _RESULT_KEYS = ("screen", "disqualified", "disqualification_reason")
 ALREADY = "already migrated: no legacy discard and no unsettled screen or triage verdict"
+MARKER = "evaluate_once_migrated_at"
 
 
 def _now() -> str:
@@ -95,17 +98,6 @@ def _triage_in_use(conn) -> bool:
         "AND EXISTS (SELECT 1 FROM job_jev_assessments)").fetchone()[0])
 
 
-def _untriaged_passes(conn) -> bool:
-    """A pending passing screen the backfill would settle `keep` (triage not in use).
-    The worker never writes one (it keeps a pass at once when triage is off), so this
-    is migration-only and not part of the runtime refusal."""
-    return not _triage_in_use(conn) and conn.execute(
-        "SELECT EXISTS (SELECT 1 FROM job_postings p JOIN job_screenings s "
-        "ON s.job_posting_id=p.id WHERE p.verdict='pending' AND s.state='complete' "
-        "AND json_valid(s.result_json) "
-        "AND COALESCE(json_extract(s.result_json,'$.disqualified'),0)=0)").fetchone()[0] == 1
-
-
 def _backfill(conn, *, now: str) -> dict:
     screen = ("SELECT 1 FROM job_screenings s WHERE s.job_posting_id=job_postings.id "
               "AND s.state='complete' AND json_valid(s.result_json) "
@@ -123,9 +115,11 @@ def _backfill(conn, *, now: str) -> dict:
         "job_jev_assessments j WHERE j.job_posting_id=job_postings.id AND j.state='complete' "
         "AND j.verdict IN ('keep','skip'))", (now,)).rowcount
     done["triaged"] = triaged
+    # not_evaluated too: a no-triage pass run before the migration aged these out.
     done["kept_untriaged"] = 0 if _triage_in_use(conn) else conn.execute(
         "UPDATE job_postings SET verdict='keep', verdict_at=? "
-        f"WHERE verdict='pending' AND EXISTS ({screen}=0)", (now,)).rowcount
+        "WHERE verdict IN ('pending','not_evaluated') "
+        f"AND EXISTS ({screen}=0) AND NOT EXISTS ({screen}=1)", (now,)).rowcount
     done["not_evaluated"] = db.age_out(conn, since=pipeline.window_start(now), now=now,
                                        commit=False)
     return done
@@ -147,9 +141,15 @@ def migrate(db_path: str, *, now: str, out=print) -> int:
         except MigrationError as exc:
             out(f"refused: {exc}; nothing written")
             return 2
-        if not db.needs_evaluate_once_migration(conn) and not _untriaged_passes(conn):
+        marked = conn.execute("SELECT 1 FROM app_settings WHERE key=?", (MARKER,)).fetchone()
+        if marked and not db.needs_evaluate_once_migration(conn):
             out(ALREADY)
             return 0
+        if conn.execute("SELECT EXISTS (SELECT 1 FROM job_jev_assessments) AND NOT EXISTS "
+                        "(SELECT 1 FROM candidate_profile)").fetchone()[0]:
+            out("refused: triage rows exist but no candidate_profile row; run "
+                "`python3 -m ats_worker.migrate_profile migrate` first; nothing written")
+            return 2
     target = backup(db_path)
     out(f"backed up to {target}")
     with closing(db.connect(db_path)) as conn:
@@ -162,6 +162,9 @@ def migrate(db_path: str, *, now: str, out=print) -> int:
                          "verdict='discarded', verdict_at=? WHERE id=?", (created_at, posting_id))
         conn.execute("DELETE FROM app_settings WHERE key='jev_current_policy_sha256'")
         done = _backfill(conn, now=now)
+        conn.execute("INSERT INTO app_settings (key, value, updated_at) VALUES (?, ?, ?) "
+                     "ON CONFLICT(key) DO UPDATE SET value=excluded.value, "
+                     "updated_at=excluded.updated_at", (MARKER, now, now))
         # One commit for move + backfill + setting + age-out: a kill before it leaves the
         # DB as it was, so the rerun still sees it unmigrated.
         conn.commit()
