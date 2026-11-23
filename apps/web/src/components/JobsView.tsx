@@ -146,8 +146,8 @@ export function JobsView({ initialJobPostings, totalJobPostings, categoryOptions
                 <CardTitle className="text-lg">Discovered Jobs</CardTitle>
                 <p className="text-sm text-muted-foreground">
                     {mode === 'jev'
-                        ? 'Postings JEV marked keep. JEV assesses postings from the last 7 days only, so older ones are not listed.'
-                        : 'No JEV profile is set up: showing postings that passed your hard requirements.'}
+                        ? 'Postings triage marked keep. Triage assesses postings from the last 7 days only, so older ones are not listed.'
+                        : 'Triage is not set up: showing postings that passed your hard requirements.'}
                 </p>
             </CardHeader>
             <CardContent>

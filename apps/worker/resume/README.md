@@ -4,9 +4,9 @@ This repo ships only **`*.example` templates** here. Everything else in this dir
 is **gitignored** (personal data) — never committed or pushed. Each user supplies their
 own.
 
-The worker reads only the JEV packs under your configured `jev_dir` (conventionally
-`resume/jev/`, copied from `../jev.example/`; see `docs/SETUP.md` Path C2). The screen
-never sees a résumé. The other files here are private material for your AI client and the
+The worker reads nothing here: the screen and triage read the candidate profile in the
+DB (a legacy `jev_dir` such as `resume/jev/` only seeds it once). The screen never sees
+a résumé. The other files here are private material for your AI client and the
 `onboard-me` skill:
 
 | File | Purpose |

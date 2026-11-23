@@ -16,7 +16,7 @@ jest.mock('@/lib/analytics-actions')
 jest.mock('@/lib/csv-actions')
 jest.mock('@/lib/watchlist-actions')
 jest.mock('@/lib/job-actions')
-jest.mock('@/lib/preference-actions')
+jest.mock('@/lib/profile-actions')
 jest.mock('@/lib/category-actions')
 jest.mock('@/lib/activity-actions')
 jest.mock('@/components/QuotaBar', () => ({ QuotaBar: () => <div data-testid="quota" /> }))
@@ -62,7 +62,7 @@ test('the Applications view shows the KPI grid and the CSV actions', () => {
 
 test('the Jobs view states its mode and the 7-day window, and has no stage tabs', () => {
     const { unmount } = render(<JobsView {...jobProps} />)
-    expect(screen.getByText(/JEV assesses postings from the last 7 days only/)).toBeInTheDocument()
+    expect(screen.getByText(/Triage assesses postings from the last 7 days only/)).toBeInTheDocument()
     expect(screen.queryByRole('tab')).not.toBeInTheDocument()
     unmount()
     render(<JobsView {...jobProps} mode="screen" />)
@@ -139,7 +139,7 @@ const TEMPLATES = Object.fromEntries(['claude-code.txt', 'claude-desktop.json', 
 
 test('onboarding ticks done steps and hides their help; open steps link to their page', () => {
     render(<Onboarding templates={TEMPLATES}
-        steps={{ aiClient: false, requirements: true, sources: false, jev: false, firstFetch: false }} />)
+        steps={{ aiClient: false, requirements: true, sources: false, triage: false, firstFetch: false }} />)
     expect(screen.getByText('template claude-code.txt')).toBeInTheDocument()
     expect(screen.getByText('template prompt-set-me-up.txt')).toBeInTheDocument()
     expect(screen.getAllByLabelText('done')).toHaveLength(1)

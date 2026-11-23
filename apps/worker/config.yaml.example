@@ -84,6 +84,14 @@ feeds:
     categories: ["Software", "AI/ML/Data", "Quant"]
     # url: ""                   # optional override of the listings.json URL
 
+# ---------------------------------------------------------------------------------
+# ONE-TIME SEED (#224): title_filter, title_exclude, max_age_days, candidate and jev_dir
+# below only fill the candidate profile in the DB on the first pass, when none exists.
+# After that the profile wins and edits here are ignored (logged each pass): change it
+# in the web Settings page or with MCP set_candidate_profile. You can also leave all of
+# them out and fill the profile in Settings instead.
+# ---------------------------------------------------------------------------------
+
 # OPTIONAL coarse pre-filter, applied at fetch time BEFORE any model call. Keep a
 # posting only if its TITLE contains ANY of these (case-insensitive substring).
 # Title-only on purpose — matching the description would let almost every JD
@@ -111,8 +119,7 @@ title_exclude: [intern, internship, "co-op", sales, principal, staff, director]
 max_age_days: 30
 
 candidate:
-  # ONE-TIME SEED: the first pass copies this block into the DB; after that the DB
-  # wins and edits here are ignored (logged). Change them with MCP set_preferences.
+  # ONE-TIME SEED (see above). highest_degree becomes one education row in the profile.
   # Your HARD requirements — the ONLY things that DISQUALIFY (discard) a posting.
   # The LLM screens each field below pass/fail per posting (judged semantically, so
   # "no sponsorship" or "USA covers New York" work by meaning, not keyword match).
@@ -137,14 +144,9 @@ schedule_hours: 24         # hours between WALL-CLOCK passes (00:00, then every 
 # Requires: pip install -r requirements-browser.txt && playwright install chromium
 enable_browser_sources: false
 
-# OPTIONAL: the JEV keep/skip filter (`--jev`; see docs/SETUP.md Path C2 for backends).
-# A directory of PRIVATE inputs — keep it outside git (e.g. under apps/worker/resume/).
-# Start from the synthetic set: mkdir -p resume/jev && cp jev.example/* resume/jev/,
-# then edit the two texts. Relative to the worker's working directory (apps/worker).
-#   profile-binding.json  approved profile sent with the preference question
-#   question-pack.json    the preference question pack (must contain `preference`)
-#   yoe-pack.json         the required-experience pack (`required_yoe_for_candidate`)
-#   yoe-context.txt       education/experience facts sent with the experience question
-# ONE-TIME SEED: the worker copies these into the DB once; after that the DB wins and
-# edits here are ignored (logged). Change the profile/context with MCP set_jev_profile.
+# LEGACY, seed-only: a directory of private JEV inputs (profile-binding.json,
+# question-pack.json, yoe-pack.json, yoe-context.txt). Its texts go into the candidate
+# profile once, as a custom triage context and custom packs. New installs do not need
+# it: triage (`--jev`) reads the profile's background and preferences with the
+# committed default packs (ats_worker/triage_packs/).
 # jev_dir: resume/jev

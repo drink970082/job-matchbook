@@ -1,153 +1,210 @@
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { SettingsPanel } from '@/components/SettingsPanel'
-import { renderJevProfile } from '@/lib/jev-profile-form'
-import { getSettings, setCandidatePreferences, setJevProfile } from '@/lib/preference-actions'
+import { getCandidateProfile, setCandidateProfile } from '@/lib/profile-actions'
 
 jest.mock('next/navigation', () => ({ useRouter: () => ({ refresh: jest.fn() }) }))
 jest.mock('sonner', () => ({ toast: { error: jest.fn(), success: jest.fn() } }))
-jest.mock('@/lib/preference-actions', () => ({
-    getSettings: jest.fn(),
-    setCandidatePreferences: jest.fn(),
-    setJevProfile: jest.fn(),
+jest.mock('@/lib/profile-actions', () => ({
+    getCandidateProfile: jest.fn(),
+    setCandidateProfile: jest.fn(),
 }))
 
-const SETTINGS = {
-    preferences: { highest_degree: "Master's", work_authorization: 'citizen', security_clearance: '',
-        locations: ['remote', 'Boston'], exclude_internships: true, version: 2, actor: 'mcp' },
-    jev: { profile_text: '{"profile":{}}', yoe_context: 'MS.', version: 1, actor: 'config', changed_at: null },
-    reassessOnChange: 400,
+const PROFILE = {
+    title_include: ['engineer'], title_exclude: [], max_age_days: 0,
+    locations: ['remote', 'Boston'], work_authorization: 'citizen', security_clearance: '',
+    exclude_internships: true, exclude_contract: false,
+    education: [{ degree: "master's", field: 'CS' }], experience: [{ title: 'SWE', company: 'Acme', years: 2 }],
+    target_roles: ['Backend'], open_to: [], not_interested: [],
+    custom_triage_context: null as null | { profile_text: string; yoe_context: string },
+    packs: 'default', highest_degree: "master's", total_years: 2, triage_configured: true,
+    version: 2, actor: 'mcp', changed_at: null, confirmed_at: null,
 }
+const LOADED = { profile: PROFILE, reassessOnChange: 400 }
+const FIELDS = {
+    title_include: ['engineer'], title_exclude: [], max_age_days: 0, locations: ['remote', 'Boston'],
+    work_authorization: 'citizen', security_clearance: '', exclude_internships: true, exclude_contract: false,
+    education: [{ degree: "master's", field: 'CS' }], experience: [{ title: 'SWE', company: 'Acme', years: 2 }],
+    target_roles: ['Backend'], open_to: [], not_interested: [],
+}
+const withContext = (profile_text: string, yoe_context = 'MS.') =>
+    ({ ...LOADED, profile: { ...PROFILE, custom_triage_context: { profile_text, yoe_context }, packs: 'custom' } })
+const save = () => fireEvent.click(screen.getByRole('button', { name: 'Save profile' }))
 
 beforeEach(() => {
     jest.clearAllMocks()
-    jest.mocked(getSettings).mockResolvedValue(SETTINGS as any)
-    jest.mocked(setCandidatePreferences).mockResolvedValue({ success: true, data: { unchanged: false } } as any)
-    jest.mocked(setJevProfile).mockResolvedValue({ success: true, data: { unchanged: false } } as any)
+    jest.mocked(getCandidateProfile).mockResolvedValue(LOADED as any)
+    jest.mocked(setCandidateProfile).mockResolvedValue({ success: true, data: { unchanged: false } } as any)
 })
+afterEach(() => jest.restoreAllMocks())  // the window.confirm spies
 
-describe('SettingsPanel', () => {
-    it('loads the stored requirements and saves them as entered', async () => {
+describe('SettingsPanel (the one candidate profile form)', () => {
+    it('loads every section and saves them in one write; a requirements change costs nothing', async () => {
+        const confirm = jest.spyOn(window, 'confirm')
         render(<SettingsPanel />)
-        expect(await screen.findByLabelText('Highest degree')).toHaveValue("Master's")
+        expect(await screen.findByLabelText('Title must contain one of (one per line)')).toHaveValue('engineer')
         expect(screen.getByLabelText('Locations (one per line)')).toHaveValue('Boston')
         expect(screen.getByLabelText('Include remote-eligible postings')).toBeChecked()
+        expect(screen.getByLabelText('Degree 1')).toHaveValue("master's")
+        expect(screen.getByText(/Highest degree: Master's/)).toBeInTheDocument()
         fireEvent.change(screen.getByLabelText('Locations (one per line)'), { target: { value: 'Boston\nAustin' } })
         fireEvent.change(screen.getByLabelText('Security clearance'), { target: { value: 'none' } })
+        fireEvent.change(screen.getByLabelText('Drop postings older than (days)'), { target: { value: '30' } })
         fireEvent.click(screen.getByLabelText('Exclude contract / part-time / temporary'))
-        fireEvent.click(screen.getByRole('button', { name: 'Save requirements' }))
-        await waitFor(() => expect(setCandidatePreferences).toHaveBeenCalledWith({
-            highest_degree: "Master's", work_authorization: 'citizen', security_clearance: 'none',
-            locations: ['Boston', 'Austin', 'remote'], exclude_internships: true, exclude_contract: true,
+        save()
+        await waitFor(() => expect(setCandidateProfile).toHaveBeenCalledWith({
+            ...FIELDS, locations: ['Boston', 'Austin', 'remote'], security_clearance: 'none', max_age_days: 30,
+            exclude_contract: true,
         }))
+        expect(confirm).not.toHaveBeenCalled()
+        confirm.mockRestore()
+    })
+
+    it('a no-edit save restates the stored locations as stored (order and case)', async () => {
+        jest.mocked(getCandidateProfile).mockResolvedValue({ ...LOADED, profile: { ...PROFILE, locations: ['Remote', 'USA'] } } as any)
+        render(<SettingsPanel />)
+        expect(await screen.findByLabelText('Locations (one per line)')).toHaveValue('USA')
+        save()
+        await waitFor(() => expect(setCandidateProfile).toHaveBeenCalledWith({ ...FIELDS, locations: ['Remote', 'USA'] }))
+    })
+
+    it('text typed into a list but not added is added when the box is left for Save', async () => {
+        render(<SettingsPanel />)
+        jest.spyOn(window, 'confirm').mockReturnValue(true)
+        const box = await screen.findByLabelText('Open to')
+        fireEvent.change(box, { target: { value: 'Data' } })
+        fireEvent.blur(box)
+        save()
+        await waitFor(() => expect(setCandidateProfile).toHaveBeenCalledWith({ ...FIELDS, open_to: ['Data'] }))
+    })
+
+    it('education and experience are labelled groups', async () => {
+        render(<SettingsPanel />)
+        expect(await screen.findByRole('group', { name: 'Education' })).toBeInTheDocument()
+        expect(screen.getByRole('group', { name: 'Experience' })).toBeInTheDocument()
+    })
+
+    it('a non-JSON stored context still saves a yoe_context-only edit', async () => {
+        jest.mocked(getCandidateProfile).mockResolvedValue(withContext('free text, not JSON') as any)
+        jest.spyOn(window, 'confirm').mockReturnValue(true)
+        render(<SettingsPanel />)
+        fireEvent.change(await screen.findByLabelText('Education and experience (sent as written)'), { target: { value: 'MS, 2 years.' } })
+        save()
+        await waitFor(() => expect(setCandidateProfile).toHaveBeenCalledWith({ ...FIELDS,
+            custom_triage_context: { profile_text: 'free text, not JSON', yoe_context: 'MS, 2 years.' } }))
     })
 
     it('blank locations read as open to anywhere and the remote box is off', async () => {
-        jest.mocked(getSettings).mockResolvedValue({ ...SETTINGS,
-            preferences: { ...SETTINGS.preferences, locations: [] } } as any)
+        jest.mocked(getCandidateProfile).mockResolvedValue({ ...LOADED, profile: { ...PROFILE, locations: [] } } as any)
         render(<SettingsPanel />)
         expect(await screen.findByText('Open to anywhere (no location screening).')).toBeInTheDocument()
         expect(screen.getByLabelText('Include remote-eligible postings')).toBeDisabled()
     })
 
-    it('saves the JEV profile only after confirming the re-assessment cost', async () => {
-        const confirm = jest.spyOn(window, 'confirm').mockReturnValueOnce(false).mockReturnValueOnce(true)
+    it('a fresh install is configured from the empty form; background is entered once', async () => {
+        jest.mocked(getCandidateProfile).mockResolvedValue({ profile: null, reassessOnChange: 0 } as any)
         render(<SettingsPanel />)
-        fireEvent.change(await screen.findByLabelText('Profile (JSON)'), { target: { value: '{"profile":{"a":1}}' } })
-        fireEvent.click(screen.getByRole('button', { name: 'Save raw text' }))
-        expect(confirm.mock.calls[0][0]).toContain('re-assesses 400 recent postings')
-        expect(setJevProfile).not.toHaveBeenCalled()
-        fireEvent.click(screen.getByRole('button', { name: 'Save raw text' }))
-        await waitFor(() => expect(setJevProfile).toHaveBeenCalledWith({ profile_text: '{"profile":{"a":1}}', yoe_context: 'MS.' }))
-        confirm.mockRestore()
-    })
-
-    it('an unchanged JEV profile (even with CRLF stored) neither confirms nor writes', async () => {
-        jest.mocked(getSettings).mockResolvedValue({ ...SETTINGS, jev: { ...SETTINGS.jev, profile_text: '{\r\n"profile":{}}' } } as any)
-        const confirm = jest.spyOn(window, 'confirm')
-        render(<SettingsPanel />)
-        const box = await screen.findByLabelText('Profile (JSON)')
-        fireEvent.change(box, { target: { value: '{\n"profile":{}}' } })
-        fireEvent.click(screen.getByRole('button', { name: 'Save JEV profile' }))
-        expect(confirm).not.toHaveBeenCalled()
-        expect(setJevProfile).not.toHaveBeenCalled()
-        confirm.mockRestore()
-    })
-
-    it('saves requirements when none are stored yet', async () => {
-        jest.mocked(getSettings).mockResolvedValue({ preferences: null, jev: null, reassessOnChange: 0 } as any)
-        render(<SettingsPanel />)
-        fireEvent.change(await screen.findByLabelText('Highest degree'), { target: { value: 'PhD' } })
-        fireEvent.click(screen.getByRole('button', { name: 'Save requirements' }))
-        await waitFor(() => expect(setCandidatePreferences).toHaveBeenCalledWith({
-            highest_degree: 'PhD', work_authorization: '', security_clearance: '', locations: [], exclude_internships: false, exclude_contract: false,
+        expect(await screen.findByText(/Nothing is set yet/)).toBeInTheDocument()
+        expect(screen.getByText(/degree is not screened/)).toBeInTheDocument()
+        fireEvent.click(screen.getByRole('button', { name: 'Add education' }))
+        fireEvent.change(screen.getByLabelText('Degree 1'), { target: { value: 'phd' } })
+        fireEvent.click(screen.getByRole('button', { name: 'Add experience' }))
+        fireEvent.change(screen.getByLabelText('Years 1'), { target: { value: '1.5' } })
+        fireEvent.change(screen.getByLabelText('Target roles'), { target: { value: 'Backend' } })
+        fireEvent.click(screen.getByRole('button', { name: 'Add to Target roles' }))
+        expect(screen.getByText(/Total years of experience: 1.5/)).toBeInTheDocument()
+        save()
+        await waitFor(() => expect(setCandidateProfile).toHaveBeenCalledWith({
+            title_include: [], title_exclude: [], max_age_days: 0, locations: [], work_authorization: '',
+            security_clearance: '', exclude_internships: false, exclude_contract: false,
+            education: [{ degree: 'phd', field: '' }], experience: [{ title: '', company: '', years: 1.5 }],
+            target_roles: ['Backend'], open_to: [], not_interested: [],
         }))
     })
 
-    it('explains the missing JEV profile instead of offering an empty editor', async () => {
-        jest.mocked(getSettings).mockResolvedValue({ preferences: null, jev: null, reassessOnChange: 0 } as any)
+    it('a change to what triage reads is saved only after confirming the re-assessment cost', async () => {
+        const confirm = jest.spyOn(window, 'confirm').mockReturnValueOnce(false).mockReturnValueOnce(true)
         render(<SettingsPanel />)
-        expect(await screen.findByText(/No JEV profile yet/)).toBeInTheDocument()
-        expect(screen.queryByRole('button', { name: 'Save JEV profile' })).toBeNull()
-    })
-
-    it('a profile written by the form loads into it and saves the structured fields', async () => {
-        const form = { target_roles: ['Backend'], open_to: [], not_interested: [], education: [],
-            experience: [{ title: 'SWE', company: 'Acme', years: 2 }] }
-        jest.mocked(getSettings).mockResolvedValue({ ...SETTINGS, jev: { ...SETTINGS.jev, ...renderJevProfile(form) } } as any)
-        const confirm = jest.spyOn(window, 'confirm').mockReturnValue(true)
-        render(<SettingsPanel />)
-        expect(await screen.findByText('Backend')).toBeInTheDocument()
-        expect(screen.getByLabelText('Company 1')).toHaveValue('Acme')
-        expect(screen.queryByText(/written as free text/)).toBeNull()
-        fireEvent.click(screen.getByRole('button', { name: 'Add education' }))   // a blank row is no change
-        fireEvent.click(screen.getByRole('button', { name: 'Save JEV profile' }))
-        expect(confirm).not.toHaveBeenCalled()                 // unchanged form: no cost prompt, no write
-        fireEvent.change(screen.getByLabelText('Open to'), { target: { value: 'Data' } })
+        fireEvent.change(await screen.findByLabelText('Open to'), { target: { value: 'Data' } })
         fireEvent.click(screen.getByRole('button', { name: 'Add to Open to' }))
-        fireEvent.click(screen.getByRole('button', { name: 'Save JEV profile' }))
-        await waitFor(() => expect(setJevProfile).toHaveBeenCalledWith({ form: { ...form, open_to: ['Data'] } }))  // blank row dropped
+        save()
+        expect(confirm.mock.calls[0][0]).toContain('400 recent postings are re-assessed')
+        expect(setCandidateProfile).not.toHaveBeenCalled()
+        save()
+        await waitFor(() => expect(setCandidateProfile).toHaveBeenCalledWith({ ...FIELDS, open_to: ['Data'] }))
         confirm.mockRestore()
     })
 
-    it('a profile the form did not write is edited field by field as its JSON', async () => {
-        const profile_text = '{"profile":{"background":[{"id":"edu","text":"MS"}],"as_of":"2026-11"}}'
-        jest.mocked(getSettings).mockResolvedValue({ ...SETTINGS, jev: { ...SETTINGS.jev, profile_text } } as any)
-        const confirm = jest.spyOn(window, 'confirm').mockReturnValue(true)
+    it('a blank added row is no triage change and asks nothing', async () => {
+        const confirm = jest.spyOn(window, 'confirm')
         render(<SettingsPanel />)
-        // Unedited: no change, and the raw view under Advanced is the same JSON indented.
-        fireEvent.click(await screen.findByRole('button', { name: 'Save JEV profile' }))
-        expect(setJevProfile).not.toHaveBeenCalled()
-        expect(screen.getByLabelText('Profile (JSON)')).toHaveValue(JSON.stringify(JSON.parse(profile_text), null, 2))
-        fireEvent.click(screen.getByRole('button', { name: 'Save raw text' }))
-        expect(setJevProfile).not.toHaveBeenCalled()  // indenting alone is not a change
-        // Edit a list entry (labelled by its id), add a same-shaped one, remove nothing else.
+        fireEvent.click(await screen.findByRole('button', { name: 'Add experience' }))
+        save()
+        await waitFor(() => expect(setCandidateProfile).toHaveBeenCalledWith(FIELDS))
+        expect(confirm).not.toHaveBeenCalled()
+        confirm.mockRestore()
+    })
+
+    it('custom packs can be swapped for the committed defaults', async () => {
+        jest.mocked(getCandidateProfile).mockResolvedValue({ ...LOADED, profile: { ...PROFILE, packs: 'custom' } } as any)
+        jest.spyOn(window, 'confirm').mockReturnValue(true)
+        render(<SettingsPanel />)
+        expect(await screen.findByText('Question packs: your custom packs.')).toBeInTheDocument()
+        fireEvent.click(screen.getByLabelText('Use the committed default packs instead'))
+        save()
+        await waitFor(() => expect(setCandidateProfile).toHaveBeenCalledWith({ ...FIELDS, custom_packs: null }))
+    })
+})
+
+describe('SettingsPanel custom triage context (a migrated free-text profile)', () => {
+    it('unedited it is not resent; an entry edit saves compact in, compact out', async () => {
+        const profile_text = '{"profile":{"background":[{"id":"edu","text":"MS"}],"as_of":"2026-11"}}'
+        jest.mocked(getCandidateProfile).mockResolvedValue(withContext(profile_text) as any)
+        jest.spyOn(window, 'confirm').mockReturnValue(true)
+        render(<SettingsPanel />)
+        expect(await screen.findByLabelText('Profile (JSON)')).toHaveValue(JSON.stringify(JSON.parse(profile_text), null, 2))
+        save()
+        await waitFor(() => expect(setCandidateProfile).toHaveBeenLastCalledWith(FIELDS))  // indenting alone is not a change
+        await waitFor(() => expect(getCandidateProfile).toHaveBeenCalledTimes(2))        // the form reloads after a save
         fireEvent.change(screen.getByLabelText('edu text'), { target: { value: 'MEng' } })
         fireEvent.click(screen.getByRole('button', { name: 'Add to background' }))
-        fireEvent.click(screen.getByRole('button', { name: 'Save JEV profile' }))
-        await waitFor(() => expect(setJevProfile).toHaveBeenCalledWith({
+        save()
+        await waitFor(() => expect(setCandidateProfile).toHaveBeenLastCalledWith({ ...FIELDS, custom_triage_context: {
             profile_text: '{"profile":{"background":[{"id":"edu","text":"MEng"},{"id":"","text":""}],"as_of":"2026-11"}}',
-            yoe_context: 'MS.',
-        }))  // compact in, compact out
-        confirm.mockRestore()
+            yoe_context: 'MS.' } }))
+    })
+
+    it('a CRLF-only difference keeps the stored bytes', async () => {
+        jest.mocked(getCandidateProfile).mockResolvedValue(withContext('{\r\n"profile":{}}') as any)
+        render(<SettingsPanel />)
+        fireEvent.change(await screen.findByLabelText('Profile (JSON)'), { target: { value: '{\n"profile":{}}' } })
+        save()
+        await waitFor(() => expect(setCandidateProfile).toHaveBeenCalledWith(FIELDS))
     })
 
     it('the structured view and Advanced edit one profile, and a list keeps its last entry', async () => {
-        const profile_text = '{"profile":{"background":[{"id":"edu","text":"MS"}]}}'
-        jest.mocked(getSettings).mockResolvedValue({ ...SETTINGS, jev: { ...SETTINGS.jev, profile_text } } as any)
+        jest.mocked(getCandidateProfile).mockResolvedValue(withContext('{"profile":{"background":[{"id":"edu","text":"MS"}]}}') as any)
         render(<SettingsPanel />)
         fireEvent.change(await screen.findByLabelText('edu text'), { target: { value: 'MEng' } })
         expect(JSON.parse((screen.getByLabelText('Profile (JSON)') as HTMLTextAreaElement).value).profile.background[0].text).toBe('MEng')
         fireEvent.change(screen.getByLabelText('Profile (JSON)'), { target: { value: '{"profile":{"background":[{"id":"edu","text":"PhD"}]}}' } })
         expect(screen.getByLabelText('edu text')).toHaveValue('PhD')
         expect(screen.queryByRole('button', { name: 'Remove edu' })).toBeNull()  // the shape Add copies
-        expect(screen.getAllByLabelText('Education and experience')).toHaveLength(1)
     })
 
-    it('a stored profile that is not a JSON object is edited only under Advanced', async () => {
-        jest.mocked(getSettings).mockResolvedValue({ ...SETTINGS, jev: { ...SETTINGS.jev, profile_text: 'plain text' } } as any)
+    it('a context that is not a JSON object is edited only as raw text', async () => {
+        jest.mocked(getCandidateProfile).mockResolvedValue(withContext('plain text') as any)
         render(<SettingsPanel />)
         expect(await screen.findByText(/not a JSON object/)).toBeInTheDocument()
         expect(screen.getByLabelText('Profile (JSON)')).toHaveValue('plain text')
-        expect(screen.getAllByLabelText('Education and experience')).toHaveLength(1)
+    })
+
+    it('stopping the custom context sends the fields instead', async () => {
+        jest.mocked(getCandidateProfile).mockResolvedValue(withContext('{"a":1}') as any)
+        jest.spyOn(window, 'confirm').mockReturnValue(true)
+        render(<SettingsPanel />)
+        fireEvent.click(await screen.findByLabelText('Stop using the custom context; send the fields above instead'))
+        expect(screen.queryByLabelText('Profile (JSON)')).toBeNull()
+        save()
+        await waitFor(() => expect(setCandidateProfile).toHaveBeenCalledWith({ ...FIELDS, custom_triage_context: null }))
     })
 })

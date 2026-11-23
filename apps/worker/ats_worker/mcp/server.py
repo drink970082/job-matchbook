@@ -66,11 +66,11 @@ _WRITE_NOTE = (
     "delete applications or history; notes are appended, never replaced. remove_source "
     "is the one removal: it drops a watchlist board, logged in web so it can be "
     "re-added. 'Track company X' -> list_sources to rule out a duplicate, then "
-    "add_source with its known ATS board and slug. 'Restore that one' (a posting JEV skipped) -> "
+    "add_source with its known ATS board and slug. 'Restore that one' (a posting triage skipped) -> "
     "get_job to confirm, then override_triage(N, 'keep'); 'clear' returns to the model "
-    "verdict. Onboarding by conversation -> get_setup_status, then set_preferences with the "
-    "hard requirements the operator states and add_source per company; what they want from a "
-    "job goes in the JEV profile (get_jev_profile, then set_jev_profile). Confirm the target "
+    "verdict. Onboarding by conversation -> get_setup_status, then get_candidate_profile and "
+    "set_candidate_profile with what the operator states (search scope, hard requirements, "
+    "background, what they want from a job) and add_source per company. Confirm the target "
     "application or job id from a read tool before writing. Workflows: 'I applied to job "
     "N' -> get_job(N), then mark_job_applied(N) (it dates the application today; if the "
     "operator applied on another day, use record_application with that date and the job "
@@ -85,7 +85,7 @@ _DAILY_BRIEF = """Prepare a concise daily job-search brief from this ATS, read-o
 
 1. get_ats_overview; if it fails, report ATS access as failed (never as zero jobs).
 2. list_jobs with created_from = 3 days ago (default jev=keep), following every
-   next_cursor. Note how many postings JEV hid (jev_filter.hidden_skip_count).
+   next_cursor. Note how many postings triage hid (jev_filter.hidden_skip_count).
 3. list_applications (all pages). Exclude a posting already applied to: linked posting
    or exact URL = confirmed; same company + similar title = probable, flag for review.
 4. For each remaining candidate, read get_job_description to the end before judging it.
@@ -197,7 +197,7 @@ def create_server(repository: ReadOnlyATSRepository | None = None,
         application_id: Annotated[int | None, Field(
             ge=1, description="Filter to postings linked to this application.")] = None,
         jev: Annotated[Literal["keep", "skip", "all"], Field(
-            description=("JEV keep/skip filter. keep (default) hides postings JEV judged "
+            description=("Triage keep/skip filter (JEV provider). keep (default) hides postings triage judged "
                          "skip (weak preference, or a required-experience floor above the "
                          "configured one: 3+ years or the candidate's own years) and reports "
                          "hidden_skip_count; unassessed postings are always shown. skip "
@@ -328,27 +328,24 @@ def create_server(repository: ReadOnlyATSRepository | None = None,
     @server.tool(annotations=_READ_ONLY)
     def get_setup_status() -> dict[str, Any]:
         """What this install still needs before the worker can screen for the operator
-        (`missing` lists the next tools to call), the requirements version, and how many
-        `new` postings were screened before the last requirement change (they keep their
-        old verdict until the operator re-screens; postings already discarded are not
-        counted). The JEV profile is read with get_jev_profile."""
+        (`missing` lists the next tools to call), the candidate profile version, whether
+        triage is configured, and how many `new` postings were screened before the last
+        profile change (they keep their verdict; postings already discarded are not
+        counted). The profile itself is read with get_candidate_profile."""
         return read(repo.get_setup_status)
 
     @server.tool(annotations=_READ_ONLY)
-    def get_jev_profile() -> dict[str, Any]:
-        """The JEV keep/skip filter's stored profile (profile_text, a JSON document sent to
-        the model verbatim) and yoe_context (education/experience facts), the question ids
-        of its seeded packs, and reassess_on_change: how many postings a change would send
-        back for a new assessment (about USD 0.0003 each on the default OpenRouter backend).
-        Read before set_jev_profile."""
-        return read(repo.get_jev_profile)
-
-    @server.tool(annotations=_READ_ONLY)
-    def get_preferences() -> dict[str, Any]:
-        """The hard requirements the screen disqualifies postings on (degree, work
-        authorization, clearance, locations, exclude_internships, exclude_contract), with version and actor;
-        null when none are set. Read before set_preferences."""
-        return read(repo.get_preferences)
+    def get_candidate_profile() -> dict[str, Any]:
+        """The one candidate profile every stage reads: search scope (title_include,
+        title_exclude, max_age_days), hard requirements (locations, work_authorization,
+        security_clearance, exclude_internships, exclude_contract), background (education,
+        experience; highest_degree and total_years are derived from them), preferences
+        (target_roles, open_to, not_interested) and triage (default or custom question
+        packs, and any custom_triage_context sent verbatim instead of the fields). Null
+        until set. reassess_on_change: how many postings a triage-affecting change would
+        send back for a paid assessment (about USD 0.0003 each on the default OpenRouter
+        backend). Read before set_candidate_profile."""
+        return read(repo.get_candidate_profile)
 
     @server.prompt(title="Daily job brief", description="Read-only daily brief of new postings.")
     def daily_brief() -> str:
@@ -430,7 +427,7 @@ def _add_write_tools(server: MCPServer, repo: ReadOnlyATSRepository, writer: ATS
         decision: Literal["keep", "skip", "clear"],
         reason: Annotated[str | None, Field(max_length=500)] = None,
     ) -> dict[str, Any]:
-        """Override JEV's keep/skip for one posting ("restore that one" -> keep), or clear the
+        """Override triage's keep/skip for one posting ("restore that one" -> keep), or clear the
         override to return to the model verdict. It holds across worker passes and JEV
         re-assessments while the posting's content is unchanged; list_jobs/get_job show
         the effective status, model_status and the override. Audited in web."""
@@ -440,63 +437,75 @@ def _add_write_tools(server: MCPServer, repo: ReadOnlyATSRepository, writer: ATS
             "POST", f"/api/v1/jobs/{job_id}/triage", drop_none(decision=decision, reason=reason))}
 
     @server.tool(annotations=_WRITE)
-    def set_preferences(
-        highest_degree: Annotated[str | None, Field(max_length=100, description=(
-            "Highest degree held: none, High School, Associate, Bachelor's, Master's or PhD; "
-            "'' stops screening on degree."))] = None,
+    def set_candidate_profile(
+        title_include: Annotated[list[Annotated[str, Field(max_length=100)]] | None, Field(
+            max_length=100, description="Keep a posting only if its title contains one of these "
+            "(case-insensitive); [] keeps every title. Applies to postings fetched from now on.")] = None,
+        title_exclude: Annotated[list[Annotated[str, Field(max_length=100)]] | None, Field(
+            max_length=100, description="Drop a posting whose title has one of these words.")] = None,
+        max_age_days: Annotated[int | None, Field(ge=0, le=3650, description=(
+            "Drop postings older than this at fetch; 0 = off."))] = None,
+        locations: Annotated[list[Annotated[str, Field(max_length=100)]] | None, Field(
+            max_length=50, description="Where the operator can work, e.g. ['remote', 'Boston']. "
+            "Replaces the whole list; [] stops screening on location.")] = None,
         work_authorization: Literal["", "citizen", "permanent resident",
                                     "authorized-no-sponsorship", "needs visa sponsorship"] | None = None,
         security_clearance: Annotated[str | None, Field(max_length=100, description=(
             "none, confidential, secret or top secret; '' stops screening on clearance."))] = None,
-        locations: Annotated[list[Annotated[str, Field(max_length=100)]] | None, Field(
-            max_length=50, description="Where the operator can work, e.g. ['remote', 'Boston']. "
-            "Replaces the whole list; [] stops screening on location.")] = None,
         exclude_internships: bool | None = None,
         exclude_contract: Annotated[bool | None, Field(description=(
             "Skip contract, part-time and temporary roles (decided from the job title)."))] = None,
-    ) -> dict[str, Any]:
-        """Set the hard requirements the worker's screen disqualifies postings on, only as
-        the operator states them. Omitted fields keep their stored value. A change bumps the
-        version from the next worker pass on; postings already screened are not re-screened
-        (get_setup_status counts them). Skills and fit preferences do not belong here."""
-        body = drop_none(highest_degree=highest_degree, work_authorization=work_authorization,
-                         security_clearance=security_clearance, locations=locations,
-                         exclude_internships=exclude_internships, exclude_contract=exclude_contract)
-        if not body:
-            raise ToolError("Give at least one preference field")
-        return {"preferences": write("PUT", "/api/v1/preferences", body)}
-
-    @server.tool(annotations=_WRITE)
-    def set_jev_profile(
+        education: Annotated[list[dict[str, str]] | None, Field(description=(
+            "Rows of {degree, field}; degree is one of none, high school, associate, "
+            "bachelor's, master's, phd. The highest one is what the screen compares against "
+            "a posting's required degree; [] stops screening on degree."))] = None,
+        experience: Annotated[list[dict[str, Any]] | None, Field(description=(
+            "Rows of {title, company, years}; years is a number the operator states. Their "
+            "sum is the total years triage compares against required experience."))] = None,
         target_roles: list[Annotated[str, Field(max_length=200)]] | None = None,
         open_to: list[Annotated[str, Field(max_length=200)]] | None = None,
         not_interested: list[Annotated[str, Field(max_length=200)]] | None = None,
-        education: Annotated[list[dict[str, str]] | None, Field(description=(
-            "Rows of {degree, field}, e.g. {degree: \"Master's\", field: \"Computer Science\"}."))] = None,
-        experience: Annotated[list[dict[str, Any]] | None, Field(description=(
-            "Rows of {title, company, years}; years is a number the operator states."))] = None,
         # Plain `str` (not Optional): the SDK JSON-decodes a JSON-looking argument typed
         # `str | None`, which would replace the operator's exact text with a dict.
-        profile_text: Annotated[str, Field(max_length=16000, description=(
-            "Advanced: the whole profile JSON document, replacing the stored one byte for "
-            "byte. Use the structured fields instead unless the operator asks."))] = "",
-        yoe_context: Annotated[str, Field(max_length=2000, description=(
-            "Advanced: education and experience text. Omit to keep."))] = "",
+        custom_profile_text: Annotated[str, Field(max_length=16000, description=(
+            "Advanced: a verbatim triage profile JSON document sent instead of the fields "
+            "(give with custom_yoe_context). Only when the operator asks."))] = "",
+        custom_yoe_context: Annotated[str, Field(max_length=2000, description=(
+            "Advanced: the verbatim education/experience text sent with it."))] = "",
+        clear_custom_triage_context: Annotated[bool, Field(description=(
+            "Stop sending the custom context; triage then reads the fields."))] = False,
+        clear_custom_packs: Annotated[bool, Field(description=(
+            "Drop the custom question packs; triage then uses the committed defaults."))] = False,
     ) -> dict[str, Any]:
-        """Update the JEV filter's profile, only as the operator states it. The structured
-        fields (the same form the web Settings page edits) replace only what is given and
-        render the profile and experience text; a stored free-text profile needs all five
-        once. First get_jev_profile, and tell the operator the change re-assesses
-        reassess_on_change postings (paid) on the next worker pass; write once they agree.
-        A restatement is a no-op. The question packs cannot be set here."""
-        form = drop_none(target_roles=target_roles, open_to=open_to, not_interested=not_interested,
-                         education=education, experience=experience)
-        raw = {k: v for k, v in (("profile_text", profile_text), ("yoe_context", yoe_context)) if v}
-        if form and raw:
-            raise ToolError("Give the structured fields or profile_text/yoe_context, not both")
-        if not form and not raw:
-            raise ToolError("Give the structured fields, or profile_text and/or yoe_context")
-        return {"jev_profile": write("PUT", "/api/v1/jev-profile", {"form": form} if form else raw)}
+        """Update the candidate profile, only as the operator states it. Omitted fields keep
+        their stored value; a list replaces the whole list. A change bumps the version and
+        applies from the next worker pass: postings already screened keep their verdict. If
+        the change touches what triage reads (background, preferences, custom context or
+        packs), first get_candidate_profile and tell the operator it re-assesses
+        reassess_on_change postings (paid) on the next pass; write once they agree. A
+        restatement is a no-op. Custom packs cannot be set here."""
+        body = drop_none(title_include=title_include, title_exclude=title_exclude,
+                         max_age_days=max_age_days, locations=locations,
+                         work_authorization=work_authorization,
+                         security_clearance=security_clearance,
+                         exclude_internships=exclude_internships,
+                         exclude_contract=exclude_contract, education=education,
+                         experience=experience, target_roles=target_roles, open_to=open_to,
+                         not_interested=not_interested)
+        if (custom_profile_text or custom_yoe_context) and clear_custom_triage_context:
+            raise ToolError("Give a custom context or clear it, not both")
+        if custom_profile_text or custom_yoe_context:
+            if not (custom_profile_text and custom_yoe_context):
+                raise ToolError("Give custom_profile_text and custom_yoe_context together")
+            body["custom_triage_context"] = {"profile_text": custom_profile_text,
+                                             "yoe_context": custom_yoe_context}
+        if clear_custom_triage_context:
+            body["custom_triage_context"] = None
+        if clear_custom_packs:
+            body["custom_packs"] = None
+        if not body:
+            raise ToolError("Give at least one profile field")
+        return {"candidate_profile": write("PUT", "/api/v1/candidate-profile", body)}
 
     @server.tool(annotations=_WRITE)
     def add_source(

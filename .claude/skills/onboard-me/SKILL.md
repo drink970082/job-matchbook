@@ -31,12 +31,13 @@ files.
 **Never touch `apps/worker/ats_worker/prompts/screen.txt`.** Generality is supposed to live
 in the user's data (hard requirements, profile, résumé), not the prompt. The running
 pipeline only *screens* postings against hard requirements; it does not score fit.
-**The worker never reads the profile or résumé** (only the optional keep/skip filter's
-own copy, below). They are private inputs for the AI
-client (ChatGPT / Claude / Codex) that reviews jobs over MCP — the user attaches them
-to that client's project or task. The optional JEV keep/skip filter reads its own
-`jev_dir` packs (Step 7); the worker copies them into the DB once, and the profile is
-edited after that through MCP `set_jev_profile`.
+**The worker never reads the profile or résumé files.** They are private inputs for
+the AI client (ChatGPT / Claude / Codex) that reviews jobs over MCP — the user attaches
+them to that client's project or task. What the worker reads is the **candidate profile**
+in the DB (title filters, hard requirements, education and experience, target roles):
+`config.yaml` seeds it once, and after that it is edited in the web Settings page or
+through MCP `set_candidate_profile`. The optional triage (keep/skip) stage reads the
+profile's background and target roles (Step 7).
 
 ## What you'll produce (all gitignored personal data)
 
@@ -45,11 +46,11 @@ edited after that through MCP `set_jev_profile`.
 | 0 | a runnable checkout (deps, DB, template copies) | `make setup` + `make doctor` |
 | 2 | `apps/worker/resume/personal_profile.txt` | you write it from the interview |
 | 3 | categories (a DB `app_settings` row) | bundled `set_categories.py` |
-| 4 | `apps/worker/config.yaml` `candidate:` block (seeds the DB once) | you edit the file; after the first pass, MCP `set_preferences` |
+| 4 | `apps/worker/config.yaml` `candidate:` block (seeds the DB once) | you edit the file; after the first pass, Settings or MCP `set_candidate_profile` |
 | 5 | `apps/worker/resume/resume.txt` | you read their résumé → clean text |
 | 6 | watchlist rows (DB) | **delegate to the `onboard-board` skill** |
 | 7 | `apps/worker/.env` | you fill values the user gives (prereqs came from Step 0) |
-| 7 | optional `apps/worker/resume/jev/` + `config.yaml` `jev_dir` | copied from `jev.example/`, two texts rewritten |
+| 7 | optional triage: education, experience, target roles in the candidate profile | Settings or MCP `set_candidate_profile` |
 | 8 | first pass | `python -m ats_worker.run --once` |
 
 Steps are **ordered but independent.** A brand-new user wants the whole run; someone
@@ -215,19 +216,18 @@ is left is filling in values **only the user can give you**. Fill them into
   key. `SCREEN_BACKEND=api` reaches any OpenAI-compatible endpoint (OpenAI,
   OpenRouter, Gemini, LM Studio, ...): it needs `SCREEN_MODEL`, usually
   `SCREEN_API_BASE_URL` and `SCREEN_API_KEY`, and hosted vendors bill per call.
-- **Keep/skip filter** — ask separately from the screen; off is a fine answer. If
-  they want it: in `apps/worker`, `mkdir -p resume/jev && cp jev.example/* resume/jev/`,
-  rewrite `profile-binding.json` and `yoe-context.txt` from what they told you, and set
-  `jev_dir: resume/jev` in `config.yaml`. Keep `profile-binding.json` a valid JSON
-  object (later edits through MCP require it). `yoe-context.txt` **must state their degree
-  and full-time years** — the experience question skips postings that require more
-  than that, so a missing or wrong number hides real matches. Then `JEV_BACKEND=openrouter-native` (default, metered; needs
-  `OPENROUTER_API_KEY`) or `JEV_BACKEND=extract` (reuses the screen backend, no extra
-  key). **Tell them plainly: either backend sends `profile-binding.json` and
-  `yoe-context.txt` with every posting to that provider (OpenRouter, or their screen
-  provider).** Both are unmeasured with the example packs. The stage
-  runs only with `--jev` (Step 8). Never set `OPENROUTER_API_KEY` for any other
-  purpose. Leave the question packs as shipped.
+- **Triage (keep/skip)** — ask separately from the screen; off is a fine answer. If
+  they want it: fill the candidate profile's education rows, experience rows (title,
+  company, years) and target roles / open to / not interested from what they told you,
+  in the web Settings page or with MCP `set_candidate_profile`. The experience rows
+  **must give their real full-time years** — the experience question skips postings
+  that require more than the total, so a missing or wrong number hides real matches.
+  Then `JEV_BACKEND=openrouter-native` (default, metered; needs `OPENROUTER_API_KEY`) or
+  `JEV_BACKEND=extract` (reuses the screen backend, no extra key). **Tell them plainly:
+  either backend sends their background and preferences with every posting to that
+  provider (OpenRouter, or their screen provider).** Both are unmeasured with the
+  default packs. The stage runs only with `--jev` (Step 8). Never set
+  `OPENROUTER_API_KEY` for any other purpose. Leave the question packs as shipped.
 
 **Verify, don't fabricate.** Never invent a token or key. If a prereq is genuinely
 missing, say so plainly and point at `docs/SETUP.md` — a clear "you still need X" is

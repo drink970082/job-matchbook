@@ -14,7 +14,7 @@ commands, and [ARCHITECTURE](ARCHITECTURE.md) distinguishes implemented paths fr
 | Python 3.11+ | Native worker and MCP |
 | Configured public job sources/network access | Discovery |
 | A selected screen backend | Optional screening; no model needed for fetch-only |
-| A `jev_dir` (start from `apps/worker/jev.example/`) + OpenRouter key or a screen backend | Optional JEV keep/skip filter |
+| Target roles in the candidate profile + OpenRouter key or a screen backend | Optional triage (JEV keep/skip) |
 | MCP SDK extra (`requirements-mcp.txt`) and an MCP client (Claude Code, Codex, or ChatGPT via a tunnel) | An AI assistant reading local ATS data |
 | `ATS_API_KEY_READ_WRITE` / `ATS_API_KEY_READ` in the root `.env` | The loopback write API `/api/v1` (off without a key) |
 
@@ -60,24 +60,18 @@ is not synonymous with passed. Numeric limits count provider calls; deterministi
 need none. Explicit `--screen-unlimited` replaces the numeric limit while preserving
 cache/breaker behavior, but does not remove subscription limits.
 
-## Path C2 — optional JEV keep/skip filter
+## Path C2 — optional triage (JEV keep/skip)
 
-Start from the committed example packs and make them yours (the worker copies them into
-the DB once; after that edit the profile with MCP `set_jev_profile`):
-
-```bash
-cd apps/worker
-mkdir -p resume/jev && cp jev.example/* resume/jev/   # resume/ is gitignored
-# edit resume/jev/profile-binding.json and yoe-context.txt; set jev_dir: resume/jev
-```
-
-`jev_dir` is relative to the worker's working directory (`apps/worker`).
+Triage reads the candidate profile: fill in your education, experience and at least one
+target role (plus open to / not interested) in Settings or with MCP
+`set_candidate_profile`. It uses the committed default question packs
+(`apps/worker/ats_worker/triage_packs/`); nothing else to set up.
 
 Then pick the keep/skip backend (`--jev-backend` / `JEV_BACKEND`):
 
 - `openrouter-native` (default) — metered OpenRouter calls, needs `OPENROUTER_API_KEY`,
   `--jev-max-usd` caps settled spend per pass. SPEC's measurements are for the
-  operator's private packs; the example packs are unmeasured on either backend.
+  operator's private packs; the default packs are unmeasured on either backend.
 - `extract` — the screen backend answers the same packs (no OpenRouter key; it receives
   your profile). Unvalidated; `--jev-limit` (default 40 postings) is the only cap.
 
@@ -184,10 +178,11 @@ interactive call.
 
 | Setting | Location | Lifecycle |
 |---|---|---|
-| Collection filters, candidate facts, schedule | Private `config.yaml` | Existing intake/screen semantics; edit and restart intentionally |
+| Candidate profile (title filters, max age, hard requirements, background, preferences) | Config seed, then DB | `config.yaml` seeds it once; after that edit it in Settings or with MCP `set_candidate_profile` (config edits are logged and ignored) |
+| Schedule, feeds, browser opt-in | Private `config.yaml` | Edit and restart intentionally |
 | Watchlist | Config seed, then DB | After initial seed, manage it in the web Sources tab (paste a careers URL, remove), through MCP (`add_source`/`remove_source`), or with the onboard-board skill for custom/browser recipes; config edits do not replace DB rows |
 | Provider selection/secrets | Private `.env` and CLI flags | Choose an explicit mode; metered providers are opt-in |
-| Private résumé/profile | `apps/worker/resume/` | Read by the worker only through `jev_dir` (JEV inputs); otherwise private onboarding material |
+| Private résumé/profile | `apps/worker/resume/` | Not read by the worker (a legacy `jev_dir` there seeds the profile once); private onboarding material |
 | Downstream analysis rubric (optional) | ChatGPT/Claude task, project or accessible user-controlled document | Keep current and available to each run; memory is not a versioned config |
 | Application history and job evidence | Shared SQLite directory | Back up with SQLite-aware tools; preserve WAL sidecars |
 

@@ -198,37 +198,35 @@ model app_settings {
   updated_at String?
 }
 
-// The candidate's hard requirements (#157): one row, id=1, read by the worker's screen.
-// Seeded once from config.yaml `candidate:` when absent; after that this row wins.
-// `version` bumps on every change; `changed_at` is the last change after the seed
-// (null = still the seeded values), so a screen completed before it is stale.
-model candidate_preferences {
-  id                  Int     @id
-  highest_degree      String  @default("")
-  work_authorization  String  @default("")
-  security_clearance  String  @default("")
-  locations           String  @default("[]") // JSON string array
-  exclude_internships Boolean @default(false)
-  exclude_contract    Boolean @default(false) // contract / part-time / temporary titles (#206)
-  version             Int     @default(1)
-  actor               String  // config | web | mcp
-  changed_at          String?
-  updated_at          String
-}
-
-// The JEV keep/skip filter's inputs (#157): one row, id=1. Seeded once from config
-// `jev_dir` (texts exactly as read: the policy hash covers them); after that this row
-// wins. A change bumps `version` and re-queues every in-window posting for JEV.
-model jev_profile {
-  id           Int     @id
-  profile_text String  // profile-binding.json, verbatim
-  c_pack       String  // question-pack.json (JSON text; seed/file only)
-  yoe_pack     String  // yoe-pack.json (JSON text; seed/file only)
-  yoe_context  String  // education/experience facts for the YOE question
-  version      Int     @default(1)
-  actor        String  // config | web | mcp
-  changed_at   String?
-  updated_at   String
+// The candidate profile (#224): one row, id=1, the only candidate input the worker
+// reads. Fetch reads the search scope, the screen the hard requirements and background,
+// triage the background, preferences and packs. Highest degree and total years are
+// derived from the background rows, never stored. Seeded once (config.yaml or the
+// legacy-table migration) when absent; after that this row wins. `version` bumps on
+// every actual change; `changed_at` is the last change after the seed (null = still
+// the seeded values). `confirmed_at` is reserved for the confirmation gate (#227).
+model candidate_profile {
+  id                    Int     @id
+  title_include         String  @default("[]") // JSON string array; empty = keep every title
+  title_exclude         String  @default("[]") // JSON string array, whole-word match
+  max_age_days          Int     @default(0) // 0 = off
+  locations             String  @default("[]") // JSON string array
+  work_authorization    String  @default("") // closed vocabulary (constants.ts WORK_AUTHORIZATIONS)
+  security_clearance    String  @default("")
+  exclude_internships   Boolean @default(false)
+  exclude_contract      Boolean @default(false) // contract / part-time / temporary titles
+  education             String  @default("[]") // JSON [{degree, field}]; degree is a DEGREES value
+  experience            String  @default("[]") // JSON [{title, company, years}]
+  target_roles          String  @default("[]") // JSON string array
+  open_to               String  @default("[]") // JSON string array
+  not_interested        String  @default("[]") // JSON string array
+  custom_packs          String? // JSON {preference_pack, yoe_pack} (pack JSON texts); null = committed defaults
+  custom_triage_context String? // JSON {profile_text, yoe_context} sent verbatim; null = rendered from the fields
+  version               Int     @default(1)
+  actor                 String  // config | migration | web | mcp
+  changed_at            String?
+  confirmed_at          String?
+  updated_at            String
 }
 
 // One row per worker pass (#247), written only by the worker. Inserted `running` at

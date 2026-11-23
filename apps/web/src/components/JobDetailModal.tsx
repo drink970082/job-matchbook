@@ -110,7 +110,7 @@ export function JobDetailModal({ isOpen, onClose, job, onMarkApplied }: JobDetai
 
                     {job.jev && (
                         <div className="rounded-md border p-3 space-y-1.5">
-                            <div className="text-xs font-semibold text-muted-foreground">JEV keep/skip filter</div>
+                            <div className="text-xs font-semibold text-muted-foreground">Triage keep/skip (JEV)</div>
                             <div className="flex flex-wrap items-center gap-2">
                                 <Badge variant={job.jev.status === 'keep' ? 'default' : job.jev.status === 'skip' ? 'destructive' : 'outline'}>
                                     {job.jev.status}

@@ -93,6 +93,7 @@ function auditText(c: { entity: string; action: string; entity_id: number; paylo
         }
         case 'candidate_preferences': return 'Updated hard requirements'
         case 'jev_profile': return 'Updated the JEV profile'
+        case 'candidate_profile': return 'Updated the candidate profile'
         default: return `${c.action} ${c.entity}`
     }
 }
