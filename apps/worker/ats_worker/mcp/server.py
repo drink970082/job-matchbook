@@ -337,12 +337,15 @@ def create_server(repository: ReadOnlyATSRepository | None = None,
         name, has_recipe), with postings_30d per board and unresolved_30d (feed listings no
         board could be resolved for). Each board carries its last pass: last_fetched_at,
         last_fetch_status (ok, disabled, or an error category such as http_404),
-        last_fetched (listed), last_kept (after title/age filters), last_new, last_bodyless,
-        last_desc_median (hydrated postings only; null when none), and `health`:
+        last_fetched (listed), last_kept (stored with a description; gate discards and
+        bodyless excluded), last_new, last_bodyless, last_detail_failed (detail call
+        returned nothing), last_desc_median (of the kept; null when none), and `health`:
         never_fetched, disabled (a browser board skipped while browser sources are off),
-        fetch_failed, empty (listed nothing), bodyless (kept nothing because postings came
-        back with no description: a broken scraper), kept_zero (filters kept none), teaser
-        (median description under 1500 chars) or ok."""
+        fetch_failed, empty (listed nothing), details_failed (none kept and details
+        failed, or failures are most of what reached hydration: throttled or down, not a
+        wrong slug), bodyless (likewise for postings with no description: a broken
+        scraper), kept_zero (the filters kept none), teaser (median under 1500 chars) or
+        ok."""
         return read(repo.list_sources)
 
     @server.tool(annotations=_READ_ONLY)

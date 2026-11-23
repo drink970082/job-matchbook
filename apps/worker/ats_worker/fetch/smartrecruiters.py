@@ -159,8 +159,22 @@ def has_listings(slug: str, session: requests.Session | None = None,
     return bool(parse_listing(resp.json()))
 
 
+def parse_stub(stub: dict, slug: str, company_name: str) -> dict:
+    """The list stub as a posting the stub gate can judge: id, title, location, no
+    description (that needs the detail GET)."""
+    pid = str(stub.get("id") or "")
+    return {"source": SOURCE, "external_id": pid, "company_name": company_name,
+            "job_title": (stub.get("name") or "").strip(), "location": _location(stub.get("location")),
+            "job_url": f"https://jobs.smartrecruiters.com/{slug}/{pid}", "description": "",
+            "posted_at": None}
+
+
 def fetch(slug: str, company_name: str, session: requests.Session | None = None,
-          timeout: int = 20) -> list[dict]:
+          timeout: int = 20, keep=None) -> list[dict]:
+    """List a board, then one detail GET per posting. `keep(stub)` is the optional stub
+    gate (see `workday.fetch`): only 'drop' is honoured, skipping that detail GET. A
+    stored stub would have no description, so every other verdict hydrates. A failed or
+    inactive detail returns nothing for that posting, which the caller counts."""
     base = API.format(slug=slug)
 
     def _page(http, offset):
@@ -173,6 +187,8 @@ def fetch(slug: str, company_name: str, session: requests.Session | None = None,
         pid = stub.get("id")
         if not pid:
             return None  # id-less stub: no detail GET
+        if keep is not None and keep(parse_stub(stub, slug, company_name)) == "drop":
+            return None  # never stored, no detail call
         try:
             detail = http.get(f"{base}/{pid}", timeout=timeout)
             detail.raise_for_status()

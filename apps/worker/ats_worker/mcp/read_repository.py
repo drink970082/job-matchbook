@@ -1044,7 +1044,7 @@ class ReadOnlyATSRepository:
             rows = conn.execute(
                 "SELECT w.id,w.source,w.slug,w.name,w.recipe IS NOT NULL AS has_recipe,w.created_at,"
                 "w.last_fetched_at,w.last_fetch_status,w.last_fetched,w.last_kept,w.last_new,"
-                "w.last_bodyless,w.last_desc_median,"
+                "w.last_bodyless,w.last_detail_failed,w.last_desc_median,"
                 "(SELECT COUNT(*) FROM job_postings p WHERE p.source=w.source AND p.company_slug=w.slug "
                 " AND ats_instant_cmp(p.created_at, ?) >= 0) AS postings_30d "
                 "FROM watched_companies w ORDER BY w.id", (cutoff,)).fetchall()

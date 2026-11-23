@@ -197,7 +197,7 @@ def test_stub_gate_sources_is_exactly_the_two_step_adapters():
     # one honours 'drop' only). `custom`/`browser` joined for the same reason once a
     # recipe could carry a `detail:` block — for a recipe with none, `keep` is inert.
     assert STUB_GATE_SOURCES == frozenset(
-        {"phenom", "workday", "icims", "custom", "browser"})
+        {"phenom", "workday", "smartrecruiters", "icims", "custom", "browser"})
 
 
 # --- fetch_one_company dispatcher (per-listing detail sources) -------------

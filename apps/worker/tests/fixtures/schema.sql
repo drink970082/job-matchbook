@@ -121,6 +121,7 @@ CREATE TABLE "watched_companies" (
     "last_kept" INTEGER,
     "last_new" INTEGER,
     "last_bodyless" INTEGER,
+    "last_detail_failed" INTEGER,
     "last_desc_median" INTEGER
 );
 

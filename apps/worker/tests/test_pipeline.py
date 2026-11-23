@@ -534,7 +534,7 @@ def test_run_fetch_health_line_on_an_empty_board(db_path, capsys):
 # --- per-board health record (#231): the health line, persisted on the watchlist row ---
 
 _HEALTH_COLS = ("last_fetched_at", "last_fetch_status", "last_fetched", "last_kept",
-                "last_new", "last_bodyless", "last_desc_median")
+                "last_new", "last_bodyless", "last_detail_failed", "last_desc_median")
 
 
 def _watch(conn, *boards):
@@ -564,7 +564,7 @@ def test_run_fetch_records_each_boards_health_on_its_watchlist_row(db_path):
                        ["engineer"], now=NOW, fetch_fn=fetch_fn)
     assert _health(conn, "greenhouse", "acme") == {
         "last_fetched_at": NOW, "last_fetch_status": "ok", "last_fetched": 4,
-        "last_kept": 2, "last_new": 2, "last_bodyless": 1, "last_desc_median": 2200}
+        "last_kept": 2, "last_new": 2, "last_bodyless": 1, "last_detail_failed": 0, "last_desc_median": 2200}
 
     # A second pass: the same postings are already stored, so nothing is new.
     pipeline.run_fetch(conn, [{"source": "greenhouse", "slug": "acme", "name": "Acme"}],
@@ -589,17 +589,25 @@ def test_a_failing_board_records_its_error_category_and_the_pass_goes_on(db_path
                        None, now=LATER, fetch_fn=fetch_fn)
     assert _health(conn, "greenhouse", "moved") == {
         "last_fetched_at": LATER, "last_fetch_status": "http_404", "last_fetched": None,
-        "last_kept": None, "last_new": None, "last_bodyless": None, "last_desc_median": None}
+        "last_kept": None, "last_new": None, "last_bodyless": None, "last_detail_failed": None, "last_desc_median": None}
     # The board after it was still fetched, and its record is this pass's (empty), not
     # the previous one's.
     assert _health(conn, "lever", "fine") == {
         "last_fetched_at": LATER, "last_fetch_status": "ok", "last_fetched": 0,
-        "last_kept": 0, "last_new": 0, "last_bodyless": 0, "last_desc_median": None}
+        "last_kept": 0, "last_new": 0, "last_bodyless": 0, "last_detail_failed": 0, "last_desc_median": None}
 
 
-def test_the_median_ignores_gate_discarded_stubs_returned_unhydrated(db_path):
-    """A stub the location gate discards comes back with no description (no detail call
-    was made); it is not a teaser JD, so the median measures hydrated postings only."""
+def _state(conn, slug):
+    return db.board_health(conn.execute(
+        "SELECT * FROM watched_companies WHERE slug=?", (slug,)).fetchone())
+
+
+_REMOTE_ONLY = {"locations": ["remote", "USA"]}
+
+
+def test_a_gate_discard_is_not_kept_and_not_measured(db_path):
+    """A stub the location gate discards is stored as a requirements miss, returned
+    un-hydrated: it is neither a kept posting nor a teaser description."""
     conn = db.connect(db_path)
     _watch(conn, ("phenom", "far"), ("phenom", "allfar"))
 
@@ -609,12 +617,100 @@ def test_the_median_ignores_gate_discarded_stubs_returned_unhydrated(db_path):
         return far if slug == "allfar" else far + [_posting("ok", source="phenom", description="x" * 2000)]
 
     pipeline.run_fetch(conn, [{"source": "phenom", "slug": s, "name": s} for s in ("far", "allfar")],
-                       None, now=NOW, fetch_fn=fetch_fn, candidate={"locations": ["remote", "USA"]})
+                       None, now=NOW, fetch_fn=fetch_fn, candidate=_REMOTE_ONLY)
     far, allfar = _health(conn, "phenom", "far"), _health(conn, "phenom", "allfar")
-    assert (far["last_kept"], far["last_desc_median"]) == (6, 2000)
-    assert (allfar["last_kept"], allfar["last_desc_median"]) == (5, None), "nothing hydrated to measure"
-    assert [db.board_health(conn.execute(
-        "SELECT * FROM watched_companies WHERE slug=?", (s,)).fetchone()) for s in ("far", "allfar")] == ["ok", "ok"]
+    assert (far["last_kept"], far["last_new"], far["last_desc_median"]) == (1, 1, 2000)
+    assert (allfar["last_kept"], allfar["last_desc_median"]) == (0, None)
+    assert [_state(conn, "far"), _state(conn, "allfar")] == ["ok", "kept_zero"]
+    assert conn.execute("SELECT COUNT(*) FROM job_postings").fetchone()[0] == 11, "discards still stored"
+
+
+def test_phenom_whose_hydrated_postings_all_came_back_bodyless_is_not_ok(db_path):
+    """10 stubs: 4 discarded by the location gate, 6 hydrated, every one without a
+    description (a failed detail or a moved selector)."""
+    conn = db.connect(db_path)
+    _watch(conn, ("phenom", "big"))
+
+    def fetch_fn(source, slug, name, *, keep, **kw):
+        out = []
+        for i in range(10):
+            stub = _posting(str(i), source="phenom", description="",
+                            location="Shanghai, China" if i < 4 else "Remote")
+            verdict = keep(stub)
+            if verdict != "drop":
+                out.append(stub)   # a discard un-hydrated; a hydrate whose detail gave nothing
+        return out
+
+    pipeline.run_fetch(conn, [{"source": "phenom", "slug": "big", "name": "Big"}], None,
+                       now=NOW, fetch_fn=fetch_fn, candidate=_REMOTE_ONLY)
+    h = _health(conn, "phenom", "big")
+    assert (h["last_fetched"], h["last_kept"], h["last_bodyless"], h["last_detail_failed"]) == (10, 0, 6, 0)
+    assert _state(conn, "big") == "bodyless"
+
+
+def test_workday_whose_every_detail_get_was_throttled_reads_details_failed(db_path):
+    conn = db.connect(db_path)
+    _watch(conn, ("workday", "t/wd1/site"))
+
+    def fetch_fn(source, slug, name, *, keep, now, **kw):
+        for i in range(5):        # every stub passes the gate; every detail GET 429s
+            keep({"external_id": None, "job_title": "Engineer", "location": "Remote"})
+        return []                 # workday's _row returns None on a failed detail
+
+    pipeline.run_fetch(conn, [{"source": "workday", "slug": "t/wd1/site", "name": "T"}], None,
+                       now=NOW, fetch_fn=fetch_fn)
+    h = _health(conn, "workday", "t/wd1/site")
+    assert (h["last_fetched"], h["last_kept"], h["last_detail_failed"]) == (5, 0, 5)
+    assert _state(conn, "t/wd1/site") == "details_failed"
+
+
+class _SmartRecruitersOutage:
+    """812 listed over 9 pages; every detail GET fails."""
+    LIST = "https://api.smartrecruiters.com/v1/companies/Big/postings"
+
+    def __init__(self):
+        self.detail_gets = 0
+
+    def get(self, url, params=None, timeout=None):
+        from tests._helpers import FakeResponse
+        if url == self.LIST:
+            off = params["offset"]
+            content = [{"id": f"p{i}", "name": "Engineer", "location": {"city": "Remote"}}
+                       for i in range(off, min(off + 100, 812))]
+            return FakeResponse({"totalFound": 812, "content": content})
+        self.detail_gets += 1
+        return FakeResponse(None, raise_exc=_HTTPError(503))
+
+
+def test_smartrecruiters_listing_812_with_every_detail_failing_reads_details_failed(db_path):
+    """Through the real adapter: listed is the list count, not what came back."""
+    from ats_worker.fetch import fetch_company
+    conn = db.connect(db_path)
+    _watch(conn, ("smartrecruiters", "Big"))
+    http = _SmartRecruitersOutage()
+    pipeline.run_fetch(conn, [{"source": "smartrecruiters", "slug": "Big", "name": "Big"}], None,
+                       now=NOW, fetch_fn=lambda s, sl, n, **kw: fetch_company(s, sl, n, session=http, **kw))
+    h = _health(conn, "smartrecruiters", "Big")
+    assert (h["last_fetched"], h["last_kept"], h["last_detail_failed"]) == (812, 0, 812)
+    assert http.detail_gets == 812
+    assert _state(conn, "Big") == "details_failed", "not `empty`: the board listed 812"
+
+
+@pytest.mark.parametrize("failed, state", [(6, "details_failed"), (2, "ok")])
+def test_a_board_mostly_losing_its_details_is_not_healthy(db_path, failed, state):
+    """10 stubs reach hydration: `failed` lose their detail, the rest are full JDs."""
+    conn = db.connect(db_path)
+    _watch(conn, ("workday", "t/wd1/site"))
+
+    def fetch_fn(source, slug, name, *, keep, now, **kw):
+        for i in range(10):
+            keep({"external_id": None, "job_title": "Engineer", "location": "Remote"})
+        return [_posting(str(i), source="workday", description="x" * 2000) for i in range(10 - failed)]
+
+    pipeline.run_fetch(conn, [{"source": "workday", "slug": "t/wd1/site", "name": "T"}], None,
+                       now=NOW, fetch_fn=fetch_fn)
+    assert _health(conn, "workday", "t/wd1/site")["last_detail_failed"] == failed
+    assert _state(conn, "t/wd1/site") == state
 
 
 def test_a_board_whose_every_posting_came_back_bodyless_is_not_kept_zero(db_path):

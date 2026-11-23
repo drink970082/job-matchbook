@@ -189,7 +189,7 @@ def get_watchlist(conn: sqlite3.Connection) -> list[dict]:
     return out
 
 
-BOARD_HEALTH_FIGURES = ("fetched", "kept", "new", "bodyless", "desc_median")
+BOARD_HEALTH_FIGURES = ("fetched", "kept", "new", "bodyless", "detail_failed", "desc_median")
 
 # A kept median description SHORTER than this is a teaser, not a job description. Not a
 # gate (nothing is dropped on it), only the threshold the health line and the `teaser`
@@ -201,12 +201,14 @@ TEASER_MEDIAN_CHARS = 1500
 
 
 def board_health(row) -> str:
-    """The state a watchlist row's last-pass record reads as (#231): never_fetched,
-    disabled (a browser row skipped while enable_browser_sources is off), fetch_failed,
-    empty (listed nothing), bodyless (nothing kept, and postings came back with no
-    description: a broken selector, not the filters), kept_zero (listed, filters kept
-    none), teaser (a measured median under the threshold; NULL = nothing hydrated to
-    measure), or ok. `row` is a mapping of the watched_companies last_* columns."""
+    """The state a watchlist row's last-pass record reads as (#231), first match wins:
+    never_fetched; disabled (a browser row skipped while enable_browser_sources is off);
+    fetch_failed; empty (listed nothing); with nothing kept, details_failed (detail
+    calls failed), bodyless (postings came back with no description) or kept_zero (the
+    filters kept none); with some kept, details_failed or bodyless when that cause is a
+    majority of the postings that reached hydration (kept + bodyless + detail_failed);
+    teaser (a measured median under the threshold; NULL = nothing measured); else ok.
+    `row` is a mapping of the watched_companies last_* columns."""
     status = row["last_fetch_status"]
     if not status:
         return "never_fetched"
@@ -216,8 +218,15 @@ def board_health(row) -> str:
         return "fetch_failed"
     if not row["last_fetched"]:
         return "empty"
-    if not row["last_kept"]:
-        return "bodyless" if row["last_bodyless"] else "kept_zero"
+    kept, bodyless = row["last_kept"] or 0, row["last_bodyless"] or 0
+    failed = row["last_detail_failed"] or 0
+    if not kept:
+        return "details_failed" if failed else "bodyless" if bodyless else "kept_zero"
+    reached = kept + bodyless + failed
+    if failed * 2 > reached:
+        return "details_failed"
+    if bodyless * 2 > reached:
+        return "bodyless"
     median = row["last_desc_median"]
     if median is not None and median < TEASER_MEDIAN_CHARS:
         return "teaser"

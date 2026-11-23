@@ -76,7 +76,7 @@ const HEALTH_CASES: HealthCase[] = JSON.parse(readFileSync(
 
 test('getWatchedCompanies returns each board\'s last-pass health, as MCP does', async () => {
     for (const [i, c] of HEALTH_CASES.entries()) {
-        await prisma.watched_companies.create({ data: makeWatchedCompany({ slug: `b${i}`, name: `${i} ${c.name}`, ...c.row }) })
+        await prisma.watched_companies.create({ data: makeWatchedCompany({ slug: `b${i}`, name: `${String(i).padStart(2, "0")} ${c.name}`, ...c.row }) })
     }
     const cols = Object.keys(HEALTH_CASES[0].row)
     const { data } = await getWatchedCompanies()

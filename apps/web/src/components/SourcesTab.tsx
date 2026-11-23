@@ -11,7 +11,7 @@ import { addWatchedCompany, removeWatchedCompany } from '@/lib/watchlist-actions
 import { nameFromSlug, resolveBoardUrl } from '@/lib/board-url'
 import { toast } from 'sonner'
 import { Trash2 } from 'lucide-react'
-import { BOARD_HEALTH, type BoardHealth } from '@/lib/board-health'
+import { BOARD_HEALTH, type BoardHealth, reachedHydration } from '@/lib/board-health'
 
 export interface WatchedSource {
     id: number
@@ -27,6 +27,7 @@ export interface WatchedSource {
     last_kept: number | null
     last_new: number | null
     last_bodyless: number | null
+    last_detail_failed: number | null
     last_desc_median: number | null
 }
 
@@ -35,14 +36,17 @@ type Sort = { key: 'name' | 'postings_30d'; dir: 'asc' | 'desc' }
 
 // The last worker pass per board (#231): what it says, and whether it needs a look.
 const HEALTH_LABEL: Record<BoardHealth, string> = {
-    never_fetched: 'Never fetched', disabled: 'Browser sources off', fetch_failed: 'Fetch failed', empty: 'Board listed nothing', bodyless: 'Descriptions missing',
+    never_fetched: 'Never fetched', disabled: 'Browser sources off', fetch_failed: 'Fetch failed',
+    empty: 'Board listed nothing', details_failed: 'Detail pages failing', bodyless: 'Descriptions missing',
     kept_zero: 'Filters kept 0', teaser: 'Teaser descriptions', ok: 'Healthy',
 }
-const ATTENTION: readonly BoardHealth[] = ['fetch_failed', 'empty', 'bodyless', 'kept_zero', 'teaser']
+const ATTENTION: readonly BoardHealth[] = ['fetch_failed', 'empty', 'details_failed', 'bodyless', 'kept_zero', 'teaser']
 
 function LastFetch({ s }: { s: WatchedSource }) {
     const at = s.last_fetched_at ? `Last pass ${s.last_fetched_at}` : 'Fetched on the next worker pass'
-    const bodyless = s.last_bodyless ? `, ${s.last_bodyless} without a description` : ''
+    const reached = reachedHydration(s)
+    const lost = [s.last_detail_failed ? `${s.last_detail_failed} detail failed` : '',
+        s.last_bodyless ? `${s.last_bodyless} without a description` : ''].filter(Boolean).join(', ')
     const [text, tone, hint] = {
         never_fetched: ['Never fetched', 'text-muted-foreground', at],
         disabled: ['Not fetched: browser sources are off', 'text-muted-foreground',
@@ -50,15 +54,17 @@ function LastFetch({ s }: { s: WatchedSource }) {
         fetch_failed: [`Fetch failed: ${s.last_fetch_status}`, 'text-red-600',
             `${at}. A 404 is usually a wrong slug, or the company moved platforms`],
         empty: ['Board listed nothing', 'text-amber-600', `${at}. Usually a wrong slug, or the company moved platforms`],
-        bodyless: [`Descriptions missing: ${s.last_bodyless} postings came back with none`, 'text-amber-600',
-            `${at}. Usually a moved description selector on the board, not your filters`],
+        details_failed: [`Detail pages failing: ${s.last_detail_failed} of ${reached}`, 'text-red-600',
+            `${at}. The board listed ${s.last_fetched}, but their detail requests returned nothing: throttled or down, not a wrong slug`],
+        bodyless: [`Descriptions missing: ${s.last_bodyless} of ${reached}`, 'text-amber-600',
+            `${at}. Postings came back with no description: a detail page failing or a moved description selector, not your filters`],
         kept_zero: [`${s.last_fetched} listed, filters kept 0`, 'text-muted-foreground',
-            `${at}. Your title and age filters matched none of this board's postings`],
+            `${at}. Your title, age and requirement filters matched none of this board's postings`],
         teaser: [`Teaser descriptions (median ${s.last_desc_median} chars)`, 'text-amber-600',
             `${at}. The board serves summaries, not full descriptions; it may need a detail step`],
         ok: [`${s.last_fetched} listed, ${s.last_kept} kept, ${s.last_new} new`, 'text-muted-foreground', at],
     }[s.health]
-    return <span className={tone} title={hint}>{text}{s.health === 'ok' || s.health === 'teaser' ? bodyless : ''}</span>
+    return <span className={tone} title={hint}>{text}{(s.health === 'ok' || s.health === 'teaser') && lost ? ` (${lost})` : ''}</span>
 }
 
 // Add a board by pasting its careers or job URL (#208). Resolution is pure (lib/board-url.ts,

@@ -623,6 +623,9 @@ worker modules are pure and dependency-injected; real services are wired only in
   row under the GUID. A dropped posting is never stored, so it has no id to reconcile;
   every other verdict falls through and hydrates, which is also the fail-open path.
   Measured 2026-07-22 across 28 watchlist boards: 14,902 -> 6,703 detail calls (-55%).
+  `smartrecruiters` is gated the same way, `drop` only (`parse_stub` from the list
+  stub's id, name and location; a stored stub would carry no description), which also
+  gives `run_fetch` its listed count and lost details for the board health record.
   `max_age_days` also gates a workday stub: `parse_stub` dates the stub's relative prose
   ("Posted N+ Days Ago") against the injected `now` (`now - age`, treating the number as
   a lower bound), so a stale stub is dropped before its detail GET. Only the confident
@@ -1555,7 +1558,7 @@ worker modules are pure and dependency-injected; real services are wired only in
   `destructiveHint=false`, except `remove_source` (`destructiveHint=true`), the one
   removal; it is audited in web and re-addable through `add_source` (the Activity tab shows the removed row). `list_sources` (a read tool, always
   present) returns every watchlist row with `has_recipe`, `postings_30d` (postings with
-  that `source` + `company_slug` created in 30 days), the seven `last_*` last-pass columns
+  that `source` + `company_slug` created in 30 days), the eight `last_*` last-pass columns
   as stored and `health` (`db.board_health`, the web's rule too), and a global
   `unresolved_30d`.
   `get_candidate_profile` returns the profile (or null) with the derived
@@ -1756,10 +1759,11 @@ worker modules are pure and dependency-injected; real services are wired only in
   Windows reports a CSV as `application/vnd.ms-excel`), `SourcesTab` (#208: watched boards, 25 per
   page, search by company, Source select, sortable Company and Postings (30d), slug on
   hover; a Last fetch column per board's `health` — "Never fetched", "Not fetched: browser sources are off", "Fetch failed:
-  <category>", "Board listed nothing", "Descriptions missing: N postings came back with
-  none", "N listed, filters kept 0", "Teaser descriptions (median N chars)" or "N listed,
-  K kept, M new", the pass time on hover — with a Health select (any, needs attention =
-  failed/empty/bodyless/kept 0/teaser, or one state); add by pasting a careers URL — resolved as you type, name
+  <category>", "Board listed nothing", "Detail pages failing: N of M", "Descriptions
+  missing: N of M" (M = what reached hydration), "N listed, filters kept 0", "Teaser
+  descriptions (median N chars)" or "N listed, K kept, M new" (with any detail failures
+  or bodyless in brackets), the cause and pass time on hover — with a Health select
+  (any, needs attention = every state but never fetched/disabled/ok, or one state); add by pasting a careers URL — resolved as you type, name
   prefilled from the slug, unresolvable sites pointed at the onboard-board skill — and
   per-row remove after a confirm, any source type), `ActivityTab` (a system status strip — last new
   posting, amber after a day; new postings 24h / 7d; JEV assessed 24h, spend 7d and
@@ -1929,9 +1933,10 @@ model watched_companies {        // the DB-owned watchlist (web-managed)
   last_fetched_at   String?
   last_fetch_status String?  // ok | disabled | an observation_error_category (counts NULL then)
   last_fetched      Int?     // listed (stub-gate boards: stubs seen)
-  last_kept         Int?     // after title/age filters, minus bodyless
+  last_kept         Int?     // stored with a description (gate discards, bodyless excluded)
   last_new          Int?
   last_bodyless     Int?
+  last_detail_failed Int?    // passed the stub gate, detail call returned nothing
   last_desc_median  Int?     // median description chars of the hydrated kept postings; NULL if none
   @@unique([source, slug])       // dedup key
 }
@@ -2230,19 +2235,26 @@ Triage evidence with duplicate object members at its root, screen map, or check 
   an `audit_log` row (actor, full row as JSON) in the same transaction; the Activity tab
   lists them, and the payload keeps what a re-add through MCP needs. The worker never
   reads `audit_log`.
-- **Each board's last pass is on its row (#231).** `run_fetch` overwrites the seven
+- **Each board's last pass is on its row (#231).** `run_fetch` overwrites the eight
   `last_*` columns per board per pass (`db.record_board_health`): `ok` with the figures
-  the `[fetch] ... fetched= kept= new= bodyless= desc_median=` line prints, or a failed
-  fetch's closed error category with NULL counts, and the pass goes on to the next board
-  (PRINCIPLES 6). A failed write of the record itself (a locked DB) is logged `health not
-  recorded` and changes nothing else: the pass goes on, and a fetched board is not
-  counted failed. A `browser` row skipped while `enable_browser_sources` is off is
-  recorded `disabled`. `desc_median` covers the kept postings that were hydrated (a gate
-  discard comes back from a stub-gate adapter un-hydrated, by design) and is NULL when
-  none was. One rule reads them as `health` — `never_fetched` (status NULL), `disabled`,
-  `fetch_failed`, `empty` (listed 0), `bodyless` (kept 0 with postings dropped for no
-  description: a broken selector), `kept_zero` (listed, kept 0), `teaser` (a measured
-  median under 1500 chars), `ok` — in the worker (`db.board_health`, for MCP `list_sources`) and
+  the `[fetch] ... fetched= kept= new= bodyless= detail_failed= desc_median=` line
+  prints, or a failed fetch's closed error category with NULL counts, and the pass goes
+  on to the next board (PRINCIPLES 6). `fetched` is what the board listed (a stub-gate
+  board: the stubs the gate judged); `kept` is postings stored with a description — a
+  gate discard is stored as a requirements miss and is not kept, nor is a bodyless
+  posting; `new` is how many of the kept were inserted; `detail_failed` is stubs the gate
+  passed that came back as nothing (workday and smartrecruiters return nothing for a
+  failed or throttled detail GET; phenom and the `_detail` adapters return the posting
+  without a description, which counts as bodyless); `desc_median` is the kept postings'
+  median, NULL when none was kept. A failed write of the record itself (a locked DB) is
+  logged `health not recorded` and changes nothing else. A `browser` row skipped while
+  `enable_browser_sources` is off is recorded `disabled`. One rule reads them as
+  `health`, first match: `never_fetched` (status NULL), `disabled`, `fetch_failed`,
+  `empty` (listed 0); with nothing kept, `details_failed` if any detail failed, else
+  `bodyless` if any came back bodyless, else `kept_zero` (the filters kept none); with
+  some kept, `details_failed` or `bodyless` when that cause is over half of what reached
+  hydration (kept + bodyless + detail_failed); `teaser` (median under 1500 chars); `ok`
+  — in the worker (`db.board_health`, for MCP `list_sources`) and
   the web (`lib/board-health.ts`, for the Sources tab), pinned by
   `worker/tests/fixtures/board-health-cases.json` in both suites.
 - **Adds are verified where a fetch can run.** MCP `add_source` (on the host) reads
@@ -2456,7 +2468,7 @@ automated coverage — those rely on code review or the human in the loop, not a
 | Chart-data aggregation (`getStatusFlow`/`getTimelineData`/`getCategoryData`): Sankey chain read from history only, dedup/collapse + multi-hop, T-split day counts, category counts incl. ties/`null`->Others | `charts.int.test.ts` |
 | CSV import/export rules (dedup, enum fallback) | `actions.int.test.ts` |
 | Feed resolve (URL→board incl. workday/smartrecruiters/workable/oracle/jobvite + GH-EU host) + classify-reason | `test_feed_resolve.py` |
-| SmartRecruiters adapter (two-step list+detail) | `test_smartrecruiters.py` |
+| SmartRecruiters adapter (two-step list+detail, drop-only stub gate) | `test_smartrecruiters.py` |
 | Workable adapter (per-board list) | `test_workable.py` |
 | Oracle adapter (per-listing `fetch_one`) + Jobvite adapter (JSON-LD `fetch_one`) | `test_oracle.py`, `test_jobvite.py` |
 | `fetch_one_company` dispatcher (detail source / unknown / non-detail) | `test_fetch.py` |
@@ -2503,7 +2515,7 @@ automated coverage — those rely on code review or the human in the loop, not a
 | Integration-harness self-check (real Prisma round-trip on the temp DB) | `web/src/__tests__/harness.int.test.ts` |
 | Dead-link sweep: 404/410 → `source_state='closed'` (lifecycle untouched), every other error, a missing recheck key or an adapter `None` records `inconclusive`, a served posting records `found` (clearing an earlier category), every check rotates the row, workday is fetched by the `/job/...` path from the stored `job_url` (never the GUID), closed rows not rechecked | `test_pipeline.py` (`run_expire`), `test_fetch_new.py` (`recheck_id`, `test_stored_workday_row_rechecks_at_a_well_formed_job_url`) |
 | Board absence closes: 3rd consecutive successful non-empty list without the id closes it, a failed or empty fetch never counts, relisting reopens; filter- and stub-gate-dropped ids still stamped seen; board-scoped stamp and count; workday/smartrecruiters/phenom/browser/icims/custom never close by absence; closed rows leave the screen and JEV queues | `test_closure.py` |
-| Per-board last-pass record: run_fetch writes `ok` + figures or the error category (NULL counts) and fetches the next board, a failed record write is logged and neither stops the pass nor fails a fetched board; a skipped browser row reads `disabled`; the median skips un-hydrated gate discards; an all-bodyless board reads `bodyless`, not `kept_zero`; a stub-gate board counts the stubs it listed; MCP `list_sources` and web `getWatchedCompanies` read the same columns and `health` from one shared fixture; the Sources tab tells never fetched / failed / empty / kept 0 / teaser apart; MCP `add_source` adds only a board whose list (no detail call; smartrecruiters and icims read one list page; recipe boards refused) verifies (404, empty or error rejected, the web dry run first), a web add is not fetched | `test_fetch.py` (`test_board_has_listings_*`), `test_run.py` (`test_run_once_gates_browser_sources`, `test_a_failed_disabled_write_does_not_stop_the_pass`), `test_pipeline.py` (`test_run_fetch_records_each_boards_health_on_its_watchlist_row`, `test_a_failing_board_records_its_error_category_and_the_pass_goes_on`, `test_a_health_write_that_fails_does_not_stop_the_pass`, `test_a_failed_health_write_after_a_good_fetch_keeps_the_board_ok`, `test_the_median_ignores_gate_discarded_stubs_returned_unhydrated`, `test_a_board_whose_every_posting_came_back_bodyless_is_not_kept_zero`, `test_a_stub_gate_board_counts_what_it_listed_not_what_it_returned`), `test_mcp_write.py` (`test_list_sources_returns_each_boards_last_pass_health`, `test_add_source_rejects_a_board_its_fetch_cannot_verify`, `test_add_source_verifies_a_smartrecruiters_board_from_its_list_page_alone`, `test_add_source_without_a_fetcher_refuses_rather_than_adding_unverified`), `web/src/__tests__/watchlist.int.test.ts`, `api-v1.int.test.ts`, `web/src/components/__tests__/SourcesTab.test.tsx` |
+| Per-board last-pass record: run_fetch writes `ok` + figures or the error category (NULL counts) and fetches the next board, a failed record write is logged and neither stops the pass nor fails a fetched board; a skipped browser row reads `disabled`; `kept` excludes gate discards and bodyless; detail failures are counted per board (workday, smartrecruiters through the real adapter); details_failed / bodyless / kept_zero tell nothing-kept apart, and a majority of failures or bodyless is not ok; a stub-gate board counts the stubs it listed; MCP `list_sources` and web `getWatchedCompanies` read the same columns and `health` from one shared fixture; the Sources tab tells never fetched / failed / empty / kept 0 / teaser apart; MCP `add_source` adds only a board whose list (no detail call; smartrecruiters and icims read one list page; recipe boards refused) verifies (404, empty or error rejected, the web dry run first), a web add is not fetched | `test_smartrecruiters.py::test_fetch_skips_the_detail_get_of_a_dropped_stub_and_hydrates_the_rest`, `test_fetch.py` (`test_board_has_listings_*`), `test_run.py` (`test_run_once_gates_browser_sources`, `test_a_failed_disabled_write_does_not_stop_the_pass`), `test_pipeline.py` (`test_run_fetch_records_each_boards_health_on_its_watchlist_row`, `test_a_failing_board_records_its_error_category_and_the_pass_goes_on`, `test_a_health_write_that_fails_does_not_stop_the_pass`, `test_a_failed_health_write_after_a_good_fetch_keeps_the_board_ok`, `test_a_gate_discard_is_not_kept_and_not_measured`, `test_phenom_whose_hydrated_postings_all_came_back_bodyless_is_not_ok`, `test_workday_whose_every_detail_get_was_throttled_reads_details_failed`, `test_smartrecruiters_listing_812_with_every_detail_failing_reads_details_failed`, `test_a_board_mostly_losing_its_details_is_not_healthy`, `test_a_board_whose_every_posting_came_back_bodyless_is_not_kept_zero`, `test_a_stub_gate_board_counts_what_it_listed_not_what_it_returned`), `test_mcp_write.py` (`test_list_sources_returns_each_boards_last_pass_health`, `test_add_source_rejects_a_board_its_fetch_cannot_verify`, `test_add_source_verifies_a_smartrecruiters_board_from_its_list_page_alone`, `test_add_source_without_a_fetcher_refuses_rather_than_adding_unverified`), `web/src/__tests__/watchlist.int.test.ts`, `api-v1.int.test.ts`, `web/src/components/__tests__/SourcesTab.test.tsx` |
 | Explicit one-shot source refresh stays within 1–25 SmartRecruiters requests without following redirects, selects only unscored/unlinked rows without fit assessment, validates identity and visible core JD content, preserves state on inconclusive/closed results, reopens source availability without relabeling detail-check time, and skips concurrent eligibility changes | `test_source_lifecycle.py`, `test_run.py::test_run_once_unscored_refresh_runs_as_an_isolated_source_only_mode`, `test_smartrecruiters.py` |
 | Explicitly inactive SmartRecruiters details cannot insert or reopen a source observation on normal feed/watchlist ingestion; missing `active` remains compatible and normal ingest never records closure | `test_smartrecruiters.py` (`test_fetch_one_rejects_an_explicitly_inactive_detail`, `test_fetch_skips_explicitly_inactive_detail_but_keeps_missing_active_compatibility`), `test_feed_pipeline.py` (`test_run_feed_does_not_insert_smartrecruiters_explicitly_inactive_detail`, `test_run_fetch_does_not_reopen_closed_smartrecruiters_row_from_inactive_detail`), `test_source_lifecycle.py` |
 | Complete source content is hashed/revisioned; duplicate listings only advance seen time; completed fit and standalone assessments capture the source revision; changed content never triggers a provider rerun | `test_source_lifecycle.py`, `test_db.py`, `test_screen_pipeline.py` |

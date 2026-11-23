@@ -8,7 +8,7 @@ jest.mock('@/lib/watchlist-actions')
 jest.mock('sonner', () => ({ toast: { success: jest.fn(), error: jest.fn() } }))
 
 const OK = { health: 'ok', last_fetched_at: '2026-11-21T08:00:00.000Z', last_fetch_status: 'ok',
-    last_fetched: 30, last_kept: 6, last_new: 2, last_bodyless: 0, last_desc_median: 2100 } as const
+    last_fetched: 30, last_kept: 6, last_new: 2, last_bodyless: 0, last_detail_failed: 0, last_desc_median: 2100 } as const
 const row = (id: number, over: Partial<WatchedSource> = {}): WatchedSource =>
     ({ id, source: 'greenhouse', slug: `co${id}`, name: `Company ${String(id).padStart(2, '0')}`, postings_30d: id, ...OK, ...over })
 
@@ -32,7 +32,7 @@ test('pages 25 at a time, searches and filters by source', () => {
 
 test('tells apart a failed fetch, filters keeping none, teasers and a board never fetched (#231)', () => {
     const never = { health: 'never_fetched', last_fetched_at: null, last_fetch_status: null, last_fetched: null,
-        last_kept: null, last_new: null, last_bodyless: null, last_desc_median: null } as const
+        last_kept: null, last_new: null, last_bodyless: null, last_detail_failed: null, last_desc_median: null } as const
     render(<SourcesTab sources={[
         row(1, { name: 'Healthy Co' }),
         row(2, { name: 'Moved Co', health: 'fetch_failed', last_fetch_status: 'http_404', last_fetched: null, last_kept: null }),
@@ -41,7 +41,9 @@ test('tells apart a failed fetch, filters keeping none, teasers and a board neve
         row(5, { name: 'Teaser Co', health: 'teaser', last_desc_median: 600 }),
         row(6, { name: 'Fresh Co', ...never }),
         row(7, { name: 'Headless Co', source: 'browser', ...never, health: 'disabled', last_fetch_status: 'disabled' }),
-        row(8, { name: 'Broken Co', health: 'bodyless', last_fetched: 25, last_kept: 0, last_new: 0, last_bodyless: 9 }),
+        row(8, { name: 'Broken Co', health: 'bodyless', last_fetched: 10, last_kept: 0, last_new: 0, last_bodyless: 6 }),
+        row(9, { name: 'Throttled Co', health: 'details_failed', last_fetched: 812, last_kept: 0, last_new: 0, last_detail_failed: 812 }),
+        row(10, { name: 'Partial Co', last_fetched: 10, last_kept: 8, last_new: 2, last_detail_failed: 2 }),
     ]} />)
     const cell = (name: string) => screen.getByText(name).closest('tr')!
     expect(cell('Healthy Co')).toHaveTextContent('30 listed, 6 kept, 2 new')
@@ -51,7 +53,10 @@ test('tells apart a failed fetch, filters keeping none, teasers and a board neve
     expect(cell('Teaser Co')).toHaveTextContent('Teaser descriptions (median 600 chars)')
     expect(cell('Fresh Co')).toHaveTextContent('Never fetched')
     expect(cell('Headless Co')).toHaveTextContent('Not fetched: browser sources are off')
-    expect(cell('Broken Co')).toHaveTextContent('Descriptions missing: 9 postings came back with none')
+    expect(cell('Broken Co')).toHaveTextContent('Descriptions missing: 6 of 6')
+    expect(cell('Throttled Co')).toHaveTextContent('Detail pages failing: 812 of 812')
+    expect(screen.getByText(/Detail pages failing: 812/)).toHaveAttribute('title', expect.stringContaining('not a wrong slug'))
+    expect(cell('Partial Co')).toHaveTextContent('10 listed, 8 kept, 2 new (2 detail failed)')
     fireEvent.change(screen.getByLabelText('Health'), { target: { value: 'fetch_failed' } })
     expect(screen.getAllByRole('row')).toHaveLength(2)
     expect(screen.getByText('Moved Co')).toBeInTheDocument()
@@ -59,7 +64,7 @@ test('tells apart a failed fetch, filters keeping none, teasers and a board neve
     expect(screen.getAllByRole('row').map((r) => r.textContent)).toEqual([
         expect.stringContaining('Company'), expect.stringContaining('Broken Co'), expect.stringContaining('Empty Co'),
         expect.stringContaining('Filtered Co'),
-        expect.stringContaining('Moved Co'), expect.stringContaining('Teaser Co')])
+        expect.stringContaining('Moved Co'), expect.stringContaining('Teaser Co'), expect.stringContaining('Throttled Co')])
 })
 
 test('sorts by postings', () => {

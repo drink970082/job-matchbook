@@ -98,6 +98,23 @@ class _FakeSession:
         return _Resp(payload)
 
 
+# --- stub gate (#231) -------------------------------------------------------
+
+def test_fetch_skips_the_detail_get_of_a_dropped_stub_and_hydrates_the_rest():
+    session = _FakeSession()
+    seen = []
+
+    def keep(stub):
+        seen.append((stub["external_id"], stub["job_title"], stub["location"]))
+        return "drop" if stub["job_title"] == "Data Scientist" else "discard"   # discard still hydrates
+
+    out = sr.fetch("Acme", "Acme Corp", session=session, keep=keep)
+    assert seen == [("abc-111", "Software Engineer", "London, England, uk"),
+                    ("def-222", "Data Scientist", "Remote, us")]
+    assert [p["external_id"] for p in out] == ["abc-111"]
+    assert [u for u, _ in session.gets if u.endswith("def-222")] == [], "no detail GET for the drop"
+
+
 # --- parse_listing --------------------------------------------------------
 
 def test_parse_listing_extracts_stubs():

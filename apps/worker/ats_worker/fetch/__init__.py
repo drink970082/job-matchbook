@@ -39,7 +39,9 @@ RECIPE_SOURCES = frozenset({"custom", "browser"})
 # honours ONLY the 'drop' verdict: its list stub carries no GUID, so a STORED stub
 # would key on jobReqId and could double-insert — but a dropped one is never
 # stored, so it has no id to reconcile (see the 2026-07-21 stub-gate design).
-STUB_GATE_SOURCES = frozenset({"phenom", "workday", "icims", "custom", "browser"})
+# `smartrecruiters` honours only 'drop' too: a stored stub would carry no description.
+# Being gated is also what lets run_fetch count its listed stubs and lost details.
+STUB_GATE_SOURCES = frozenset({"phenom", "workday", "smartrecruiters", "icims", "custom", "browser"})
 
 # Of those, the ones whose fetch also accepts `now`: workday's list stub dates
 # itself in relative prose ("Posted 30+ Days Ago"), so parse_stub needs the

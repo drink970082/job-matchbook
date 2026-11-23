@@ -286,7 +286,7 @@ def test_list_sources_counts_recent_postings_per_board(tmp_path):
     out = repo.list_sources()
     assert out["unresolved_30d"] == 1
     never = {"last_fetched_at": None, "last_fetch_status": None, "last_fetched": None,
-             "last_kept": None, "last_new": None, "last_bodyless": None,
+             "last_kept": None, "last_new": None, "last_bodyless": None, "last_detail_failed": None,
              "last_desc_median": None, "health": "never_fetched"}
     assert out["sources"] == [
         {"id": 1, "source": "greenhouse", "slug": "acme", "name": "Acme", "has_recipe": False,

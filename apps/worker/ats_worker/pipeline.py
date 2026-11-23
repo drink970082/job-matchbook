@@ -125,15 +125,17 @@ def run_fetch(conn, companies, title_filter, *, now, fetch_fn=None,
                     kw["now"] = now
             postings = fetch_fn(c["source"], c["slug"], c["name"], **kw)
             returned = {str(p.get("external_id") or "") for p in postings}
+            detail_failed = 0
             if verdicts["calls"]:
                 # Every stub the gate passed should come back; one that did not lost its
-                # detail call (workday returns None on a failed detail GET).
+                # detail call (workday and smartrecruiters return None on a failed or
+                # throttled detail GET).
                 listed = verdicts["calls"]
-                tally["detail_failed"] += max(
-                    0, verdicts["calls"] - verdicts["drop"] - len(postings))
+                detail_failed = max(0, verdicts["calls"] - verdicts["drop"] - len(postings))
             else:
                 listed = len(postings)
             tally["listed"] += listed
+            tally["detail_failed"] += detail_failed
             closed = db.record_board_listing(
                 conn, c["source"], c["slug"], gated | returned, now=now,
                 count_absence=c["source"] in ABSENCE_CLOSURE_SOURCES)
@@ -176,9 +178,14 @@ def run_fetch(conn, companies, title_filter, *, now, fetch_fn=None,
                         reason="empty_description", now=now)
                 drop_ids = {id(p) for p in bodyless}
                 kept = [p for p in kept if id(p) not in drop_ids]
-            added = db.upsert_postings(conn, kept, now=now)
+            # For health a gate discard is not "kept": it is stored, but as a
+            # requirements miss, and a stub-gate adapter returns it un-hydrated.
+            hydrated = [p for p in kept if not p.get("requirements")]
+            discards = [p for p in kept if p.get("requirements")]
+            new = db.upsert_postings(conn, hydrated, now=now)
+            added = new + db.upsert_postings(conn, discards, now=now)
             tally["inserted"] += added
-            figures = _board_health(listed, kept, bodyless, added)
+            figures = _board_health(listed, hydrated, bodyless, new, detail_failed)
             _log_board_health(c, figures)
             record_health(conn, c, now=now, status="ok", figures=figures)
         except Exception as exc:  # noqa: BLE001 — one bad board must not abort the rest
@@ -238,14 +245,15 @@ def record_health(conn, company, *, now, status: str, figures: dict | None = Non
               f"health not recorded: {exc}")
 
 
-def _board_health(listed: int, kept, bodyless, added: int) -> dict:
-    """One board's figures for this pass (db.BOARD_HEALTH_FIGURES): what it listed,
-    what the filters kept (bodyless already dropped), how many were new, how many came
-    with no description, and the median description length of the kept postings that
-    were hydrated. A gate discard is left out of the median: a stub-gate adapter returns
-    it un-hydrated, with no description, by design. None when nothing was measured."""
-    lengths = sorted(len(p.get("description") or "") for p in kept if not p.get("requirements"))
-    return {"fetched": listed, "kept": len(kept), "new": added, "bodyless": len(bodyless),
+def _board_health(listed: int, hydrated, bodyless, new: int, detail_failed: int) -> dict:
+    """One board's figures for this pass (db.BOARD_HEALTH_FIGURES): what it listed, how
+    many postings were kept and stored with a description (gate discards and bodyless
+    excluded), how many of those were new, how many came back with no description, how
+    many lost their detail call, and the kept postings' median description length (None
+    when none was kept: nothing measured)."""
+    lengths = sorted(len(p.get("description") or "") for p in hydrated)
+    return {"fetched": listed, "kept": len(hydrated), "new": new, "bodyless": len(bodyless),
+            "detail_failed": detail_failed,
             "desc_median": lengths[len(lengths) // 2] if lengths else None}
 
 
@@ -264,6 +272,7 @@ def _log_board_health(company, h: dict) -> None:
     note = " TEASER? (board may need a detail step)" if teaser else ""
     print(f"[fetch] {company['source']}/{company['slug']}: fetched={h['fetched']} "
           f"kept={h['kept']} new={h['new']} bodyless={h['bodyless']} "
+          f"detail_failed={h['detail_failed']} "
           f"desc_median={'-' if median is None else median}{note}")
 
 
