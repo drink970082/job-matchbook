@@ -577,9 +577,12 @@ worker modules are pure and dependency-injected; real services are wired only in
   slug packs `tenant/datacenter/site`. Every Workday request (list, detail, per-job) goes
   through one per-host pacer (`fetch/_pacing.py`): requests to the same tenant host are
   spaced at least 0.5s apart (other hosts never wait); a 429 is retried up to 3 times
-  after `Retry-After` delta-seconds, else 2s/4s/8s, any wait capped at 30s; after the
-  last 429 the host answers 429 locally, without a request, for 120s, so one throttled
-  tenant cannot stall a serial expire pass. The caller sees `http_429` as before; pinpoint `{slug}.pinpointhq.com/postings.json`;
+  after `Retry-After` delta-seconds (a non-finite value is ignored), else 2s/4s/8s; after
+  the last 429 the host answers 429 locally, without a request, for 120s. A `Retry-After`
+  above 30s is not retried: the host gives up at once and cools for that long (120s to
+  900s). So the time a throttled tenant costs a pass is bounded per host. The caller sees
+  `http_429` for both a served and a locally cached 429.
+  Pinpoint `{slug}.pinpointhq.com/postings.json`;
   smartrecruiters `api.smartrecruiters.com/v1/companies/{slug}/postings` + `/{id}`
   detail; workable `apply.workable.com/api/v1/widget/accounts/{slug}?details=true`;
   oracle `{host}/hcmRestApi/resources/latest/recruitingCEJobRequisitionDetails/{reqId}`

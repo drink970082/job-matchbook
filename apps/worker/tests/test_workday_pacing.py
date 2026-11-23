@@ -95,8 +95,8 @@ def test_429_without_retry_after_backs_off_exponentially_and_bounded(clock):
     assert gaps == [_pacing.BACKOFF, 2 * _pacing.BACKOFF]
 
 
-def test_retry_after_is_capped(clock):
-    sess = Session(clock, {"acme": [Resp(429, headers={"Retry-After": "3600"}), Resp()]})
+def test_retry_after_at_the_cap_is_still_waited_and_retried(clock):
+    sess = Session(clock, {"acme": [Resp(429, headers={"Retry-After": "30"}), Resp()]})
     _one(A, sess)
     (t1, _), (t2, _) = sess.sent
     assert t2 - t1 == _pacing.MAX_DELAY
@@ -151,3 +151,54 @@ def test_expire_records_a_throttled_tenant_inconclusive_and_still_checks_others(
             for r in conn.execute("SELECT * FROM job_postings")}
     assert cats["g0"] == cats["g1"] == ("inconclusive", "http_429")
     assert cats["g2"][0] == "found"
+
+
+def test_retry_after_above_the_cap_gives_up_at_once_and_cools_for_it(clock):
+    sess = Session(clock, {"acme": [Resp(429, headers={"Retry-After": "600"}), Resp()]})
+    with pytest.raises(requests.HTTPError):
+        _one(A, sess)
+    assert len(sess.sent) == 1                 # no clamped retry
+    clock.t += 599
+    with pytest.raises(requests.HTTPError):    # still cooling for the server's 600s
+        _one(A, sess)
+    clock.t += 2
+    assert _one(A, sess) is not None
+    assert len(sess.sent) == 2
+
+
+def test_huge_retry_after_cools_for_at_most_the_ceiling(clock):
+    sess = Session(clock, {"acme": [Resp(429, headers={"Retry-After": "99999"}), Resp()]})
+    with pytest.raises(requests.HTTPError):
+        _one(A, sess)
+    clock.t += _pacing.MAX_COOLDOWN + 1
+    assert _one(A, sess) is not None
+
+
+@pytest.mark.parametrize("value", ["nan", "inf", "-inf", "soon"])
+def test_a_non_finite_retry_after_falls_back_to_backoff(clock, value):
+    sess = Session(clock, {"acme": [Resp(429, headers={"Retry-After": value}), Resp()]})
+    assert _one(A, sess) is not None
+    (t1, _), (t2, _) = sess.sent
+    assert t2 - t1 == _pacing.BACKOFF
+
+
+def test_a_host_that_cools_while_a_request_waits_is_not_sent(clock):
+    # Another thread's request puts acme into cooldown while this one sleeps for its
+    # slot: the waiting request must take the cached 429, not send.
+    other = Session(clock, {"acme": [Resp(429, headers={"Retry-After": "600"})]})
+    mine = Session(clock, {})
+    real_sleep, fired = clock.sleep, []
+
+    def sleep(s):
+        real_sleep(s)
+        if not fired:
+            fired.append(1)
+            with pytest.raises(requests.HTTPError):
+                _one(A, other)
+
+    workday._PACER._sleep = sleep
+    _one(A, mine)                      # first send, no wait
+    with pytest.raises(requests.HTTPError) as exc:
+        _one(A, mine)                  # waits 0.5s; acme cools meanwhile
+    assert exc.value.response.status_code == 429
+    assert len(mine.sent) == 1
