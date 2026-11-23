@@ -576,7 +576,15 @@ worker modules are pure and dependency-injected; real services are wired only in
   Endpoints: greenhouse `boards-api.greenhouse.io/v1/boards/{slug}/jobs` (the US
   api host serves EU boards too); lever `api.lever.co/v0/postings/{slug}`; ashby
   `api.ashbyhq.com/posting-api/job-board/{slug}`; workday CXS list + per-job detail,
-  slug packs `tenant/datacenter/site`; pinpoint `{slug}.pinpointhq.com/postings.json`;
+  slug packs `tenant/datacenter/site`. Every Workday request (list, detail, per-job) goes
+  through one per-host pacer (`fetch/_pacing.py`): requests to the same tenant host are
+  spaced at least 0.5s apart (other hosts never wait); a 429 is retried up to 3 times
+  after `Retry-After` delta-seconds (a non-finite value is ignored), else 2s/4s/8s; after
+  the last 429 the host answers 429 locally, without a request, for 120s. A `Retry-After`
+  above 30s is not retried: the host gives up at once and cools for that long (120s to
+  900s). So the time a throttled tenant costs a pass is bounded per host. The caller sees
+  `http_429` for both a served and a locally cached 429.
+  Pinpoint `{slug}.pinpointhq.com/postings.json`;
   smartrecruiters `api.smartrecruiters.com/v1/companies/{slug}/postings` + `/{id}`
   detail; workable `apply.workable.com/api/v1/widget/accounts/{slug}?details=true`;
   oracle `{host}/hcmRestApi/resources/latest/recruitingCEJobRequisitionDetails/{reqId}`
@@ -1388,7 +1396,8 @@ worker modules are pure and dependency-injected; real services are wired only in
   `updated_at` are untouched. A served posting records
   `source_last_check_outcome='found'` (`source_last_checked_at` set, error category
   cleared). **Nothing else closes a row** — a timeout, a 403 bot wall, a 429, a 5xx, a
-  row with no key, or an adapter's `None` records `inconclusive` with an allow-listed
+  row with no key, or an adapter's `None` records `inconclusive` (a Workday 429 only after
+  the pacer's retries above) with an allow-listed
   error category (`no_recheck_key` for the missing key, `incomplete_content` for `None`)
   and leaves the row live, because wrongly expiring a live match costs the
   operator a job while a missed dead link costs one stale row. Every check stamps
@@ -2416,6 +2425,7 @@ automated coverage — those rely on code review or the human in the loop, not a
 | The workday gate stub carries no `external_id` (unstorable by construction) | `test_fetch_new.py::test_workday_parse_stub_carries_no_external_id` |
 | The gate never changes a row's status | `test_pipeline.py::test_run_fetch_gated_batch_matches_the_ungated_statuses` |
 | Pinpoint + Workday board adapters | `test_fetch_new.py` |
+| Workday requests are spaced per host; a 429 retries (Retry-After, else bounded backoff), and a persistent one ends `inconclusive`/`http_429` without holding back other hosts | `test_workday_pacing.py` |
 | Custom-recipe executor (`json`/`next-data` modes, paging, fields map, `detail` hydration) | `test_custom.py` |
 | Shared detail stage (extractor picked by document type, stub gate, board-level breaker, unsafe-URL skip) | `test_detail.py` |
 | Browser-recipe executor (CSS extraction, detail circuit-breaker, SSRF guards on scraped URLs) | `test_browser.py` |

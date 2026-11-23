@@ -66,6 +66,11 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 
 ### Changed
 
+- **Workday pacing (#273)**: Workday requests are spaced per tenant host (0.5s) and a
+  429 is retried after `Retry-After`, else 2s/4s/8s backoff; a host still throttled after
+  that answers 429 locally for 120s, and a `Retry-After` above 30s cools it at once for that
+  long (at most 900s). Expire re-checks used to
+  record nearly every Workday row `http_429` because fetch had spent the rate budget.
 - **One candidate profile** (#224, epic #223): a single `candidate_profile` row (search
   scope, hard requirements, background, preferences, triage packs) replaces
   `candidate_preferences`, `jev_profile`, config `title_filter` / `title_exclude` /

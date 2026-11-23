@@ -1,6 +1,7 @@
 import pytest
 
 from ats_worker import run
+from ats_worker.fetch import _pacing, workday
 from tests._helpers import bootstrap_db
 
 
@@ -28,6 +29,14 @@ def _isolated_pass_lock(tmp_path, monkeypatch):
     # None, so the fetch short-circuits before any socket is opened.
     monkeypatch.setenv("CODEX_HOME", str(tmp_path / "no-codex-home"))
     monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path / "no-claude-home"))
+
+
+@pytest.fixture(autouse=True)
+def _no_real_pacing_sleep(monkeypatch):
+    """Workday's per-host pacer would really sleep between a test's fake requests;
+    give each test a fresh pacer whose sleep is a no-op. test_workday_pacing installs
+    its own fake clock on top."""
+    monkeypatch.setattr(workday, "_PACER", _pacing.HostPacer(sleep=lambda s: None))
 
 
 @pytest.fixture

@@ -17,6 +17,7 @@ from urllib.parse import urlparse
 
 import requests
 
+from ats_worker.fetch._pacing import HostPacer
 from ats_worker.fetch._paged import paged_details
 from ats_worker.util import html_to_text, is_safe_public_url, to_iso_date
 
@@ -24,6 +25,8 @@ SOURCE = "workday"
 _CXS = "https://{tenant}.{dc}.myworkdayjobs.com/wday/cxs/{tenant}/{site}"
 _JSON = {"Content-Type": "application/json"}
 PAGE = 20  # Workday hard-caps the list page size at 20
+# Every Workday request goes through this: per-host spacing + bounded 429 retry (#273).
+_PACER = HostPacer()
 
 # The list stub's only date is prose: "Posted 30+ Days Ago" / "Posted 5 Days Ago".
 # Match just that English "N[+] Day(s) Ago" form; the number is a LOWER bound on age
@@ -131,7 +134,7 @@ def fetch_one(slug: str, external_id: str, company_name: str,
     tenant, dc, site = _parts(slug)
     http = session or requests
     cxs = _CXS.format(tenant=tenant, dc=dc, site=site)
-    resp = http.get(cxs + external_id, headers=_JSON, timeout=timeout)
+    resp = _PACER.request(http, "get", cxs + external_id, headers=_JSON, timeout=timeout)
     resp.raise_for_status()
     return parse_job(resp.json(), company_name)
 
@@ -152,8 +155,8 @@ def fetch(slug: str, company_name: str, session: requests.Session | None = None,
     cxs = _CXS.format(tenant=tenant, dc=dc, site=site)
 
     def _page(http, offset):
-        resp = http.post(
-            cxs + "/jobs",
+        resp = _PACER.request(
+            http, "post", cxs + "/jobs",
             json={"appliedFacets": {}, "limit": PAGE, "offset": offset, "searchText": ""},
             headers=_JSON, timeout=timeout,
         )
@@ -167,7 +170,8 @@ def fetch(slug: str, company_name: str, session: requests.Session | None = None,
         if keep is not None and keep(parse_stub(stub, company_name, now)) == "drop":
             return None       # never stored, no detail call, no id to reconcile
         try:
-            detail = http.get(cxs + stub["externalPath"], headers=_JSON, timeout=timeout)
+            detail = _PACER.request(http, "get", cxs + stub["externalPath"],
+                                    headers=_JSON, timeout=timeout)
             detail.raise_for_status()
             return parse_job(detail.json(), company_name)
         except Exception:
