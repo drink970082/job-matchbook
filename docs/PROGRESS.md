@@ -13,6 +13,10 @@ behavior. Completed work belongs in CHANGELOG, not this queue.
   and #225 (#276) are merged and deployed. #226 (readers on the stored verdict, drops
   `policy_sha256` and the `stale` rule) and #227 remain.
 
+- **Per-board fetch health persisted and shown** `[WORKER+WEB+MCP · M]` (#231, part of
+  #229). Branch `feat/231-board-health`: health columns on `watched_companies`, Sources
+  page + `list_sources` read them, MCP `add_source` verifies with one fetch.
+
 These references reserve unfinished work; they do not claim the branches are currently
 executing or establish merge readiness. Inspect actual refs/worktrees and coordinate
 before changing them. No older research authorization schedules new provider calls.
