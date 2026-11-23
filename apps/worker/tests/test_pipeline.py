@@ -107,7 +107,20 @@ def test_run_fetch_raises_when_fetch_fn_missing(db_path):
         pipeline.run_fetch(conn, companies, None, now=NOW, fetch_fn=None)
 
 
-def test_run_fetch_marks_location_miss_discarded(db_path):
+def _verdicts(conn) -> dict:
+    return {r["external_id"]: (r["pipeline_status"], r["verdict"]) for r in conn.execute(
+        "SELECT external_id, pipeline_status, verdict FROM job_postings ORDER BY id")}
+
+
+def _requirements(conn, external_id):
+    return conn.execute(
+        "SELECT s.state, s.result_json, s.backend, s.model, s.effort, s.evaluator_version, "
+        "s.profile_version, p.score_detail, p.verdict_at FROM job_screenings s "
+        "JOIN job_postings p ON p.id=s.job_posting_id WHERE p.external_id=?",
+        (external_id,)).fetchone()
+
+
+def test_run_fetch_stores_a_location_miss_as_a_requirements_discard(db_path):
     conn = db.connect(db_path)
 
     def fetch_fn(source, slug, name):
@@ -116,13 +129,18 @@ def test_run_fetch_marks_location_miss_discarded(db_path):
 
     companies = [{"source": "greenhouse", "slug": "acme", "name": "Acme"}]
     inserted = pipeline.run_fetch(conn, companies, None, now=NOW, fetch_fn=fetch_fn,
-                                  candidate={"locations": ["remote", "USA"]})
+                                  candidate={"locations": ["remote", "USA"]},
+                                  profile_version=3)
     assert inserted == 2  # both rows recorded; the miss is discarded, not dropped
-    assert [r["external_id"] for r in db.get_by_status(conn, "discarded")] == ["1"]
-    assert [r["external_id"] for r in db.get_by_status(conn, "new")] == ["2"]
-    detail = _json.loads(db.get_by_status(conn, "discarded")[0]["score_detail"])
-    assert detail["disqualified"] is True
-    assert detail["screen"]["location"]["pass"] is False
+    assert _verdicts(conn) == {"1": ("new", "discarded"), "2": ("new", "pending")}
+    req = _requirements(conn, "1")
+    result = _json.loads(req["result_json"])
+    assert result["disqualified"] is True
+    assert result["screen"]["location"]["pass"] is False
+    assert tuple(req)[0:1] + tuple(req)[2:] == (
+        "complete", "deterministic", None, None, pipeline.SCREEN_EVALUATOR_VERSION, 3,
+        None, NOW)
+    assert _requirements(conn, "2") is None
 
 
 def test_run_fetch_drops_stale_by_max_age(db_path):
@@ -169,8 +187,7 @@ def test_run_fetch_no_candidate_leaves_all_new(db_path):
 
     companies = [{"source": "greenhouse", "slug": "acme", "name": "Acme"}]
     pipeline.run_fetch(conn, companies, None, now=NOW, fetch_fn=fetch_fn)
-    assert [r["external_id"] for r in db.get_by_status(conn, "new")] == ["1"]
-    assert db.get_by_status(conn, "discarded") == []
+    assert _verdicts(conn) == {"1": ("new", "pending")}
 
 
 def test_run_fetch_passes_keep_only_to_stub_gate_sources(db_path):
@@ -236,16 +253,14 @@ def test_run_fetch_gated_batch_matches_the_ungated_statuses(db_path, tmp_path):
     conn = db.connect(db_path)
     pipeline.run_fetch(conn, [{"source": "phenom", "slug": "h/d", "name": "Co"}],
                        ["engineer"], now=NOW, fetch_fn=gated_fetch_fn, candidate=cand)
-    gated = {s: [r["external_id"] for r in db.get_by_status(conn, s)]
-             for s in ("new", "discarded")}
+    gated = _verdicts(conn)
 
     conn2 = db.connect(bootstrap_db(tmp_path / "plain.db"))
     pipeline.run_fetch(conn2, [{"source": "greenhouse", "slug": "acme", "name": "Co"}],
                        ["engineer"], now=NOW, fetch_fn=plain_fetch_fn, candidate=cand)
-    plain = {s: [r["external_id"] for r in db.get_by_status(conn2, s)]
-             for s in ("new", "discarded")}
+    plain = _verdicts(conn2)
 
-    assert gated == plain == {"new": ["2"], "discarded": ["1"]}
+    assert gated == plain == {"1": ("new", "discarded"), "2": ("new", "pending")}
 
 
 # --- run_expire -------------------------------------------------------------

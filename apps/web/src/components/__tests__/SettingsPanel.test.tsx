@@ -19,7 +19,7 @@ const PROFILE = {
     packs: 'default', highest_degree: "master's", total_years: 2, triage_configured: true,
     version: 2, actor: 'mcp', changed_at: null, confirmed_at: null,
 }
-const LOADED = { profile: PROFILE, reassessOnChange: 400 }
+const LOADED = { profile: PROFILE }
 const FIELDS = {
     title_include: ['engineer'], title_exclude: [], max_age_days: 0, locations: ['remote', 'Boston'],
     work_authorization: 'citizen', security_clearance: '', exclude_internships: true, exclude_contract: false,
@@ -69,7 +69,6 @@ describe('SettingsPanel (the one candidate profile form)', () => {
 
     it('text typed into a list but not added is added when the box is left for Save', async () => {
         render(<SettingsPanel />)
-        jest.spyOn(window, 'confirm').mockReturnValue(true)
         const box = await screen.findByLabelText('Open to')
         fireEvent.change(box, { target: { value: 'Data' } })
         fireEvent.blur(box)
@@ -85,7 +84,6 @@ describe('SettingsPanel (the one candidate profile form)', () => {
 
     it('a non-JSON stored context still saves a yoe_context-only edit', async () => {
         jest.mocked(getCandidateProfile).mockResolvedValue(withContext('free text, not JSON') as any)
-        jest.spyOn(window, 'confirm').mockReturnValue(true)
         render(<SettingsPanel />)
         fireEvent.change(await screen.findByLabelText('Education and experience (sent as written)'), { target: { value: 'MS, 2 years.' } })
         save()
@@ -101,7 +99,7 @@ describe('SettingsPanel (the one candidate profile form)', () => {
     })
 
     it('a fresh install is configured from the empty form; background is entered once', async () => {
-        jest.mocked(getCandidateProfile).mockResolvedValue({ profile: null, reassessOnChange: 0 } as any)
+        jest.mocked(getCandidateProfile).mockResolvedValue({ profile: null } as any)
         render(<SettingsPanel />)
         expect(await screen.findByText(/Nothing is set yet/)).toBeInTheDocument()
         expect(screen.getByText(/degree is not screened/)).toBeInTheDocument()
@@ -121,32 +119,19 @@ describe('SettingsPanel (the one candidate profile form)', () => {
         }))
     })
 
-    it('a change to what triage reads is saved only after confirming the re-assessment cost', async () => {
-        const confirm = jest.spyOn(window, 'confirm').mockReturnValueOnce(false).mockReturnValueOnce(true)
+    it('a change to what triage reads saves without a cost prompt: nothing is re-assessed', async () => {
+        const confirm = jest.spyOn(window, 'confirm')
         render(<SettingsPanel />)
         fireEvent.change(await screen.findByLabelText('Open to'), { target: { value: 'Data' } })
         fireEvent.click(screen.getByRole('button', { name: 'Add to Open to' }))
         save()
-        expect(confirm.mock.calls[0][0]).toContain('400 recent postings are re-assessed')
-        expect(setCandidateProfile).not.toHaveBeenCalled()
-        save()
         await waitFor(() => expect(setCandidateProfile).toHaveBeenCalledWith({ ...FIELDS, open_to: ['Data'] }))
-        confirm.mockRestore()
-    })
-
-    it('a blank added row is no triage change and asks nothing', async () => {
-        const confirm = jest.spyOn(window, 'confirm')
-        render(<SettingsPanel />)
-        fireEvent.click(await screen.findByRole('button', { name: 'Add experience' }))
-        save()
-        await waitFor(() => expect(setCandidateProfile).toHaveBeenCalledWith(FIELDS))
         expect(confirm).not.toHaveBeenCalled()
-        confirm.mockRestore()
+        expect(screen.getByText(/re-assesses nothing already evaluated/)).toBeInTheDocument()
     })
 
     it('custom packs can be swapped for the committed defaults', async () => {
         jest.mocked(getCandidateProfile).mockResolvedValue({ ...LOADED, profile: { ...PROFILE, packs: 'custom' } } as any)
-        jest.spyOn(window, 'confirm').mockReturnValue(true)
         render(<SettingsPanel />)
         expect(await screen.findByText('Question packs: your custom packs.')).toBeInTheDocument()
         fireEvent.click(screen.getByLabelText('Use the committed default packs instead'))
@@ -159,7 +144,6 @@ describe('SettingsPanel custom triage context (a migrated free-text profile)', (
     it('unedited it is not resent; an entry edit saves compact in, compact out', async () => {
         const profile_text = '{"profile":{"background":[{"id":"edu","text":"MS"}],"as_of":"2026-11"}}'
         jest.mocked(getCandidateProfile).mockResolvedValue(withContext(profile_text) as any)
-        jest.spyOn(window, 'confirm').mockReturnValue(true)
         render(<SettingsPanel />)
         expect(await screen.findByLabelText('Profile (JSON)')).toHaveValue(JSON.stringify(JSON.parse(profile_text), null, 2))
         save()
@@ -200,7 +184,6 @@ describe('SettingsPanel custom triage context (a migrated free-text profile)', (
 
     it('stopping the custom context sends the fields instead', async () => {
         jest.mocked(getCandidateProfile).mockResolvedValue(withContext('{"a":1}') as any)
-        jest.spyOn(window, 'confirm').mockReturnValue(true)
         render(<SettingsPanel />)
         fireEvent.click(await screen.findByLabelText('Stop using the custom context; send the fields above instead'))
         expect(screen.queryByLabelText('Profile (JSON)')).toBeNull()

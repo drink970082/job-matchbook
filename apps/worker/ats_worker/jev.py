@@ -67,7 +67,8 @@ class JevInputs:
     yoe_context: str
 
     def policy_sha(self, resolved_model: str) -> str:
-        """Everything a verdict depends on; a change re-queues every posting."""
+        """A hash of everything a verdict depends on. Never stored or compared by a pass
+        (#225: nothing re-queues); migrate_profile uses it to prove inputs unchanged."""
         return sha(enc({"rule": RULE_VERSION, "model": resolved_model,
                         "profile": sha(self.profile_text.encode()),
                         "c_pack": sha(enc(self.c_pack)), "yoe_pack": sha(enc(self.yoe_pack)),

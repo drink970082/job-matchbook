@@ -39,8 +39,10 @@ model job_postings {
   location        String?
   job_url         String
   description     String // full JD text (fed to the LLM)
-  score_detail    String? // JSON: { assessment:{seniority,domain,must_haves,nice_to_haves,summary}, screen, [disqualified,disqualification_reason], [recommended_resume] } (worker output; pre-S2.1 rows carry matched_keywords/missing_keywords/reasoning instead)
-  pipeline_status String        @default("new") // new|scored|notified|applied|discarded|failed|removed|expired ('expired' = the board 404/410'd the listing; terminal, drops out of the live buckets like 'removed')
+  score_detail    String? // legacy JSON from the retired fit scorer: { assessment:{seniority,domain,must_haves,nice_to_haves,summary}, screen, [recommended_resume] } (pre-S2.1 rows carry matched_keywords/missing_keywords/reasoning instead); the worker no longer writes it
+  pipeline_status String        @default("new") // new|scored|notified|applied|discarded|failed|removed|expired ('expired' = the board 404/410'd the listing; terminal, drops out of the live buckets like 'removed'). The worker no longer writes 'discarded': a requirements discard is a job_screenings row (#225)
+  verdict         String        @default("pending") // pending|keep|skip|discarded|not_evaluated: the stored evaluation verdict (#225), written once by the worker when the last configured stage finishes, or not_evaluated when the posting leaves the evaluation window unfinished; never changes after
+  verdict_at      String? // when the verdict left pending
   pipeline_error  String? // last stage/send error (kept while a notify retry is pending; cleared on successful notify)
   application_id  Int? // back-link once marked applied
   application     applications? @relation(fields: [application_id], references: [id], onDelete: SetNull)
@@ -63,6 +65,7 @@ model job_postings {
 
   @@unique([source, external_id]) // dedup key
   @@index([pipeline_status])
+  @@index([verdict])
   @@index([source, source_last_check_attempted_at])
 }
 
@@ -82,7 +85,8 @@ model job_screenings {
   evaluator_version String
   last_attempted_at String
   completed_at      String?
-  source_content_revision Int? // posting content revision used by this completed screen
+  source_content_revision Int? // posting content revision used by this completed screen (provenance; never compared)
+  profile_version   Int? // candidate_profile.version this screen ran under (display only, never a trigger); null on legacy rows
   created_at        String
   updated_at        String?
   job_posting       job_postings @relation(fields: [job_posting_id], references: [id], onDelete: Cascade)
@@ -90,8 +94,9 @@ model job_screenings {
   @@index([state, last_attempted_at])
 }
 
-// JEV keep/skip filter (worker `run_jev`). One latest assessment per posting; a skip
-// only hides the row from the MCP default list, it never changes pipeline_status.
+// JEV keep/skip filter (worker `run_jev`). One assessment per posting, made once inside
+// the evaluation window; a completed one sets job_postings.verdict. It never changes
+// pipeline_status.
 model job_jev_assessments {
   id                      Int          @id @default(autoincrement())
   job_posting_id          Int          @unique
@@ -101,8 +106,9 @@ model job_jev_assessments {
   result_json             String?      // native answers of both questions
   error_category          String?
   model                   String?
-  policy_sha256           String       // profile + question packs + model binding
+  policy_sha256           String?      // legacy binding hash; no longer written or compared (#225), dropped with the reader rules in #226
   source_content_revision Int?
+  profile_version         Int?         // candidate_profile.version this verdict ran under (display only); null on legacy rows
   cost_usd                String?
   last_attempted_at       String
   completed_at            String?

@@ -640,3 +640,32 @@ def test_run_feed_title_filter_still_refuses_an_off_target_role(db_path):
         detail_fetch_fn=_detail_serves, title_filter=["engineer"],
     )
     assert inserted == 0
+
+
+def _stored(conn):
+    """Everything a reader sees of a stored posting and its requirements result, minus
+    the row ids."""
+    return [tuple(r) for r in conn.execute(
+        "SELECT p.pipeline_status, p.verdict, p.verdict_at, p.score_detail, s.state, "
+        "s.result_json, s.backend, s.model, s.effort, s.evaluator_version, s.profile_version, "
+        "s.completed_at FROM job_postings p LEFT JOIN job_screenings s "
+        "ON s.job_posting_id=p.id")]
+
+
+def test_a_watchlist_and_a_feed_location_miss_are_stored_identically(tmp_path):
+    from tests._helpers import bootstrap_db
+    cand = {"locations": ["remote", "USA"]}
+    miss = _posting("aaaa-1111", source="ashby", location="Shanghai, China")
+
+    watch = db.connect(bootstrap_db(tmp_path / "watch.db"))
+    pipeline.run_fetch(watch, [{"source": "ashby", "slug": "acme", "name": "Acme"}],
+                       None, now=NOW, fetch_fn=lambda s, sl, n: [dict(miss)],
+                       candidate=cand, profile_version=4)
+
+    feed = db.connect(bootstrap_db(tmp_path / "feed.db"))
+    pipeline.run_feed(feed, now=NOW, feed_fn=lambda: [_listing("Engineer")],
+                      keep_categories=["Software"], fetch_fn=lambda s, sl, n: [dict(miss)],
+                      detail_fetch_fn=_detail_serves, candidate=cand, profile_version=4)
+
+    assert _stored(watch) == _stored(feed)
+    assert _stored(feed)[0][:2] == ("new", "discarded")

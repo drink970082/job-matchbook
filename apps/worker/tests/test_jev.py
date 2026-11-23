@@ -223,9 +223,9 @@ def _screened_db(tmp_path, ids, *, disqualified=()):
     return conn
 
 
-def _run(conn, jev_fn, *, limit=10, max_usd="1", sha="policy-a"):
-    return pipeline.run_jev(conn, now=NOW, jev_fn=jev_fn, policy_sha=sha, model=MODEL,
-                            limit=limit, max_usd=Decimal(max_usd))
+def _run(conn, jev_fn, *, limit=10, max_usd="1", profile_version=None):
+    return pipeline.run_jev(conn, now=NOW, jev_fn=jev_fn, model=MODEL, limit=limit,
+                            max_usd=Decimal(max_usd), profile_version=profile_version)
 
 
 def _assess_with(preference="plausible", yoe="not_stated"):
@@ -239,21 +239,27 @@ def _rows(conn):
         "JOIN job_postings p ON p.id=j.job_posting_id").fetchall()}
 
 
+def _verdicts(conn):
+    return {r["external_id"]: r["verdict"] for r in conn.execute(
+        "SELECT external_id, verdict FROM job_postings ORDER BY id")}
+
+
 def test_run_jev_persists_verdicts_and_leaves_lifecycle_alone(tmp_path):
     conn = _screened_db(tmp_path, ["a", "b", "dq"], disqualified={"dq"})
-    tally = _run(conn, _assess_with("weak"))
+    tally = _run(conn, _assess_with("weak"), profile_version=6)
     rows = _rows(conn)
     assert set(rows) == {"a", "b"} and tally["skip"] == 2
     assert rows["a"]["verdict"] == "skip" and json.loads(rows["a"]["reasons_json"]) == ["preference_weak"]
     assert rows["a"]["pipeline_status"] == "new" and rows["a"]["cost_usd"] == "0.0002"
-    # Cached under the same policy: a second pass assesses nothing.
+    assert rows["a"]["profile_version"] == 6 and rows["a"]["policy_sha256"] is None
+    # The triage verdict is the posting's final stored verdict.
+    assert _verdicts(conn) == {"a": "skip", "b": "skip", "dq": "discarded"}
+    # Evaluated once: neither a second pass nor a JD content change re-queues it.
     assert _run(conn, _assess_with())["attempted"] == 0
-    # A new policy or a changed source revision re-queues the row.
-    assert _run(conn, _assess_with(), sha="policy-b")["attempted"] == 2
     conn.execute("UPDATE job_postings SET source_content_revision=7 WHERE external_id='a'")
     conn.commit()
-    assert _run(conn, _assess_with(), sha="policy-b")["attempted"] == 1
-    assert _rows(conn)["a"]["source_content_revision"] == 7
+    assert _run(conn, _assess_with())["attempted"] == 0
+    assert _verdicts(conn)["a"] == "skip"
 
 
 def test_run_jev_limit_and_spend_cap_defer_the_rest(tmp_path):
@@ -275,7 +281,7 @@ def test_run_jev_errors_are_stored_and_retried_after_fresh_work(tmp_path):
     row = _rows(conn)["a"]
     assert row["state"] == "provider_error" and row["verdict"] is None
     assert row["error_category"] == "provider_error"
-    order = [r["external_id"] for r in db.get_jev_candidates(conn, "policy-a", "")]
+    order = [r["external_id"] for r in db.get_jev_candidates(conn, "")]
     assert order == ["a"]
     assert _run(conn, _assess_with())["keep"] == 1
 
@@ -308,14 +314,17 @@ def test_save_jev_validates_state_and_skips_non_new_rows(tmp_path):
     conn = _screened_db(tmp_path, ["a"])
     pid = conn.execute("SELECT id FROM job_postings").fetchone()[0]
     kw = dict(reasons=None, result=None, error_category=None, model=MODEL,
-              policy_sha="p", cost_usd=None, now=NOW)
+              cost_usd=None, now=NOW)
     with pytest.raises(ValueError):
         db.save_jev(conn, pid, state="done", verdict="keep", **kw)
     with pytest.raises(ValueError):
         db.save_jev(conn, pid, state="complete", verdict="maybe", **kw)
     with pytest.raises(ValueError):
         db.save_jev(conn, pid, state="provider_error", verdict="keep", **kw)
-    conn.execute("UPDATE job_postings SET pipeline_status='discarded'")
+    conn.execute("UPDATE job_postings SET verdict='not_evaluated'")
+    conn.commit()
+    assert db.save_jev(conn, pid, state="complete", verdict="keep", **kw) is False
+    conn.execute("UPDATE job_postings SET verdict='pending', pipeline_status='applied'")
     conn.commit()
     assert db.save_jev(conn, pid, state="complete", verdict="keep", **kw) is False
 
@@ -346,7 +355,7 @@ def test_run_jev_wires_the_client_into_the_pipeline(monkeypatch, tmp_path):
                          max_usd=Decimal("1"), now=NOW)
     assert tally["model"] == MODEL and tally["skip"] == 1
     row = _rows(conn)["a"]
-    assert row["verdict"] == "skip" and row["policy_sha256"] == _inputs().policy_sha(MODEL)
+    assert row["verdict"] == "skip"
 
 
 def test_run_jev_metadata_failure_skips_the_stage(monkeypatch, capsys):
@@ -391,21 +400,19 @@ def test_cli_jev_needs_no_jev_dir(tmp_path, monkeypatch):
     assert seen == [True]
 
 
-def test_run_jev_records_the_current_policy_for_mcp(tmp_path):
+def test_run_jev_records_no_policy_setting(tmp_path):
     conn = _screened_db(tmp_path, ["a"])
-    _run(conn, _assess_with(), sha="policy-z")
-    assert conn.execute("SELECT value FROM app_settings WHERE key=?",
-                        (db.JEV_POLICY_SETTING,)).fetchone()[0] == "policy-z"
+    _run(conn, _assess_with())
+    assert conn.execute("SELECT COUNT(*) FROM app_settings").fetchone()[0] == 0
 
 
-def test_oversized_requests_are_not_retried_until_their_input_changes(tmp_path):
+def test_oversized_requests_are_never_retried(tmp_path):
     conn = _screened_db(tmp_path, ["a"])
 
     def too_big(posting):
         raise jev.JevError("request_too_large")
     assert _run(conn, too_big)["errors"] == 1
-    assert db.get_jev_candidates(conn, "policy-a", "") == []
-    assert len(db.get_jev_candidates(conn, "policy-b", "")) == 1
+    assert db.get_jev_candidates(conn, "") == []
 
 
 def test_run_jev_assesses_only_the_last_seven_days(tmp_path):
@@ -418,9 +425,6 @@ def test_run_jev_assesses_only_the_last_seven_days(tmp_path):
     tally = _run(conn, _assess_with())
     assert tally["keep"] == 3
     assert set(_rows(conn)) == {"fresh", "edge", "iso"}
-    # A policy change re-queues only postings inside the window.
-    assert db.get_jev_candidates(conn, "policy-b", "2026-05-29") and not [
-        r for r in db.get_jev_candidates(conn, "policy-b", "2026-05-29") if r["external_id"] in ("edge", "old")]
 
 
 def test_run_jev_does_not_retry_an_error_that_aged_out_and_falls_back_to_created_at(tmp_path):
@@ -591,7 +595,7 @@ def test_assess_extract_maps_provider_failure_and_oversize():
     assert exc.value.category == "request_too_large"
 
 
-def test_run_jev_extract_keys_policy_on_the_backend(monkeypatch, tmp_path):
+def test_run_jev_extract_records_the_backend_as_the_model(monkeypatch, tmp_path):
     conn = _screened_db(tmp_path, ["a", "b"])
     monkeypatch.setattr(run, "_triage_inputs", lambda prof: _inputs())
     run._run_jev_extract(conn, None, extract=fake_extract("plausible", "three_plus"),
@@ -599,8 +603,7 @@ def test_run_jev_extract_keys_policy_on_the_backend(monkeypatch, tmp_path):
     rows = _rows(conn)
     done = [r for r in rows.values() if r["verdict"]]
     assert len(done) == 1 and done[0]["verdict"] == "skip"   # --jev-limit caps postings
-    assert done[0]["policy_sha256"] == _inputs().policy_sha("extract:ollama:m:None")
-    assert _inputs().policy_sha("extract:codex:m:None") != done[0]["policy_sha256"]
+    assert done[0]["model"] == "extract:ollama:m:None"
 
 
 @pytest.mark.parametrize("extra,message", [
@@ -629,6 +632,9 @@ def test_extract_prompt_renders_score_and_noul_questions():
 def test_run_once_dispatches_on_jev_backend(backend, stage, monkeypatch, tmp_path):
     from ats_worker import config as cfgmod
     dbfile = bootstrap_db(tmp_path / "j.db")
+    conn = db.connect(dbfile)
+    _insert_profile(conn, **STRUCTURED)
+    conn.close()
     seen = {}
     extract = object()
     monkeypatch.setattr(run.pipeline, "run_fetch", lambda *_a, **_k: 0)

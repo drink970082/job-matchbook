@@ -8,10 +8,16 @@ injected worker callables and an explicit `now`, so the whole machine is determi
 and testable without network.
 
 Stage gating:
-  run_fetch  -> inserts brand-new postings ('new'); code-only gates discard at ingest
+  run_fetch  -> inserts brand-new postings ('new', verdict pending); code-only gates
+                store a requirements discard at ingest (run_feed applies the same gate)
   run_expire -> re-checks a capped batch of live rows from per-listing sources and
                 marks the 404/410 ones source_state='closed'
-  run_screen -> standalone hard-requirements screen of eligible 'new' rows
+  run_screen -> hard-requirements screen of pending in-window 'new' rows, once each
+  run_jev    -> triage (keep/skip) of pending in-window rows that passed, once each
+
+Each posting is evaluated at most once, inside one shared window (EVALUATION_WINDOW_DAYS);
+the stage that finishes it writes job_postings.verdict, and db.age_out finalizes what
+left the window unfinished as `not_evaluated`.
 """
 from __future__ import annotations
 
@@ -36,10 +42,12 @@ from .source_lifecycle import (assessment_input_hash,
 
 def run_fetch(conn, companies, title_filter, *, now, fetch_fn=None,
               title_exclude=None, max_age_days=0, candidate=None,
+              profile_version: int | None = None,
               counts: dict | None = None) -> int:
     """Fetch every company, pre-filter (title keep/exclude + max-age), tag any
-    deterministic disqualification (intern/location) so it lands 'discarded' WITHOUT
-    an Ollama call, then upsert. Returns rows inserted.
+    deterministic disqualification (intern/contract/location) so it is stored with its
+    requirements result and verdict `discarded` WITHOUT a model call (`_gate_discard`),
+    then upsert. Returns rows inserted.
 
     A failing company is logged-and-skipped (no posting to mark failed yet —
     nothing is in the db), so the remaining companies still ingest.
@@ -133,15 +141,10 @@ def run_fetch(conn, companies, title_filter, *, now, fetch_fn=None,
             kept = _coarse(postings)
             for p in kept:
                 p["company_slug"] = c["slug"]
-                if candidate:
-                    verdict = screening.deterministic_screen(
-                        {"screen": {}, "disqualified": False, "disqualification_reason": ""},
-                        p, candidate)
-                    if verdict.get("disqualified"):
-                        p["pipeline_status"] = "discarded"
-                        p["score_detail"] = _score_detail(verdict, disqualified=True)
-                        tally["discarded"] += 1
-                        _count_failed_checks(tally["discarded_by_reason"], verdict)
+                if _gate_discard(p, candidate, profile_version):
+                    tally["discarded"] += 1
+                    _count_failed_checks(tally["discarded_by_reason"],
+                                         p["requirements"]["result"])
             # A bodyless row is permanent (upsert is ON CONFLICT DO NOTHING) and would
             # be fit-scored blind on the PAID backend. Drop it instead: a board whose
             # list endpoint carries no JD simply yields nothing this cycle. Dropping
@@ -150,10 +153,10 @@ def run_fetch(conn, companies, title_filter, *, now, fetch_fn=None,
             # feed_unresolved (feed='watchlist', reason='empty_description') so a
             # silently-broken scraper surfaces on the Unresolved board instead of
             # vanishing into a log line — the same visibility the feed path already
-            # gives detail-fetch failures. 'discarded' rows are exempt: the stub gate
+            # gives detail-fetch failures. Gate discards are exempt: the stub gate
             # returns them deliberately un-hydrated and they never reach the screen.
             bodyless = [p for p in kept
-                        if p.get("pipeline_status") != "discarded" and not _valid_posting(p)]
+                        if not p.get("requirements") and not _valid_posting(p)]
             tally["bodyless"] += len(bodyless)
             if bodyless:
                 print(f"[fetch] {c['source']}/{c['slug']}: dropped {len(bodyless)} "
@@ -178,6 +181,22 @@ def run_fetch(conn, companies, title_filter, *, now, fetch_fn=None,
             print(f"[fetch] {c.get('source')}/{c.get('slug')}: skipped after error: {exc}")
             continue
     return tally["inserted"]
+
+
+def _gate_discard(posting: dict, candidate, profile_version: int | None) -> bool:
+    """The fetch-time requirements gate, shared by the watchlist and the feed so the
+    same miss is stored identically. A deterministic disqualification attaches the
+    requirements result `db.upsert_postings` stores with verdict `discarded`."""
+    if not candidate:
+        return False
+    verdict = screening.deterministic_screen(
+        {"screen": {}, "disqualified": False, "disqualification_reason": ""},
+        posting, candidate)
+    if not verdict.get("disqualified"):
+        return False
+    posting["requirements"] = {"result": verdict, "evaluator_version": SCREEN_EVALUATOR_VERSION,
+                               "profile_version": profile_version}
+    return True
 
 
 def _count_failed_checks(by_reason: dict, verdict: dict) -> None:
@@ -317,6 +336,7 @@ def run_feed(conn, *, now, feed_fn, keep_categories, feed_name="simplify",
              record_unresolved_fn=db.record_unresolved,
              resolve_embedded_fn=None, max_workers: int = 12,
              title_filter=None, title_exclude=None, max_age_days: int = 0,
+             candidate=None, profile_version: int | None = None,
              counts: dict | None = None) -> int:
     """Ingest a discovery feed: prefilter cheaply, resolve each apply URL back to
     its board, then REUSE the board adapters to fetch the JD — keeping ONLY the
@@ -335,6 +355,9 @@ def run_feed(conn, *, now, feed_fn, keep_categories, feed_name="simplify",
     different thing and still runs first: it covers active/category/sponsorship,
     which the board path has no equivalent for.
 
+    `candidate` drives the same fetch-time requirements gate as `run_fetch`
+    (`_gate_discard`), so a feed miss is stored exactly like a watchlist miss.
+
     The age gate runs TWICE, on two different dates, and both are needed. Before the
     resolve it judges the FEED's `date_posted` — a proxy, but the only date available
     while the fetch is still avoidable, so that is where the cost is saved. Before the
@@ -348,13 +371,14 @@ def run_feed(conn, *, now, feed_fn, keep_categories, feed_name="simplify",
     sum(unresolved_by_reason) + duplicate + already_stored + not_on_board + resolved,
     where `resolved` counts postings actually fetched from their board (a list or
     detail failure is under unresolved_by_reason instead), and resolved =
-    dropped_age_board + inserted (+ any the upsert finds already stored).
+    dropped_age_board + inserted (+ any the upsert finds already stored). `discarded`
+    counts the fetched postings the requirements gate discarded (a subset of resolved).
     """
     tally = counts if counts is not None else {}
     tally.update({"listings": 0, "prefilter_dropped": 0, "dropped_title": 0,
                   "dropped_age": 0, "no_url": 0, "unresolved_by_reason": {},
                   "duplicate": 0, "already_stored": 0, "not_on_board": 0,
-                  "resolved": 0, "dropped_age_board": 0, "inserted": 0})
+                  "resolved": 0, "dropped_age_board": 0, "discarded": 0, "inserted": 0})
     unresolved = tally["unresolved_by_reason"]
     # The feed is I/O-bound: hundreds of board/listing fetches dominate the runtime.
     # So network work is run CONCURRENTLY (ThreadPoolExecutor) while every DB call
@@ -489,6 +513,7 @@ def run_feed(conn, *, now, feed_fn, keep_categories, feed_name="simplify",
         # keep (an all-stale board is not a broken scraper).
         fresh = prefilter_postings(keep, max_age_days=max_age_days, now=now)
         tally["dropped_age_board"] += len(keep) - len(fresh)
+        tally["discarded"] += sum(_gate_discard(p, candidate, profile_version) for p in fresh)
         tally["inserted"] += db.upsert_postings(conn, fresh, now=now)
         for p in keep:  # a URL that once failed now resolves — clear its stale row.
             m = meta.get(p["external_id"])
@@ -619,18 +644,6 @@ def run_unscored_refresh(conn, *, source: str, limit: int, now: str,
 # --- screen ---------------------------------------------------------------
 
 
-def _score_detail(verdict: dict, *, disqualified: bool) -> dict:
-    """The persisted score_detail JSON for a code-gated discard: the per-check screen
-    verdicts (so the UI can show why a row was dropped) plus the disqualification."""
-    detail: dict = {}
-    if verdict.get("screen"):
-        detail["screen"] = verdict["screen"]
-    if disqualified:
-        detail["disqualified"] = True
-        detail["disqualification_reason"] = verdict.get("disqualification_reason", "")
-    return detail
-
-
 # A systemic provider outage looks like a run of failures with zero successes —
 # distinct from one bad posting, which fails alone among successes. N chosen so a
 # genuinely flaky-but-alive backend that lands even one success this pass never
@@ -662,15 +675,24 @@ class _BackendBreaker:
 SCREEN_EVALUATOR_VERSION = "screen-v1"
 
 
-# JEV assesses only postings from the last week: older ones are not worth a paid call
-# for this operator, so they stay `unassessed` (shown) instead of queueing a backlog.
+# The evaluation window both stages share: a posting is evaluated only while posted_at
+# (else created_at) is within this many days; one that leaves it unfinished is final
+# `not_evaluated` (db.age_out), so no backlog ever queues.
 # ponytail: a constant; make it a CLI flag if another install wants a different window.
-JEV_MAX_AGE_DAYS = 7
+EVALUATION_WINDOW_DAYS = 7
 
 
-def run_jev(conn, *, now: str, jev_fn, policy_sha: str, model: str, limit: int,
-            max_usd, clock: Callable[[], str] | None = None) -> dict:
-    """Persist JEV keep/skip verdicts for screened, not-disqualified `new` postings.
+def window_start(now: str) -> str:
+    """The first in-window date (YYYY-MM-DD) for the pass clock `now`."""
+    return (datetime.fromisoformat(now.replace("Z", "+00:00"))
+            - timedelta(days=EVALUATION_WINDOW_DAYS)).date().isoformat()
+
+
+def run_jev(conn, *, now: str, jev_fn, model: str, limit: int, max_usd,
+            clock: Callable[[], str] | None = None,
+            profile_version: int | None = None) -> dict:
+    """Triage each pending, screened, not-disqualified in-window posting once; a
+    completed keep/skip is its final verdict and records `profile_version`.
 
     Sequential, no retries within a pass. Stops at `limit` postings or once settled
     spend reaches `max_usd` (a Decimal). An unknown charge stops the pass outright:
@@ -679,10 +701,7 @@ def run_jev(conn, *, now: str, jev_fn, policy_sha: str, model: str, limit: int,
     """
     if limit <= 0:
         raise ValueError("jev limit must be positive")
-    db.upsert_setting(conn, db.JEV_POLICY_SETTING, policy_sha, now=now)
-    since = (datetime.fromisoformat(now.replace("Z", "+00:00"))
-             - timedelta(days=JEV_MAX_AGE_DAYS)).date().isoformat()
-    rows = db.get_jev_candidates(conn, policy_sha, since)
+    rows = db.get_jev_candidates(conn, window_start(now))
     tally = {"attempted": 0, "keep": 0, "skip": 0, "errors": 0, "deferred": 0,
              "spent_usd": Decimal(0), "stopped": None, "errors_by_category": {}}
     breaker = _BackendBreaker()
@@ -709,7 +728,7 @@ def run_jev(conn, *, now: str, jev_fn, policy_sha: str, model: str, limit: int,
                 breaker.record_failure()
             db.save_jev(conn, int(row["id"]), state="provider_error", verdict=None, reasons=None,
                         result=None, error_category=exc.category, model=model,
-                        policy_sha=policy_sha, cost_usd=str(exc.cost), now=saved_at)
+                        cost_usd=str(exc.cost), now=saved_at, profile_version=profile_version)
             if exc.category == "unknown_charge":
                 tally["stopped"] = "unknown_charge"
                 tally["deferred"] = len(rows) - tally["attempted"]
@@ -720,7 +739,8 @@ def run_jev(conn, *, now: str, jev_fn, policy_sha: str, model: str, limit: int,
         tally[out["verdict"]] += 1
         db.save_jev(conn, int(row["id"]), state="complete", verdict=out["verdict"],
                     reasons=out["reasons"], result=out["result"], error_category=None,
-                    model=model, policy_sha=policy_sha, cost_usd=out["cost_usd"], now=saved_at)
+                    model=model, cost_usd=out["cost_usd"], now=saved_at,
+                    profile_version=profile_version)
     print(f"[jev] {tally['attempted']} assessed: {tally['keep']} keep, {tally['skip']} skip, "
           f"{tally['errors']} error(s), {tally['deferred']} deferred, "
           f"USD {tally['spent_usd']}" + (f", stopped: {tally['stopped']}" if tally["stopped"] else ""))
@@ -737,11 +757,14 @@ def _screen_error_category(exc: Exception | None) -> str:
 
 def run_screen(conn, *, now: str, screen_fn, extract, candidate=None, backend: str,
                model: str | None, effort: str | None, limit: int | None = 40,
-               screen_workers: int = 1, clock: Callable[[], str] | None = None) -> dict:
-    """Persist standalone screening without touching fit or posting lifecycle state.
+               screen_workers: int = 1, clock: Callable[[], str] | None = None,
+               profile_version: int | None = None, triage: bool = False) -> dict:
+    """Screen each pending in-window `new` posting once, without touching its lifecycle.
 
     Fresh eligible postings run newest-first. Provider errors are retried oldest-first
-    after the fresh queue, while completed screens remain cached. ``limit`` reserves
+    after the fresh queue; a completed screen is never re-run. Each result records
+    `profile_version`; a disqualification is the final verdict `discarded`, and a pass is
+    the final `keep` unless `triage` (a triage stage follows this pass). ``limit`` reserves
     only actual extraction-provider calls; deterministic-only checks continue after the
     cap. ``None`` explicitly removes that cap while retaining the provider breaker.
     DB reads/writes stay on this thread while provider work may overlap.
@@ -750,7 +773,8 @@ def run_screen(conn, *, now: str, screen_fn, extract, candidate=None, backend: s
         raise ValueError("screen provider-call limit must be positive")
     if screen_fn is None:
         raise ValueError("run_screen requires an injected screen_fn")
-    rows = db.get_screen_candidates(conn)
+    since = window_start(now)
+    rows = db.get_screen_candidates(conn, since)
     cached = conn.execute(
         "SELECT COUNT(*) FROM job_screenings s JOIN job_postings p "
         "ON p.id=s.job_posting_id WHERE p.pipeline_status='new' AND s.state='complete'"
@@ -805,6 +829,7 @@ def run_screen(conn, *, now: str, screen_fn, extract, candidate=None, backend: s
             conn, int(row["id"]), state=state, result=stored,
             error_category=category, backend=backend, model=model, effort=effort,
             evaluator_version=SCREEN_EVALUATOR_VERSION, now=saved_at,
+            profile_version=profile_version, final_on_pass=not triage,
         )
         tally["saved" if saved else "changed"] += 1
 
@@ -837,11 +862,7 @@ def run_screen(conn, *, now: str, screen_fn, extract, candidate=None, backend: s
                 result, category = future.result()
                 persist(row, result, category, provider_attempted=provider_attempted)
 
-    remaining = conn.execute(
-        "SELECT COUNT(*) FROM job_postings p LEFT JOIN job_screenings s "
-        "ON s.job_posting_id=p.id WHERE p.pipeline_status='new' "
-        "AND (s.id IS NULL OR s.state='provider_error')"
-    ).fetchone()[0]
+    remaining = len(db.get_screen_candidates(conn, since))
     print(f"[screen-only] {tally['attempted']} provider call(s), {cached} cached, "
           f"{tally['passed']} pass, {tally['disqualified']} disqualified, "
           f"{tally['unknown']} unknown, {tally['errors']} error(s), "

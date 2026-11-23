@@ -8,23 +8,13 @@ import { type ProfileField, profileView, toColumn, validateProfilePatch } from '
 // --- Candidate profile (#224): the one row every worker stage reads -----------------
 // A set merges the given fields over the stored ones; an actual change bumps `version`,
 // stamps `changed_at` and is audited with the row it replaced. A no-op writes nothing.
-// The worker reads the row from its next pass on; postings already evaluated keep their
-// verdict.
+// The worker reads the row from its next pass on. Look forward only (#225): postings
+// already evaluated keep their verdict and nothing is re-assessed.
 
-// The Settings form's read: the stored profile (null until seeded or set) and how many
-// postings a triage-affecting change would re-assess. The count mirrors the worker's JEV
-// eligibility (db._JEV_ELIGIBLE + pipeline.JEV_MAX_AGE_DAYS) and MCP get_candidate_profile.
+// The Settings form's read: the stored profile (null until seeded or set).
 export async function getCandidateProfile() {
-    const since = new Date(Date.now() - 7 * 86_400_000).toISOString().slice(0, 10)
-    const [row, counted] = await Promise.all([
-        prisma.candidate_profile.findUnique({ where: { id: 1 } }),
-        prisma.$queryRaw<{ n: bigint | number }[]>`SELECT COUNT(*) AS n FROM job_postings p
-            JOIN job_screenings s ON s.job_posting_id = p.id
-            WHERE p.pipeline_status = 'new' AND s.state = 'complete' AND json_valid(s.result_json)
-              AND COALESCE(json_extract(s.result_json, '$.disqualified'), 0) = 0
-              AND substr(COALESCE(p.posted_at, p.created_at), 1, 10) >= ${since}`,
-    ])
-    return { profile: row ? profileView(row) : null, reassessOnChange: Number(counted[0]?.n ?? 0) }
+    const row = await prisma.candidate_profile.findUnique({ where: { id: 1 } })
+    return { profile: row ? profileView(row) : null }
 }
 
 // The audit snapshot: the custom pack texts are private and long, so only their presence.

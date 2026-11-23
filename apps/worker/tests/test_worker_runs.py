@@ -91,7 +91,7 @@ def test_a_fetch_only_pass_records_its_mode_and_no_screen(monkeypatch, tmp_path,
     run.run_once(cfgmod.load_config(CFG), db_path=dbfile, env={}, fetch_only=True)
     [row] = _runs(dbfile)
     assert row["status"] == "ok" and row["fetch_only"] == 1
-    assert set(row["counts"]) == {"fetch", "feed", "expire"}
+    assert set(row["counts"]) == {"fetch", "feed", "expire", "verdict"}
 
 
 def test_the_recorded_config_is_the_effective_one_and_never_a_secret(
@@ -110,7 +110,7 @@ def test_the_recorded_config_is_the_effective_one_and_never_a_secret(
     assert "SECRET" not in json.dumps(row)
     assert row["config"] == {
         "screen": {"backend": "api", "model": "m-1", "effort": None, "limit": 7,
-                   "workers": 2, "rescreen": False},
+                   "workers": 2},
         "triage": {"backend": "openrouter-native", "limit": 9, "max_usd": "0.25"},
         "feeds": [], "browser_sources": True, "max_age_days": 14,
     }
@@ -262,7 +262,7 @@ def test_run_feed_counts_listings_drops_resolution_and_inserts(tmp_path):
         "listings": 9, "prefilter_dropped": 1, "dropped_title": 1, "dropped_age": 0,
         "no_url": 1, "unresolved_by_reason": {"unsupported_host": 1, "list_fetch_failed": 1},
         "duplicate": 1, "already_stored": 1, "not_on_board": 1, "resolved": 1,
-        "dropped_age_board": 0, "inserted": 1}
+        "dropped_age_board": 0, "discarded": 0, "inserted": 1}
     buckets = ("prefilter_dropped", "dropped_title", "dropped_age", "no_url", "duplicate",
                "already_stored", "not_on_board", "resolved")
     assert counts["listings"] == sum(counts[k] for k in buckets) + \
@@ -313,7 +313,7 @@ def test_run_jev_counts_errors_by_category(tmp_path):
     def jev_fn(posting):
         raise JevError("invalid_response")
 
-    tally = pipeline.run_jev(conn, now=NOW, jev_fn=jev_fn, policy_sha="p", model="m",
+    tally = pipeline.run_jev(conn, now=NOW, jev_fn=jev_fn, model="m",
                              limit=5, max_usd=Decimal("1"))
     assert tally["errors_by_category"] == {"invalid_response": 1}
 

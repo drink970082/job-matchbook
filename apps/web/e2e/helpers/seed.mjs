@@ -54,7 +54,7 @@ export const POSTINGS = [
         job_title: 'Platform Engineer', location: 'Austin',
         job_url: 'https://initech.example/jobs/3', description: 'Run the platform.',
         score_detail: null,
-        pipeline_status: 'discarded', created_at: '2026-01-01T00:00:00.000Z',
+        pipeline_status: 'new', verdict: 'discarded', created_at: '2026-01-01T00:00:00.000Z',
         screening: '{"disqualified":true,"disqualification_reason":"degree: requires a PhD","screen":{"degree":{"pass":false,"note":"requires a PhD"}}}',
     },
 ]
@@ -115,7 +115,7 @@ export async function seed(url = DATABASE_URL) {
             }
             if (jev) {
                 await prisma.job_jev_assessments.create({ data: { job_posting_id: row.id, state: 'complete', ...jev,
-                    policy_sha256: 'e2e-policy', source_content_revision: p.source_content_revision ?? null,
+                    source_content_revision: p.source_content_revision ?? null,
                     last_attempted_at: '2026-01-03T00:00:00.000Z', created_at: '2026-01-03T00:00:00.000Z' } })
             }
         }

@@ -10,16 +10,13 @@ import { getCandidateProfile, setCandidateProfile } from '@/lib/profile-actions'
 import { DEGREES, WORK_AUTHORIZATIONS } from '@/lib/constants'
 import {
     type Education, type Experience, type ProfileView, type TriageContext,
-    TRIAGE_FIELDS, highestDegree, totalYears, validateProfilePatch,
+    highestDegree, totalYears, validateProfilePatch,
 } from '@/lib/candidate-profile'
 import { CustomContextEditor, Help, ListEditor } from './ProfileEditors'
 import { X } from 'lucide-react'
 import { toast } from 'sonner'
 
 type Loaded = Awaited<ReturnType<typeof getCandidateProfile>>
-
-// About what one posting's two JEV calls cost (measured pass: USD 0.079 / 300 postings).
-const USD_PER_ASSESSMENT = 0.0003
 
 const isRemote = (l: string) => l.trim().toLowerCase() === 'remote'
 const lines = (t: string) => t.split('\n').map((l) => l.trim()).filter(Boolean)
@@ -108,16 +105,6 @@ export function SettingsPanel() {
     const save = async () => {
         let clean: ReturnType<typeof validateProfilePatch>
         try { clean = validateProfilePatch(patch(), stored?.custom_triage_context?.profile_text) } catch (e: any) { return toast.error(e.message) }
-        // A change to what triage reads re-assesses recent postings (paid): confirm first.
-        const before = stored as Record<string, unknown> | null
-        const triageChanged = TRIAGE_FIELDS.some((k) => k in clean && (k === 'custom_packs'
-            || JSON.stringify((clean as Record<string, unknown>)[k]) !== JSON.stringify(before?.[k] ?? (k === 'custom_triage_context' ? null : []))))
-        const willTriage = clean.target_roles!.length > 0 || (('custom_triage_context' in clean) ? clean.custom_triage_context !== null : !!stored?.custom_triage_context)
-        const n = loaded?.reassessOnChange ?? 0
-        if (triageChanged && willTriage && n > 0) {
-            const usd = (n * USD_PER_ASSESSMENT).toFixed(2)
-            if (!window.confirm(`This changes what triage reads: ${n} recent postings are re-assessed on the next worker pass (paid, about USD ${usd}). Save?`)) return
-        }
         setSaving(true)
         try {
             const result = await setCandidateProfile(clean)
@@ -324,7 +311,7 @@ export function SettingsPanel() {
 
             <div className="flex items-center gap-3 border-t pt-6">
                 <Button onClick={save} disabled={saving}>Save profile</Button>
-                <span className="text-sm text-muted-foreground">A change to what triage reads asks you to confirm the re-assessment cost first.</span>
+                <span className="text-sm text-muted-foreground">Saving re-assesses nothing already evaluated, so it costs nothing.</span>
             </div>
         </div>
     )

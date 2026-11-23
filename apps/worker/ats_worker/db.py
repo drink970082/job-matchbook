@@ -43,21 +43,31 @@ def connect(path: str, *, timeout: float = 5.0) -> sqlite3.Connection:
 _INSERT = """
 INSERT INTO job_postings
     (source, external_id, company_slug, company_name, job_title, location, job_url,
-     description, posted_at, score_detail, pipeline_status, created_at,
+     description, posted_at, pipeline_status, created_at,
      source_state, source_last_seen_at, source_content_hash, source_content_revision)
 VALUES
     (:source, :external_id, :company_slug, :company_name, :job_title, :location, :job_url,
-     :description, :posted_at, :score_detail, :pipeline_status, :created_at,
+     :description, :posted_at, 'new', :created_at,
      'available', :created_at, :source_content_hash, :source_content_revision)
 ON CONFLICT(source, external_id) DO NOTHING
 """
 
 
+# The backend recorded on a requirements result no provider produced: the fetch-time
+# deterministic gate (location, internship, contract title).
+DETERMINISTIC_BACKEND = "deterministic"
+
+
 def upsert_postings(conn: sqlite3.Connection, postings, *, now: str) -> int:
-    """Insert new postings, ignoring any whose (source, external_id) already
-    exists. Returns the number of rows actually inserted. Existing content and
-    pipeline state stay untouched; a repeated exact identity advances only its
-    positive source-seen timestamp/state.
+    """Insert new postings (`pipeline_status='new'`, verdict `pending`), ignoring any whose
+    (source, external_id) already exists. Returns the number of rows actually inserted.
+    Existing content and pipeline state stay untouched; a repeated exact identity advances
+    only its positive source-seen timestamp/state.
+
+    A posting carrying `requirements` (`{"result", "evaluator_version",
+    "profile_version"}`) is a fetch-time deterministic discard: on insert it also gets
+    that completed requirements result (job_screenings, backend `deterministic`) and the
+    final verdict `discarded`, the same shape a screen-time rule discard has.
     """
     inserted = 0
     for p in postings:
@@ -75,18 +85,18 @@ def upsert_postings(conn: sqlite3.Connection, postings, *, now: str) -> int:
                 # posted_at is date-only; fall back to the scrape day so it's never null.
                 "posted_at": (p.get("posted_at") or now)[:10],
                 "created_at": now,
-                # Optional per-row overrides: the fetch-time deterministic gate marks
-                # a location/intern miss 'discarded' with a screen verdict, skipping
-                # the Ollama call. Everything else inserts as a fresh 'new' row.
-                "pipeline_status": p.get("pipeline_status") or "new",
-                "score_detail": (
-                    json.dumps(p["score_detail"]) if p.get("score_detail") is not None else None
-                ),
                 "source_content_hash": assessment_input_hash(p),
                 "source_content_revision": 1 if assessment_input_hash(p) else None,
             },
         )
         inserted += cur.rowcount
+        if cur.rowcount and p.get("requirements"):
+            req = p["requirements"]
+            _insert_requirements(conn, cur.lastrowid, req["result"], now=now,
+                                 evaluator_version=req["evaluator_version"],
+                                 profile_version=req.get("profile_version"))
+            conn.execute("UPDATE job_postings SET verdict='discarded',verdict_at=? WHERE id=?",
+                         (now, cur.lastrowid))
         if cur.rowcount == 0:
             # A repeated exact identity is a positive source observation, but its
             # content remains immutable here; refresh owns content replacement.
@@ -98,6 +108,18 @@ def upsert_postings(conn: sqlite3.Connection, postings, *, now: str) -> int:
             )
     conn.commit()
     return inserted
+
+
+def _insert_requirements(conn, posting_id: int, result: dict, *, now: str,
+                         evaluator_version: str, profile_version: int | None) -> None:
+    conn.execute(
+        "INSERT INTO job_screenings (job_posting_id,state,result_json,backend,model,effort,"
+        "evaluator_version,last_attempted_at,completed_at,source_content_revision,"
+        "profile_version,created_at,updated_at) "
+        "SELECT id,'complete',?,?,NULL,NULL,?,?,?,source_content_revision,?,?,? "
+        "FROM job_postings WHERE id=?",
+        (json.dumps(result, ensure_ascii=False, separators=(",", ":")), DETERMINISTIC_BACKEND,
+         evaluator_version, now, now, profile_version, now, now, posting_id))
 
 
 # A posting absent from this many consecutive successful, non-empty lists of its
@@ -223,10 +245,7 @@ def write_candidate_profile(conn: sqlite3.Connection, values: dict, *, actor: st
 
 # --- app settings ---------------------------------------------------------
 # A web-owned key-value preferences table (app_settings). The worker never reads
-# it. This mutator seeds onboarding preferences (the category vocabulary) and records
-# JEV_POLICY_SETTING, the policy hash of the latest JEV pass, which MCP compares
-# against each assessment to label older verdicts stale.
-JEV_POLICY_SETTING = "jev_current_policy_sha256"
+# it; this mutator seeds onboarding preferences (the category vocabulary).
 
 def upsert_setting(conn: sqlite3.Connection, key: str, value: str, *, now: str) -> None:
     """Insert or overwrite one app_settings row. `value` is stored verbatim (the
@@ -292,44 +311,78 @@ def get_by_status(conn: sqlite3.Connection, status: str):
     ).fetchall()
 
 
-def get_screen_candidates(conn: sqlite3.Connection) -> list[dict]:
-    """Return eligible standalone-screen work: fresh rows newest-first, then errors
-    oldest-attempt-first. Completed rows remain cached until explicitly cleared.
-    A posting closed at the source is never screened.
+# A posting is evaluated only while it is in the window: posted_at, else created_at, on
+# or after the window start (a YYYY-MM-DD bound parameter).
+IN_WINDOW = "substr(COALESCE(p.posted_at, p.created_at), 1, 10) >= ?"
+# Still waiting for a stage: `new`, verdict pending, not closed at the source.
+_PENDING = "p.pipeline_status='new' AND p.verdict='pending' AND p.source_state<>'closed'"
+
+
+def get_screen_candidates(conn: sqlite3.Connection, since: str) -> list[dict]:
+    """Return eligible standalone-screen work: pending in-window rows with no result,
+    newest-first, then provider errors oldest-attempt-first. A completed result is never
+    re-queued, and a posting closed at the source is never screened.
     """
     fresh = conn.execute(
         "SELECT p.* FROM job_postings p "
         "LEFT JOIN job_screenings s ON s.job_posting_id=p.id "
-        "WHERE p.pipeline_status='new' AND p.source_state<>'closed' AND s.id IS NULL "
-        "ORDER BY COALESCE(p.updated_at,'') DESC, p.id DESC"
+        f"WHERE {_PENDING} AND {IN_WINDOW} AND s.id IS NULL "
+        "ORDER BY COALESCE(p.updated_at,'') DESC, p.id DESC", (since,)
     ).fetchall()
     errors = conn.execute(
         "SELECT p.* FROM job_postings p "
         "JOIN job_screenings s ON s.job_posting_id=p.id "
-        "WHERE p.pipeline_status='new' AND p.source_state<>'closed' "
-        "AND s.state='provider_error' "
-        "ORDER BY s.last_attempted_at ASC, p.id ASC"
+        f"WHERE {_PENDING} AND {IN_WINDOW} AND s.state='provider_error' "
+        "ORDER BY s.last_attempted_at ASC, p.id ASC", (since,)
     ).fetchall()
     return [dict(row) for row in (*fresh, *errors)]
 
 
-def clear_completed_screenings(conn: sqlite3.Connection) -> int:
-    """Clear successful screen cache for eligible `new` rows only."""
+def _settle(conn: sqlite3.Connection, posting_id: int, verdict: str, *, now: str) -> None:
+    """Write a posting's final verdict; a verdict once set never changes."""
+    conn.execute("UPDATE job_postings SET verdict=?,verdict_at=? "
+                 "WHERE id=? AND verdict='pending'", (verdict, now, posting_id))
+
+
+def needs_evaluate_once_migration(conn: sqlite3.Connection) -> bool:
+    """True until ats_worker.migrate_evaluate_once has run: a row is still in the retired
+    `pipeline_status='discarded'` shape, or a pending posting carries a finished screen
+    discard or triage verdict. The worker settles both the moment it writes them, so
+    neither exists after the migration; before it, a pass would age them out as
+    `not_evaluated`. run_once, the daemon and the migration all read this one test."""
+    return conn.execute(
+        "SELECT EXISTS (SELECT 1 FROM job_postings WHERE pipeline_status='discarded') "
+        "OR EXISTS (SELECT 1 FROM job_postings p WHERE p.verdict='pending' AND ("
+        "EXISTS (SELECT 1 FROM job_screenings s WHERE s.job_posting_id=p.id "
+        "AND s.state='complete' AND json_valid(s.result_json) "
+        "AND COALESCE(json_extract(s.result_json,'$.disqualified'),0)=1) "
+        "OR EXISTS (SELECT 1 FROM job_jev_assessments j WHERE j.job_posting_id=p.id "
+        "AND j.state='complete' AND j.verdict IN ('keep','skip'))))").fetchone()[0] == 1
+
+
+def age_out(conn: sqlite3.Connection, *, since: str, now: str, commit: bool = True) -> int:
+    """Finalize every pending posting outside the window as `not_evaluated`: nothing
+    evaluates it any more. Returns the rows aged out this call. `commit=False` leaves
+    the write in the caller's transaction (the migration)."""
     cur = conn.execute(
-        "DELETE FROM job_screenings WHERE state='complete' AND job_posting_id IN "
-        "(SELECT id FROM job_postings WHERE pipeline_status='new')"
-    )
-    conn.commit()
+        "UPDATE job_postings SET verdict='not_evaluated',verdict_at=? WHERE id IN "
+        f"(SELECT p.id FROM job_postings p WHERE p.verdict='pending' AND NOT ({IN_WINDOW}))",
+        (now, since))
+    if commit:
+        conn.commit()
     return cur.rowcount
 
 
 def save_screening(conn: sqlite3.Connection, posting_id: int, *, state: str,
                    result: dict | None, error_category: str | None, backend: str,
                    model: str | None, effort: str | None,
-                   evaluator_version: str, now: str) -> bool:
-    """Persist one latest screen result if the posting is still eligible.
+                   evaluator_version: str, now: str, profile_version: int | None = None,
+                   final_on_pass: bool = False) -> bool:
+    """Persist one screen result if the posting is still pending, with the profile
+    version it ran under. A completed disqualification sets the verdict `discarded`; a
+    completed pass sets `keep` when `final_on_pass` (no triage stage follows).
 
-    The result and eligibility check share a short transaction. Screen provider errors
+    The result, the verdict and the eligibility check share a short transaction. Screen provider errors
     deliberately carry only a fixed message and a closed category; raw provider output
     can contain job text or credentials and is never persisted here.
     """
@@ -350,7 +403,7 @@ def save_screening(conn: sqlite3.Connection, posting_id: int, *, state: str,
         conn.execute("BEGIN IMMEDIATE")
         eligible = conn.execute(
             "SELECT source_content_revision FROM job_postings "
-            "WHERE id=? AND pipeline_status='new'",
+            "WHERE id=? AND pipeline_status='new' AND verdict='pending'",
             (posting_id,),
         ).fetchone()
         if eligible is None:
@@ -360,8 +413,8 @@ def save_screening(conn: sqlite3.Connection, posting_id: int, *, state: str,
             "INSERT INTO job_screenings "
             "(job_posting_id,state,result_json,error_category,error_message,backend,model,"
             "effort,evaluator_version,last_attempted_at,completed_at,source_content_revision,"
-            "created_at,updated_at) "
-            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?) "
+            "profile_version,created_at,updated_at) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) "
             "ON CONFLICT(job_posting_id) DO UPDATE SET "
             "state=excluded.state,result_json=excluded.result_json,"
             "error_category=excluded.error_category,error_message=excluded.error_message,"
@@ -370,12 +423,17 @@ def save_screening(conn: sqlite3.Connection, posting_id: int, *, state: str,
             "last_attempted_at=excluded.last_attempted_at,"
             "completed_at=excluded.completed_at,"
             "source_content_revision=excluded.source_content_revision,"
+            "profile_version=excluded.profile_version,"
             "updated_at=excluded.updated_at",
             (posting_id, state, result_json, safe_category, error_message, backend, model,
              effort, evaluator_version, now, now if state == "complete" else None,
              eligible["source_content_revision"] if state == "complete" else None,
-             now, now),
+             profile_version, now, now),
         )
+        if state == "complete" and result.get("disqualified"):
+            _settle(conn, posting_id, "discarded", now=now)
+        elif state == "complete" and final_on_pass:
+            _settle(conn, posting_id, "keep", now=now)
         conn.commit()
         return True
     except Exception:
@@ -384,45 +442,41 @@ def save_screening(conn: sqlite3.Connection, posting_id: int, *, state: str,
 
 
 _JEV_ELIGIBLE = (
-    "p.pipeline_status='new' AND p.source_state<>'closed' AND s.state='complete' "
-    "AND json_valid(s.result_json) "
+    f"{_PENDING} AND s.state='complete' AND json_valid(s.result_json) "
     "AND COALESCE(json_extract(s.result_json,'$.disqualified'),0)=0"
 )
 
 
-def get_jev_candidates(conn: sqlite3.Connection, policy_sha: str,
-                       posted_since: str) -> list[dict]:
-    """Screened, not-disqualified `new` postings needing a JEV verdict under `policy_sha`,
-    posted on or after `posted_since` (YYYY-MM-DD; posted_at, else created_at).
+def get_jev_candidates(conn: sqlite3.Connection, since: str) -> list[dict]:
+    """Pending, screened, not-disqualified in-window postings with no completed triage
+    verdict (window start `since`, YYYY-MM-DD).
 
-    Fresh work first (no row, or a row bound to another policy or source revision),
-    newest-first; then same-binding provider errors, oldest attempt first.
+    Unassessed postings first, newest-first; then provider errors, oldest attempt first.
+    A completed verdict is never re-queued, whatever changes afterwards.
     """
-    recent = "substr(COALESCE(p.posted_at, p.created_at), 1, 10) >= ?"
-    stale = ("(j.id IS NULL OR j.policy_sha256 IS NOT ? "
-             "OR j.source_content_revision IS NOT p.source_content_revision)")
     fresh = conn.execute(
         "SELECT p.* FROM job_postings p JOIN job_screenings s ON s.job_posting_id=p.id "
         "LEFT JOIN job_jev_assessments j ON j.job_posting_id=p.id "
-        f"WHERE {_JEV_ELIGIBLE} AND {stale} AND {recent} "
-        "ORDER BY COALESCE(p.updated_at,'') DESC, p.id DESC", (policy_sha, posted_since)).fetchall()
+        f"WHERE {_JEV_ELIGIBLE} AND j.id IS NULL AND {IN_WINDOW} "
+        "ORDER BY COALESCE(p.updated_at,'') DESC, p.id DESC", (since,)).fetchall()
     errors = conn.execute(
         "SELECT p.* FROM job_postings p JOIN job_screenings s ON s.job_posting_id=p.id "
         "JOIN job_jev_assessments j ON j.job_posting_id=p.id "
-        f"WHERE {_JEV_ELIGIBLE} AND NOT {stale} AND j.state='provider_error' "
-        # An oversized request never changes until its source or policy does (which
-        # re-queues it as fresh work above); retrying it would only burn limit slots.
-        # Raising jev.MAX_REQUEST_BYTES does not re-queue these: bump RULE_VERSION too.
+        f"WHERE {_JEV_ELIGIBLE} AND j.state='provider_error' "
+        # An oversized request never changes, so retrying it would only burn limit
+        # slots; it stays pending until it leaves the window.
         "AND j.error_category IS NOT 'request_too_large' "
-        f"AND {recent} "
-        "ORDER BY j.last_attempted_at ASC, p.id ASC", (policy_sha, posted_since)).fetchall()
+        f"AND {IN_WINDOW} "
+        "ORDER BY j.last_attempted_at ASC, p.id ASC", (since,)).fetchall()
     return [dict(row) for row in (*fresh, *errors)]
 
 
 def save_jev(conn: sqlite3.Connection, posting_id: int, *, state: str, verdict: str | None,
              reasons: list[str] | None, result: dict | None, error_category: str | None,
-             model: str | None, policy_sha: str, cost_usd: str | None, now: str) -> bool:
-    """Persist one posting's latest JEV verdict if it is still `new`.
+             model: str | None, cost_usd: str | None, now: str,
+             profile_version: int | None = None) -> bool:
+    """Persist one posting's JEV result if it is still `new` and pending, with the
+    profile version it ran under. A completed keep/skip is the posting's final verdict.
 
     Like save_screening: provider errors store only a closed category, never provider
     output, and the source revision is captured in the same transaction.
@@ -437,26 +491,30 @@ def save_jev(conn: sqlite3.Connection, posting_id: int, *, state: str, verdict: 
     try:
         conn.execute("BEGIN IMMEDIATE")
         eligible = conn.execute(
-            "SELECT source_content_revision FROM job_postings WHERE id=? AND pipeline_status='new'",
+            "SELECT source_content_revision FROM job_postings "
+            "WHERE id=? AND pipeline_status='new' AND verdict='pending'",
             (posting_id,)).fetchone()
         if eligible is None:
             conn.rollback()
             return False
         conn.execute(
             "INSERT INTO job_jev_assessments (job_posting_id,state,verdict,reasons_json,result_json,"
-            "error_category,model,policy_sha256,source_content_revision,cost_usd,last_attempted_at,"
-            "completed_at,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?) "
+            "error_category,model,source_content_revision,profile_version,cost_usd,"
+            "last_attempted_at,completed_at,created_at,updated_at) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?) "
             "ON CONFLICT(job_posting_id) DO UPDATE SET state=excluded.state,"
             "verdict=excluded.verdict,reasons_json=excluded.reasons_json,"
             "result_json=excluded.result_json,error_category=excluded.error_category,"
-            "model=excluded.model,policy_sha256=excluded.policy_sha256,"
-            "source_content_revision=excluded.source_content_revision,cost_usd=excluded.cost_usd,"
+            "model=excluded.model,source_content_revision=excluded.source_content_revision,"
+            "profile_version=excluded.profile_version,cost_usd=excluded.cost_usd,"
             "last_attempted_at=excluded.last_attempted_at,completed_at=excluded.completed_at,"
             "updated_at=excluded.updated_at",
             (posting_id, state, verdict, dump(reasons), dump(result),
-             error_category if state == "provider_error" else None, model, policy_sha,
-             eligible["source_content_revision"], cost_usd, now,
+             error_category if state == "provider_error" else None, model,
+             eligible["source_content_revision"], profile_version, cost_usd, now,
              now if state == "complete" else None, now, now))
+        if state == "complete":
+            _settle(conn, posting_id, verdict, now=now)
         conn.commit()
         return True
     except Exception:

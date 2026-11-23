@@ -342,9 +342,8 @@ def create_server(repository: ReadOnlyATSRepository | None = None,
         experience; highest_degree and total_years are derived from them), preferences
         (target_roles, open_to, not_interested) and triage (default or custom question
         packs, and any custom_triage_context sent verbatim instead of the fields). Null
-        until set. reassess_on_change: how many postings a triage-affecting change would
-        send back for a paid assessment (about USD 0.0003 each on the default OpenRouter
-        backend). Read before set_candidate_profile."""
+        until set. An edit applies to postings evaluated afterwards only; nothing already
+        evaluated is re-assessed. Read before set_candidate_profile."""
         return read(repo.get_candidate_profile)
 
     @server.prompt(title="Daily job brief", description="Read-only daily brief of new postings.")
@@ -428,8 +427,8 @@ def _add_write_tools(server: MCPServer, repo: ReadOnlyATSRepository, writer: ATS
         reason: Annotated[str | None, Field(max_length=500)] = None,
     ) -> dict[str, Any]:
         """Override triage's keep/skip for one posting ("restore that one" -> keep), or clear the
-        override to return to the model verdict. It holds across worker passes and JEV
-        re-assessments while the posting's content is unchanged; list_jobs/get_job show
+        override to return to the model verdict. It holds across worker passes while the
+        posting's content is unchanged; list_jobs/get_job show
         the effective status, model_status and the override. Audited in web."""
         if decision == "clear":
             return {"job_id": job_id, "cleared": write("DELETE", f"/api/v1/jobs/{job_id}/triage")}
@@ -479,11 +478,9 @@ def _add_write_tools(server: MCPServer, repo: ReadOnlyATSRepository, writer: ATS
     ) -> dict[str, Any]:
         """Update the candidate profile, only as the operator states it. Omitted fields keep
         their stored value; a list replaces the whole list. A change bumps the version and
-        applies from the next worker pass: postings already screened keep their verdict. If
-        the change touches what triage reads (background, preferences, custom context or
-        packs), first get_candidate_profile and tell the operator it re-assesses
-        reassess_on_change postings (paid) on the next pass; write once they agree. A
-        restatement is a no-op. Custom packs cannot be set here."""
+        applies to postings evaluated from the next worker pass on: every posting already
+        evaluated keeps its verdict, and nothing is re-assessed. A restatement is a no-op.
+        Custom packs cannot be set here."""
         body = drop_none(title_include=title_include, title_exclude=title_exclude,
                          max_age_days=max_age_days, locations=locations,
                          work_authorization=work_authorization,

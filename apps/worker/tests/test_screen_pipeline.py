@@ -172,28 +172,59 @@ def test_deterministic_rows_finish_after_provider_cap(tmp_path):
         conn.close()
 
 
-def test_rescreen_clears_only_successes_for_still_new_rows(tmp_path):
-    path = bootstrap_db(tmp_path / "screen-reset.db")
-    conn = db.connect(path)
-    try:
-        db.upsert_postings(conn, [make_posting("new"), make_posting("discarded")], now=NOW)
-        rows = conn.execute("SELECT id, external_id FROM job_postings").fetchall()
-        for row in rows:
-            db.save_screening(
-                conn, row["id"], state="complete", result=_screen_result(),
-                error_category=None, backend="codex", model="gpt-5.6-luna",
-                effort="medium", evaluator_version="screen-v1", now=NOW)
-        conn.execute("UPDATE job_postings SET pipeline_status='discarded' "
-                     "WHERE external_id='discarded'")
-        conn.commit()
-        assert db.clear_completed_screenings(conn) == 1
-        remaining = conn.execute(
-            "SELECT p.external_id FROM job_screenings s "
-            "JOIN job_postings p ON p.id=s.job_posting_id"
-        ).fetchall()
-        assert [row[0] for row in remaining] == ["discarded"]
-    finally:
-        conn.close()
+def _verdicts(conn):
+    return {r["external_id"]: r["verdict"] for r in conn.execute(
+        "SELECT external_id, verdict FROM job_postings ORDER BY id")}
+
+
+def test_a_finished_screen_writes_the_verdict_and_its_profile_version(tmp_path):
+    conn = db.connect(bootstrap_db(tmp_path / "verdict.db"))
+    db.upsert_postings(conn, [make_posting("pass"), make_posting("fail")], now=NOW)
+
+    def screen_fn(posting):
+        return _screen_result(disqualified=posting["external_id"] == "fail")
+
+    pipeline.run_screen(conn, now=NOW, screen_fn=screen_fn, extract=object(),
+                        candidate={"highest_degree": "bachelor"}, backend="codex",
+                        model="m", effort=None, profile_version=5, triage=False)
+    # No triage stage configured: passing the requirements is the final keep.
+    assert _verdicts(conn) == {"pass": "keep", "fail": "discarded"}
+    assert {r[0] for r in conn.execute("SELECT profile_version FROM job_screenings")} == {5}
+    assert {r[0] for r in conn.execute("SELECT verdict_at FROM job_postings")} == {NOW}
+
+
+def test_a_passing_screen_stays_pending_when_triage_is_next(tmp_path):
+    conn = db.connect(bootstrap_db(tmp_path / "pending.db"))
+    db.upsert_postings(conn, [make_posting("pass"), make_posting("fail")], now=NOW)
+
+    def screen_fn(posting):
+        return _screen_result(disqualified=posting["external_id"] == "fail")
+
+    pipeline.run_screen(conn, now=NOW, screen_fn=screen_fn, extract=object(),
+                        candidate={"highest_degree": "bachelor"}, backend="codex",
+                        model="m", effort=None, triage=True)
+    assert _verdicts(conn) == {"pass": "pending", "fail": "discarded"}
+
+
+def test_the_screen_runs_only_inside_the_window_and_only_on_pending_rows(tmp_path):
+    conn = db.connect(bootstrap_db(tmp_path / "window.db"))
+    # NOW is 2026-06-04: the 7-day window starts 2026-05-28.
+    db.upsert_postings(conn, [make_posting("edge", posted_at="2026-05-28"),
+                              make_posting("old", posted_at="2026-05-27"),
+                              make_posting("dated-by-ingest", posted_at=None),
+                              make_posting("settled")], now=NOW)
+    conn.execute("UPDATE job_postings SET posted_at=NULL, created_at='2026-05-01T00:00:00.000Z' "
+                 "WHERE external_id='dated-by-ingest'")
+    conn.execute("UPDATE job_postings SET verdict='keep' WHERE external_id='settled'")
+    conn.commit()
+    calls = []
+
+    def screen_fn(posting):
+        calls.append(posting["external_id"])
+        return _screen_result()
+
+    _run(conn, screen_fn, candidate={"highest_degree": "bachelor"})
+    assert calls == ["edge"]
 
 
 def test_screen_result_is_not_saved_if_lifecycle_changes_during_provider_call(tmp_path):

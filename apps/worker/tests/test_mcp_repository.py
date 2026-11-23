@@ -1049,7 +1049,7 @@ def test_triage_override_wins_survives_reassessment_and_lapses_on_new_content(db
         conn.row_factory = sqlite3.Row
         assert worker_db.save_jev(conn, restored, state="complete", verdict="skip",
                                   reasons=["preference_weak"], result={}, error_category=None,
-                                  model="fake-jev", policy_sha="p", cost_usd="0", now="2026-11-19T00:00:00Z")
+                                  model="fake-jev", cost_usd="0", now="2026-11-19T00:00:00Z")
     assert repo.get_job(restored)["jev"]["status"] == "keep"
 
     # New posting content: the override no longer applies and the model verdict is back.
@@ -1093,7 +1093,7 @@ def test_override_on_a_legacy_null_revision_survives_an_unchanged_refresh(db_pat
 
 def test_setup_status_on_a_fresh_install_lists_what_is_missing(tmp_path):
     repo = ReadOnlyATSRepository(bootstrap_db(tmp_path / "s.db"))
-    assert repo.get_candidate_profile() == {"candidate_profile": None, "reassess_on_change": 0}
+    assert repo.get_candidate_profile() == {"candidate_profile": None}
     status = repo.get_setup_status()
     assert status["candidate_profile"] == {
         "configured": False, "triage_configured": False, "version": None, "changed_at": None,
@@ -1129,7 +1129,7 @@ def test_setup_status_counts_new_postings_screened_before_the_last_change(tmp_pa
     assert status["missing"] == []
 
 
-def test_get_candidate_profile_derives_background_and_counts_the_in_window_reassessment(tmp_path):
+def test_get_candidate_profile_derives_background_and_reports_no_reassessment(tmp_path):
     path = bootstrap_db(tmp_path / "j.db")
     repo = ReadOnlyATSRepository(path, clock=lambda: datetime(2026, 11, 19, 12, tzinfo=timezone.utc))
     conn = sqlite3.connect(path)
@@ -1152,7 +1152,8 @@ def test_get_candidate_profile_derives_background_and_counts_the_in_window_reass
                      "'screen-v1', 'x', 'x')", (pid, result))
     conn.commit()
     out = repo.get_candidate_profile()
-    assert out["reassess_on_change"] == 1          # only id 1: in window, eligible, new
+    # Look forward only (#225): a profile edit re-assesses nothing, so there is no count.
+    assert set(out) == {"candidate_profile"}
     prof = out["candidate_profile"]
     assert (prof["highest_degree"], prof["total_years"]) == ("master's", 1.75)
     assert prof["title_include"] == ["engineer"] and prof["custom_triage_context"] is None
@@ -1160,3 +1161,34 @@ def test_get_candidate_profile_derives_background_and_counts_the_in_window_reass
                               "pack_questions": {"preference_pack": ["preference"], "yoe_pack": []}}
     assert (prof["version"], prof["actor"]) == (1, "migration")
     assert "custom_packs" not in prof               # private pack texts stay out of the read
+
+
+def test_overview_counts_stored_verdicts_including_aged_out_postings(tmp_path):
+    path = bootstrap_db(tmp_path / "v.db")
+    conn = sqlite3.connect(path)
+    for pid, verdict in ((1, "keep"), (2, "not_evaluated"), (3, "not_evaluated"), (4, "pending")):
+        conn.execute("INSERT INTO job_postings (id, source, external_id, company_name, job_title, "
+                     "job_url, description, created_at, verdict) VALUES (?, 'greenhouse', ?, 'A', "
+                     "'Eng', 'https://x', 'jd', '2026-11-01T00:00:00Z', ?)", (pid, str(pid), verdict))
+    conn.commit()
+    counts = ReadOnlyATSRepository(path).get_ats_overview()["verdict_counts"]
+    assert counts["counts"] == [
+        {"verdict": "pending", "count": 1}, {"verdict": "keep", "count": 1},
+        {"verdict": "skip", "count": 0}, {"verdict": "discarded", "count": 0},
+        {"verdict": "not_evaluated", "count": 2}]
+    assert "window" in counts["semantics"]
+
+
+def test_jev_filter_counts_leave_out_discarded_postings(tmp_path):
+    """A discard is pipeline_status='new' with verdict='discarded' now (#225); it is not
+    awaiting triage, so it is no `unassessed` row."""
+    path = bootstrap_db(tmp_path / "v.db")
+    conn = sqlite3.connect(path)
+    for pid, verdict in ((1, "pending"), (2, "discarded"), (3, "discarded")):
+        conn.execute("INSERT INTO job_postings (id, source, external_id, company_name, job_title, "
+                     "job_url, description, created_at, verdict) VALUES (?, 'greenhouse', ?, 'A', "
+                     "'Eng', 'https://x', 'jd', '2026-11-01T00:00:00Z', ?)", (pid, str(pid), verdict))
+    conn.commit()
+    jev = ReadOnlyATSRepository(path).get_ats_overview()["jev_filter_counts"]
+    assert {r["status"]: r["count"] for r in jev["counts"]}["unassessed"] == 1
+    assert "verdict" in jev["scope"]

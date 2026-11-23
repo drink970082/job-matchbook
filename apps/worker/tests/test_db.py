@@ -152,18 +152,21 @@ def test_upsert_falls_back_to_scrape_date_when_no_posted_at(db_path):
 LONG_DESC = "Build backend services in Python and Go across data pipelines. " * 4
 
 
-# --- upsert with optional per-row pipeline_status + score_detail ----------
+# --- upsert with a fetch-time requirements discard ------------------------
 
-def test_upsert_honors_pipeline_status_and_score_detail(db_path):
+def test_upsert_stores_a_requirements_discard_only_on_insert(db_path):
     conn = db.connect(db_path)
-    p = posting("1", pipeline_status="discarded",
-                score_detail={"disqualified": True,
-                              "disqualification_reason": "location: on-site in China"})
-    db.upsert_postings(conn, [p], now=NOW)
-    rows = db.get_by_status(conn, "discarded")
-    assert [r["external_id"] for r in rows] == ["1"]
-    detail = json.loads(rows[0]["score_detail"])
-    assert detail["disqualified"] is True
+    db.upsert_postings(conn, [posting("1")], now=NOW)
+    discard = {"result": {"screen": {"location": {"pass": False, "note": "x"}},
+                          "disqualified": True, "disqualification_reason": "location: x"},
+               "evaluator_version": "screen-v1", "profile_version": 2}
+    db.upsert_postings(conn, [posting("1", requirements=discard),
+                              posting("2", requirements=discard)], now=NOW)
+    rows = {r["external_id"]: (r["pipeline_status"], r["verdict"]) for r in conn.execute(
+        "SELECT external_id, pipeline_status, verdict FROM job_postings")}
+    # The already-stored row keeps its pending verdict and gets no result.
+    assert rows == {"1": ("new", "pending"), "2": ("new", "discarded")}
+    assert conn.execute("SELECT COUNT(*) FROM job_screenings").fetchone()[0] == 1
 
 
 def test_upsert_defaults_status_new_and_null_detail(db_path):

@@ -11,7 +11,7 @@ const iso = (msAgo: number) => new Date(Date.now() - msAgo).toISOString()
 // "Is it running, what did it cost": all from existing columns (no run table exists, so
 // a failing pass shows only through these numbers).
 export async function getActivityStatus() {
-    const [latest, new24h, new7d, assessed24h, failures24h, spend] = await Promise.all([
+    const [latest, new24h, new7d, assessed24h, failures24h, spend, agedOut7d, agedOutTotal] = await Promise.all([
         prisma.job_postings.aggregate({ _max: { created_at: true } }),
         prisma.job_postings.count({ where: { created_at: { gte: iso(DAY) } } }),
         prisma.job_postings.count({ where: { created_at: { gte: iso(7 * DAY) } } }),
@@ -19,11 +19,14 @@ export async function getActivityStatus() {
         prisma.job_jev_assessments.count({ where: { state: 'provider_error', last_attempted_at: { gte: iso(DAY) } } }),
         prisma.job_jev_assessments.findMany({ where: { last_attempted_at: { gte: iso(7 * DAY) }, cost_usd: { not: null } },
             select: { cost_usd: true } }),
+        // Postings that left the evaluation window before every stage finished (#225).
+        prisma.job_postings.count({ where: { verdict: 'not_evaluated', verdict_at: { gte: iso(7 * DAY) } } }),
+        prisma.job_postings.count({ where: { verdict: 'not_evaluated' } }),
     ])
     const spend7d = spend.reduce((n, r) => n + (Number(r.cost_usd) || 0), 0)
     return {
         lastFetchedAt: latest._max.created_at, new24h, new7d, assessed24h, failures24h,
-        spend7dUsd: Math.round(spend7d * 10_000) / 10_000,
+        spend7dUsd: Math.round(spend7d * 10_000) / 10_000, agedOut7d, agedOutTotal,
     }
 }
 
