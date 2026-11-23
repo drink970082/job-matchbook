@@ -35,7 +35,7 @@ type Sort = { key: 'name' | 'postings_30d'; dir: 'asc' | 'desc' }
 
 // The last worker pass per board (#231): what it says, and whether it needs a look.
 const HEALTH_LABEL: Record<BoardHealth, string> = {
-    never_fetched: 'Never fetched', fetch_failed: 'Fetch failed', empty: 'Board listed nothing',
+    never_fetched: 'Never fetched', disabled: 'Browser sources off', fetch_failed: 'Fetch failed', empty: 'Board listed nothing',
     kept_zero: 'Filters kept 0', teaser: 'Teaser descriptions', ok: 'Healthy',
 }
 const ATTENTION: readonly BoardHealth[] = ['fetch_failed', 'empty', 'kept_zero', 'teaser']
@@ -45,6 +45,8 @@ function LastFetch({ s }: { s: WatchedSource }) {
     const bodyless = s.last_bodyless ? `, ${s.last_bodyless} without a description` : ''
     const [text, tone, hint] = {
         never_fetched: ['Never fetched', 'text-muted-foreground', at],
+        disabled: ['Not fetched: browser sources are off', 'text-muted-foreground',
+            'The worker skips browser-recipe boards unless enable_browser_sources is on in config.yaml'],
         fetch_failed: [`Fetch failed: ${s.last_fetch_status}`, 'text-red-600',
             `${at}. A 404 is usually a wrong slug, or the company moved platforms`],
         empty: ['Board listed nothing', 'text-amber-600', `${at}. Usually a wrong slug, or the company moved platforms`],

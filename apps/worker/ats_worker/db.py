@@ -202,25 +202,28 @@ TEASER_MEDIAN_CHARS = 1500
 
 def board_health(row) -> str:
     """The state a watchlist row's last-pass record reads as (#231): never_fetched,
-    fetch_failed, empty (listed nothing), kept_zero (listed, filters kept none), teaser,
-    or ok. `row` is a mapping of the watched_companies last_* columns."""
+    disabled (a browser row skipped while enable_browser_sources is off), fetch_failed,
+    empty (listed nothing), kept_zero (listed, filters kept none), teaser, or ok. `row`
+    is a mapping of the watched_companies last_* columns."""
     status = row["last_fetch_status"]
     if not status:
         return "never_fetched"
+    if status == "disabled":
+        return "disabled"
     if status != "ok":
         return "fetch_failed"
     if not row["last_fetched"]:
         return "empty"
     if not row["last_kept"]:
         return "kept_zero"
-    if row["last_desc_median"] < TEASER_MEDIAN_CHARS:
+    if (row["last_desc_median"] or 0) < TEASER_MEDIAN_CHARS:
         return "teaser"
     return "ok"
 
 
 def record_board_health(conn: sqlite3.Connection, source: str, slug: str, *, now: str,
                         status: str, figures: dict | None = None) -> None:
-    """Overwrite a watchlist row's last-pass record (#231): `status` is `ok` or a closed
+    """Overwrite a watchlist row's last-pass record (#231): `status` is `ok`, `disabled` or a closed
     error category; `figures` (BOARD_HEALTH_FIGURES) is None for a failed fetch, so a
     failure never shows the previous pass's counts. A board not on the watchlist (a
     config-only company) updates nothing."""

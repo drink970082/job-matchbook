@@ -597,6 +597,33 @@ def test_a_failing_board_records_its_error_category_and_the_pass_goes_on(db_path
         "last_kept": 0, "last_new": 0, "last_bodyless": 0, "last_desc_median": 0}
 
 
+def test_a_health_write_that_fails_does_not_stop_the_pass(db_path, monkeypatch, capsys):
+    """A locked database while recording one board's failure is logged; the next board
+    is still fetched and stored (PRINCIPLES 6)."""
+    conn = db.connect(db_path)
+    _watch(conn, ("greenhouse", "moved"), ("lever", "fine"))
+    real = db.record_board_health
+
+    def flaky(conn, source, slug, **kw):
+        if slug == "moved":
+            raise sqlite3.OperationalError("database is locked")
+        return real(conn, source, slug, **kw)
+
+    monkeypatch.setattr(db, "record_board_health", flaky)
+
+    def fetch_fn(source, slug, name, **kw):
+        if slug == "moved":
+            raise _HTTPError(404)
+        return [_posting("1", source="lever")]
+
+    inserted = pipeline.run_fetch(conn, [{"source": "greenhouse", "slug": "moved", "name": "Moved"},
+                                         {"source": "lever", "slug": "fine", "name": "Fine"}],
+                                  None, now=NOW, fetch_fn=fetch_fn)
+    assert inserted == 1
+    assert _health(conn, "lever", "fine")["last_fetch_status"] == "ok"
+    assert "greenhouse/moved: health not recorded" in capsys.readouterr().out
+
+
 def test_a_stub_gate_board_counts_what_it_listed_not_what_it_returned(db_path):
     """A two-step board drops off-title stubs before their detail call, so what comes
     back understates the board. `fetched` is what it listed: 3 stubs, 2 dropped."""

@@ -130,21 +130,22 @@ def _update_from_email_prompt(since: str) -> str:
 5. Report what changed and what still needs the operator."""
 
 
-def fetch_board(source: str, slug: str, name: str, **kwargs: Any) -> list[dict]:
-    """The real board fetch add_source verifies with (the worker's adapters)."""
-    from ats_worker.fetch import fetch_company  # imported on first add, not at startup
+def fetch_board(source: str, slug: str, name: str, **kwargs: Any) -> bool:
+    """The real check add_source verifies with: whether the board lists a posting,
+    from its list alone through the worker's adapters (`fetch.board_has_listings`)."""
+    from ats_worker.fetch import board_has_listings  # imported on first add, not at startup
 
-    return fetch_company(source, slug, name, **kwargs)
+    return board_has_listings(source, slug, name, **kwargs)
 
 
 def create_server(repository: ReadOnlyATSRepository | None = None,
                   writer: ATSWriteClient | None = None,
-                  verify_fetch: Callable[..., list[dict]] | None = None) -> MCPServer:
+                  verify_fetch: Callable[..., bool] | None = None) -> MCPServer:
     """Build the protocol server, optionally against an isolated database in tests.
 
     Write tools exist only when a writer (the web write API client) is given.
-    `verify_fetch` is the board fetch add_source runs before adding (`fetch_board` in
-    production, a fake in tests); without one add_source refuses.
+    `verify_fetch(source, slug, name) -> bool` is the board check add_source runs before
+    adding (`fetch_board` in production, a fake in tests); without one add_source refuses.
     """
     repo = repository or ReadOnlyATSRepository()
     name = "Job Matchbook ATS" if writer else "Job Matchbook ATS (read-only)"
@@ -382,7 +383,7 @@ def create_server(repository: ReadOnlyATSRepository | None = None,
 
 
 def _add_write_tools(server: MCPServer, repo: ReadOnlyATSRepository, writer: ATSWriteClient,
-                     read: Any, verify_fetch: Callable[..., list[dict]] | None) -> None:
+                     read: Any, verify_fetch: Callable[..., bool] | None) -> None:
     def write(method: str, path: str, body: dict[str, Any] | None = None) -> Any:
         try:
             return writer.call(method, path, body)
@@ -535,7 +536,7 @@ def _add_write_tools(server: MCPServer, repo: ReadOnlyATSRepository, writer: ATS
         as the Sources tab) or `source` + `slug`, not both. Known-ATS boards only; a site
         that needs a custom recipe fails with that message (use the onboard-board skill).
         Fails with the web UI's message on an unknown source, an invalid slug, or a duplicate.
-        The board is fetched once before it is added: a 404, a board that lists no
+        The board's list is read once before it is added: a 404, a board that lists no
         postings, or a fetch error is rejected with the reason and nothing is added."""
         if url and (source or slug):
             raise ValueError("give url, or source and slug, not both")

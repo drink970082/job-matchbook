@@ -201,6 +201,10 @@ def test_run_once_gates_browser_sources(monkeypatch, tmp_path):
     run.run_once(cfgmod.load_config("companies: []\n"),
                  db_path=str(dbfile), env=_ENV)
     assert "browser" not in seen["sources"] and "greenhouse" in seen["sources"]
+    # The skipped row says why it has no fetch record, rather than reading never fetched.
+    row = dbmod.connect(str(dbfile)).execute(
+        "SELECT * FROM watched_companies WHERE source='browser'").fetchone()
+    assert (row["last_fetch_status"], dbmod.board_health(row)) == ("disabled", "disabled")
 
     # enable_browser_sources: they pass through
     run.run_once(cfgmod.load_config("companies: []\nenable_browser_sources: true\n"),

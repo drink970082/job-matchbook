@@ -149,6 +149,16 @@ def fetch_one_observation(slug: str, external_id: str, company_name: str,
     return {"state": "available", "posting": posting, "error_category": None}
 
 
+def has_listings(slug: str, session: requests.Session | None = None,
+                 timeout: int = 20) -> bool:
+    """Whether the board lists any posting, from one list page (verify-on-add, #231):
+    `fetch` would make a detail GET per posting."""
+    resp = (session or requests).get(API.format(slug=slug), params={"limit": PAGE, "offset": 0},
+                                     timeout=timeout)
+    resp.raise_for_status()
+    return bool(parse_listing(resp.json()))
+
+
 def fetch(slug: str, company_name: str, session: requests.Session | None = None,
           timeout: int = 20) -> list[dict]:
     base = API.format(slug=slug)

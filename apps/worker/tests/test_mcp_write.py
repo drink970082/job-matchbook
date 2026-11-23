@@ -473,23 +473,23 @@ async def test_add_source_rejects_a_board_its_fetch_cannot_verify(tmp_path, fetc
 
 
 @pytest.mark.anyio
-async def test_add_source_verifies_a_two_step_board_from_its_list_alone(tmp_path):
-    """A stub-gate board is verified by what it lists: every stub is dropped, so no
-    detail call is made, and a listing board passes even though none come back."""
-    resolved = {"source": "workday", "slug": "t/wd1/site", "name": "T", "recipe": None}
+async def test_add_source_verifies_a_smartrecruiters_board_from_its_list_page_alone(tmp_path):
+    """The production check (`fetch_board`) through the real adapter dispatch, on a
+    fake HTTP session: smartrecruiters' fetch makes a detail GET per posting, the
+    check makes one list GET."""
+    from functools import partial
+
+    from ats_worker.mcp.server import fetch_board
+    from tests._helpers import FakeSession as HTTPSession
+    http = HTTPSession(payload={"totalFound": 812, "content": [{"id": str(i)} for i in range(100)]})
+    resolved = {"source": "smartrecruiters", "slug": "Big", "name": "Big", "recipe": None}
     writer, session = _client(FakeResponse(200, {"data": resolved}), FakeResponse(200, {"data": {"id": 5}}))
-    verdicts = []
-
-    def fetch(source, slug, name, *, keep, **kw):
-        verdicts.extend(keep({"external_id": str(i), "job_title": "Eng"}) for i in range(3))
-        return []
-
     server = create_server(ReadOnlyATSRepository(bootstrap_db(tmp_path / "m.db")), writer,
-                           verify_fetch=fetch)
+                           verify_fetch=partial(fetch_board, session=http))
     async with Client(server, raise_exceptions=True) as client:
-        res = await client.call_tool("add_source", {"source": "workday", "slug": "t/wd1/site", "name": "T"})
-    assert res.is_error is False and verdicts == ["drop"] * 3
-    assert len(session.calls) == 2
+        res = await client.call_tool("add_source", {"source": "smartrecruiters", "slug": "Big", "name": "Big"})
+    assert res.is_error is False and len(session.calls) == 2
+    assert [u for _, u, _ in http.calls] == ["https://api.smartrecruiters.com/v1/companies/Big/postings"]
 
 
 @pytest.mark.anyio

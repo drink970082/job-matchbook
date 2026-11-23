@@ -161,7 +161,7 @@ model watched_companies {
   // is the closed error category (source_lifecycle.observation_error_category) and the
   // counts are NULL.
   last_fetched_at   String?
-  last_fetch_status String? // ok | http_403 | http_404 | http_410 | http_429 | http_5xx | http_error | timeout | connection_error | malformed_response | refresh_error
+  last_fetch_status String? // ok | disabled (browser row skipped: enable_browser_sources off) | http_403 | http_404 | http_410 | http_429 | http_5xx | http_error | timeout | connection_error | malformed_response | refresh_error
   last_fetched      Int? // postings the board listed
   last_kept         Int? // left after the title/age filters, minus bodyless
   last_new          Int? // of those, newly inserted

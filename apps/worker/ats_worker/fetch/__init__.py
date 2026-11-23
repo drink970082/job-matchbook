@@ -174,6 +174,36 @@ def fetch_company(source: str, slug: str, company_name: str, *,
     return adapter.fetch(slug, company_name, **kwargs)
 
 
+class _Listed(BaseException):
+    """Raised by board_has_listings' stub gate at the first stub to stop the fetch.
+    A BaseException so an adapter's per-item `except Exception` cannot swallow it."""
+
+
+def board_has_listings(source: str, slug: str, company_name: str, **kwargs) -> bool:
+    """Whether a board lists at least one posting, read from its list alone: the
+    verify-on-add check (#231). Never makes a per-posting detail call.
+
+    An adapter whose fetch hydrates every posting without a stub gate says how to
+    answer this itself (`has_listings(slug, **kwargs)`, smartrecruiters). A stub-gate
+    board stops at its first stub. Every other adapter's fetch is one list call.
+    Raises what the fetch raises (a 404 for a wrong slug)."""
+    try:
+        adapter = ADAPTERS[source]
+    except KeyError:
+        raise ValueError(f"unknown source: {source!r}")
+    own = getattr(adapter, "has_listings", None)
+    if own is not None:
+        return own(slug, **kwargs)
+    if source in STUB_GATE_SOURCES:
+        def keep(_stub):
+            raise _Listed
+        try:
+            return bool(fetch_company(source, slug, company_name, keep=keep, **kwargs))
+        except _Listed:
+            return True
+    return bool(fetch_company(source, slug, company_name, **kwargs))
+
+
 def fetch_one_company(source: str, slug: str, external_id: str,
                       company_name: str, **kwargs) -> dict | None:
     """Dispatch to the per-listing adapter for `source` (one job by id)."""

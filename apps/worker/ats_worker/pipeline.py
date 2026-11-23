@@ -185,8 +185,12 @@ def run_fetch(conn, companies, title_filter, *, now, fetch_fn=None,
         except Exception as exc:  # noqa: BLE001 — one bad board must not abort the rest
             tally["boards_failed"] += 1
             print(f"[fetch] {c.get('source')}/{c.get('slug')}: skipped after error: {exc}")
-            db.record_board_health(conn, c.get("source"), c.get("slug"), now=now,
-                                   status=observation_error_category(exc))
+            try:
+                db.record_board_health(conn, c.get("source"), c.get("slug"), now=now,
+                                       status=observation_error_category(exc))
+            except Exception as write_exc:  # noqa: BLE001 — the next board still fetches
+                print(f"[fetch] {c.get('source')}/{c.get('slug')}: health not recorded: "
+                      f"{write_exc}")
             continue
     return tally["inserted"]
 
