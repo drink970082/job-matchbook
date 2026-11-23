@@ -10,8 +10,7 @@ import { POST as postApplied } from '@/app/api/v1/jobs/[id]/applied/route'
 import { POST as addWatch } from '@/app/api/v1/watchlist/route'
 import { POST as setTriage, DELETE as clearTriage } from '@/app/api/v1/jobs/[id]/triage/route'
 import { DELETE as removeWatch } from '@/app/api/v1/watchlist/[id]/route'
-import { PUT as putPreferences } from '@/app/api/v1/preferences/route'
-import { PUT as putJevProfile } from '@/app/api/v1/jev-profile/route'
+import { PUT as putProfile } from '@/app/api/v1/candidate-profile/route'
 import { updateApplicationStatus } from '@/lib/application-actions'
 import { addWatchedCompany, removeWatchedCompany } from '@/lib/watchlist-actions'
 import { getActivityTimeline } from '@/lib/activity-actions'
@@ -220,103 +219,102 @@ test('triage override rejects a bad decision, a missing job and a clear with not
     expect(await prisma.audit_log.count()).toBe(0)
 })
 
-test('preferences: first set creates v1, a change bumps the version, a no-op writes nothing', async () => {
-    const put = (body: unknown) => putPreferences(req(body, RW, 'PUT'))
-    const first = await put({ work_authorization: 'Needs Visa Sponsorship', locations: [' remote ', ''] })
+test('candidate profile: first set creates v1, a change bumps the version, a no-op writes nothing', async () => {
+    const put = (body: unknown) => putProfile(req(body, RW, 'PUT'))
+    const first = await put({ work_authorization: 'Needs Visa Sponsorship', locations: [' remote ', ''], title_include: ['engineer'] })
     expect(first.status).toBe(200)
     const v1 = (await first.json()).data
-    expect([v1.version, v1.work_authorization, v1.locations, v1.actor, v1.unchanged]).toEqual([1, 'needs visa sponsorship', ['remote'], 'mcp', false])
+    expect([v1.version, v1.work_authorization, v1.locations, v1.title_include, v1.actor, v1.unchanged])
+        .toEqual([1, 'needs visa sponsorship', ['remote'], ['engineer'], 'mcp', false])
     expect(v1.changed_at).toBeTruthy()
 
     const same = (await (await put({ locations: ['remote'] })).json()).data
     expect([same.version, same.unchanged]).toEqual([1, true])
 
-    const v2 = (await (await put({ highest_degree: "Master's", exclude_internships: true, exclude_contract: true })).json()).data
-    expect([v2.version, v2.highest_degree, v2.exclude_internships, v2.exclude_contract, v2.locations]).toEqual([2, "Master's", true, true, ['remote']])
+    const v2 = (await (await put({
+        education: [{ degree: "Master's", field: 'CS' }, { degree: "bachelor's", field: 'Math' }, { degree: '', field: '' }],
+        experience: [{ title: 'SWE', company: 'Acme', years: 1.1 }, { title: 'TA', company: 'U', years: 2.2 }],
+        exclude_internships: true, max_age_days: 30,
+    })).json()).data
+    expect([v2.version, v2.highest_degree, v2.total_years, v2.education.length, v2.max_age_days, v2.locations])
+        .toEqual([2, "master's", 3.3, 2, 30, ['remote']])
 
     const log = await prisma.audit_log.findMany({ orderBy: { id: 'asc' } })
     expect(log.map((l) => [l.actor, l.action, l.entity, l.entity_id])).toEqual([
-        ['mcp', 'add', 'candidate_preferences', 1],
-        ['mcp', 'update', 'candidate_preferences', 1],
+        ['mcp', 'add', 'candidate_profile', 1],
+        ['mcp', 'update', 'candidate_profile', 1],
     ])
     expect(JSON.parse(log[1].payload).before.version).toBe(1)
 })
 
-test('preferences reject off-vocabulary, wrong types, unknown fields and an empty body', async () => {
+test('candidate profile rejects off-vocabulary, wrong types, unknown fields and an empty body', async () => {
     const bad = async (body: unknown) => {
-        const res = await putPreferences(req(body, RW, 'PUT'))
+        const res = await putProfile(req(body, RW, 'PUT'))
         return [res.status, (await res.json()).error]
     }
     expect(await bad({ work_authorization: 'F-1 OPT' })).toEqual([400, expect.stringContaining('work_authorization must be blank or one of')])
-    expect(await bad({ locations: 'remote' })).toEqual([400, 'locations must be a list of strings'])
+    expect(await bad({ locations: 'remote' })).toEqual([400, 'locations must be a list'])
     expect(await bad({ exclude_internships: 'yes' })).toEqual([400, 'exclude_internships must be true or false'])
-    expect(await bad({ exclude_contract: 1 })).toEqual([400, 'exclude_contract must be true or false'])
-    expect(await bad({ years_experience: 3 })).toEqual([400, 'Unknown preference field(s): years_experience'])
-    expect(await bad({})).toEqual([400, 'No preference fields given'])
-    expect((await putPreferences(req({ highest_degree: 'PhD' }, READ, 'PUT'))).status).toBe(403)
-    expect(await prisma.candidate_preferences.count()).toBe(0)
+    expect(await bad({ education: [{ degree: 'BS' }] })).toEqual([400, expect.stringContaining('degree must be one of')])
+    expect(await bad({ experience: [{ years: '2' }] })).toEqual([400, 'years must be a number from 0 to 60'])
+    expect(await bad({ max_age_days: 1.5 })).toEqual([400, expect.stringContaining('max_age_days')])
+    expect(await bad({ custom_packs: '{}' })).toEqual([400, expect.stringContaining('custom_packs can only be cleared')])
+    expect(await bad({ custom_triage_context: { profile_text: '[1]', yoe_context: 'x' } })).toEqual([400, 'profile_text must be a JSON object'])
+    expect(await bad({ custom_triage_context: { profile_text: '{}', yoe_context: '  ' } })).toEqual([400, 'yoe_context must not be empty'])
+    expect(await bad({ highest_degree: 'PhD' })).toEqual([400, 'Unknown profile field(s): highest_degree'])
+    expect(await bad({})).toEqual([400, 'No profile fields given'])
+    expect((await putProfile(req({ locations: [] }, READ, 'PUT'))).status).toBe(403)
+    expect(await prisma.candidate_profile.count()).toBe(0)
     expect(await prisma.audit_log.count()).toBe(0)
 })
 
-test('restating the worker-seeded values is a no-op (same bytes as db.seed_preferences)', async () => {
+test('restating the worker-seeded values is a no-op (same bytes as profile.seed_values)', async () => {
     await prisma.$executeRawUnsafe(
-        "INSERT INTO candidate_preferences (id, work_authorization, locations, exclude_internships, version, actor, updated_at) " +
-        `VALUES (1, 'needs visa sponsorship', '["remote","Z\u00fcrich"]', 1, 1, 'config', '2026-11-18T00:00:00Z')`)
-    const res = await putPreferences(req({ work_authorization: 'Needs Visa Sponsorship', locations: ['remote', 'Z\u00fcrich'], exclude_internships: true }, RW, 'PUT'))
+        "INSERT INTO candidate_profile (id, work_authorization, locations, exclude_internships, education, experience, version, actor, updated_at) " +
+        `VALUES (1, 'needs visa sponsorship', '["remote","Zürich"]', 1, '[{"degree":"master''s","field":""}]', ` +
+        `'[{"title":"SWE","company":"A","years":2}]', 1, 'config', '2026-11-18T00:00:00Z')`)
+    const res = await putProfile(req({ work_authorization: 'Needs Visa Sponsorship', locations: ['remote', 'Zürich'],
+        exclude_internships: true, education: [{ degree: "master's", field: '' }],
+        experience: [{ title: 'SWE', company: 'A', years: 2 }] }, RW, 'PUT'))
     const data = (await res.json()).data
     expect([data.unchanged, data.version, data.changed_at]).toEqual([true, 1, null])
     expect(await prisma.audit_log.count()).toBe(0)
 })
 
-const SEEDED_JEV = { id: 1, profile_text: '{"profile": {"a": 1}}', c_pack: '{"questions":[]}', yoe_pack: '{"questions":[]}', yoe_context: 'MS.', actor: 'config', updated_at: '2026-11-19T00:00:00Z' }
+const MIGRATED = { id: 1, custom_triage_context: JSON.stringify({ profile_text: '{"profile": {"a": 1}}', yoe_context: 'MS.' }),
+    custom_packs: JSON.stringify({ preference_pack: '{"questions":[]}', yoe_pack: '{"questions":[]}' }),
+    actor: 'migration', updated_at: '2026-11-19T00:00:00Z' }
 
-test('jev profile: verbatim update bumps the version and audits; a restatement is a no-op', async () => {
-    await prisma.jev_profile.create({ data: SEEDED_JEV })
-    const put = async (body: unknown) => (await (await putJevProfile(req(body, RW, 'PUT'))).json()).data
+test('a custom triage context is kept verbatim, restated as a no-op, and can be cleared with the packs', async () => {
+    await prisma.candidate_profile.create({ data: MIGRATED })
+    const put = async (body: unknown) => (await (await putProfile(req(body, RW, 'PUT'))).json()).data
     const text = '{\n  "profile": {"b": 2}  }\n'
-    const v2 = await put({ profile_text: text, yoe_context: '  MS, 1 year.  ' })
-    expect([v2.version, v2.unchanged]).toEqual([2, false])
-    const row = await prisma.jev_profile.findUniqueOrThrow({ where: { id: 1 } })
-    expect([row.profile_text, row.yoe_context, row.actor, row.c_pack]).toEqual([text, 'MS, 1 year.', 'mcp', SEEDED_JEV.c_pack])
-    expect((await put({ yoe_context: 'MS, 1 year.' })).unchanged).toBe(true)
-    const log = await prisma.audit_log.findMany()
-    expect(log.map((l) => [l.actor, l.action, l.entity])).toEqual([['mcp', 'update', 'jev_profile']])
-    expect(JSON.parse(log[0].payload).before.version).toBe(1)
+    const v2 = await put({ custom_triage_context: { profile_text: text, yoe_context: '  MS, 1 year.  ' } })
+    expect([v2.version, v2.unchanged, v2.packs, v2.triage_configured]).toEqual([2, false, 'custom', true])
+    const row = await prisma.candidate_profile.findUniqueOrThrow({ where: { id: 1 } })
+    expect(JSON.parse(row.custom_triage_context!)).toEqual({ profile_text: text, yoe_context: 'MS, 1 year.' })
+    expect((await put({ custom_triage_context: { profile_text: text, yoe_context: 'MS, 1 year.' } })).unchanged).toBe(true)
+    const v3 = await put({ custom_triage_context: null, custom_packs: null })
+    expect([v3.version, v3.custom_triage_context, v3.packs, v3.triage_configured]).toEqual([3, null, 'default', false])
+    const log = await prisma.audit_log.findMany({ orderBy: { id: 'asc' } })
+    expect(log.map((l) => [l.actor, l.action, l.entity])).toEqual([['mcp', 'update', 'candidate_profile'], ['mcp', 'update', 'candidate_profile']])
+    // The private pack texts never reach the audit payload.
+    expect(log[1].payload).not.toContain('questions')
 })
 
-test('jev profile rejects packs, non-object JSON, an empty body and a missing seed', async () => {
-    const bad = async (body: unknown) => {
-        const res = await putJevProfile(req(body, RW, 'PUT'))
-        return [res.status, (await res.json()).error]
-    }
-    expect(await bad({ profile_text: '{}' })).toEqual([400, expect.stringContaining('No JEV profile is stored yet')])
-    await prisma.jev_profile.create({ data: SEEDED_JEV })
-    expect(await bad({ c_pack: '{}' })).toEqual([400, expect.stringContaining('question packs come from jev_dir')])
-    expect(await bad({ profile_text: '[1]' })).toEqual([400, 'profile_text must be a JSON object'])
-    expect(await bad({ profile_text: 'not json' })).toEqual([400, 'profile_text must be a JSON object'])
-    expect(await bad({ yoe_context: '   ' })).toEqual([400, 'yoe_context must not be empty'])
-    expect(await bad({})).toEqual([400, 'Give profile_text and/or yoe_context'])
-    expect((await putJevProfile(req({ yoe_context: 'x' }, READ, 'PUT'))).status).toBe(403)
-    expect((await prisma.jev_profile.findUniqueOrThrow({ where: { id: 1 } })).version).toBe(1)
-    expect(await prisma.audit_log.count()).toBe(0)
+test('a non-JSON stored profile text can be restated with a new yoe_context, not replaced by other non-JSON', async () => {
+    await prisma.candidate_profile.create({ data: { ...MIGRATED,
+        custom_triage_context: JSON.stringify({ profile_text: 'free text', yoe_context: 'MS.' }) } })
+    const put = async (body: unknown) => (await putProfile(req(body, RW, 'PUT'))).json()
+    const ok = await put({ custom_triage_context: { profile_text: 'free text', yoe_context: 'MS, 2 years.' } })
+    expect([ok.data.version, ok.data.custom_triage_context]).toEqual([2, { profile_text: 'free text', yoe_context: 'MS, 2 years.' }])
+    expect((await put({ custom_triage_context: { profile_text: 'other text', yoe_context: 'x' } })).error).toBe('profile_text must be a JSON object')
 })
 
-test('jev profile form: a free-text profile needs the whole form; then partial updates merge', async () => {
-    await prisma.jev_profile.create({ data: SEEDED_JEV })
-    const put = async (form: unknown) => {
-        const res = await putJevProfile(req({ form }, RW, 'PUT'))
-        return [res.status, (await res.json())]
-    }
-    expect(await put({ target_roles: ['Backend'] })).toEqual([400, { error: expect.stringContaining('stored profile is free text') }])
-    const full = { target_roles: ['Backend'], open_to: [], not_interested: ['Sales'],
-        education: [{ degree: 'BS', field: 'CS' }], experience: [{ title: 'SWE', company: 'Acme', years: 2 }] }
-    expect((await put(full))[0]).toBe(200)
-    expect((await put({ open_to: ['Data'] }))[0]).toBe(200)          // merges over the stored form
-    const row = await prisma.jev_profile.findUniqueOrThrow({ where: { id: 1 } })
-    expect(JSON.parse(row.profile_text)).toMatchObject({ target_roles: ['Backend'], open_to: ['Data'], not_interested: ['Sales'] })
-    expect(row.yoe_context).toContain('Total years of experience: 2.')
-    expect(row.version).toBe(3)
-    expect((await put({ open_to: ['Data'] }))[1].data.unchanged).toBe(true)  // same bytes
+test('an unknown key inside an education or experience entry is refused', async () => {
+    const put = async (body: unknown) => (await putProfile(req(body, RW, 'PUT'))).json()
+    expect((await put({ education: [{ degree: 'phd', school: 'X' }] })).error).toContain('takes only degree, field')
+    expect((await put({ experience: [{ title: 'SWE', level: 'senior' }] })).error).toContain('takes only title, company, years')
 })
 
 test('watchlist add by careers URL resolves through the shared resolver (#208)', async () => {

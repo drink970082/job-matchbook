@@ -4,9 +4,10 @@ Hard constraints are the ONLY things that **discard** a posting; a missing *skil
 not one (fit is the AI client's judgment — skills live in the résumé).
 
 **This block is a one-time seed.** The first worker pass copies it into the DB
-(`candidate_preferences`); after that the DB wins and edits here are ignored (the pass
-logs that they differ). If a pass has already run, change requirements through the MCP
-`set_preferences` tool instead (`get_preferences` shows the stored values).
+candidate profile (`candidate_profile`; `highest_degree` becomes one education row);
+after that the DB wins and edits here are ignored (the pass logs that they differ). If a
+pass has already run, change requirements in the web Settings page or through the MCP
+`set_candidate_profile` tool instead (`get_candidate_profile` shows the stored values).
 
 Edit these under `candidate:` (leave any one **blank** to *not* screen on it; blank
 everything to disable disqualification):

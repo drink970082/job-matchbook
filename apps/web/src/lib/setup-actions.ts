@@ -3,31 +3,29 @@
 import { readFileSync } from 'node:fs'
 import path from 'node:path'
 import { prisma } from '@/lib/db'
+import { profileView, requirementsConfigured } from '@/lib/candidate-profile'
 
 // Web counterpart of MCP get_setup_status (worker read_repository.get_setup_status):
 // what a fresh install still needs. Same "configured" rule for the hard requirements.
 export async function getSetupStatus() {
-    const [pref, sources, jev, firstPosting, mcpWrite] = await Promise.all([
-        prisma.candidate_preferences.findUnique({ where: { id: 1 } }),
+    const [row, sources, firstPosting, mcpWrite] = await Promise.all([
+        prisma.candidate_profile.findUnique({ where: { id: 1 } }),
         prisma.watched_companies.count(),
-        prisma.jev_profile.count(),
         prisma.job_postings.findFirst({ select: { id: true } }),
         Promise.all([prisma.audit_log, prisma.applications, prisma.status_history].map((t: any) =>
             t.findFirst({ where: { actor: 'mcp' }, select: { id: true } }))).then((rows) => rows.some(Boolean)),
     ])
-    const requirements = !!pref && (
-        [pref.highest_degree, pref.work_authorization, pref.security_clearance].some((v) => v.trim())
-        || pref.locations.trim() !== '[]' && pref.locations.trim() !== '' || pref.exclude_internships || pref.exclude_contract)
+    const profile = row ? profileView(row) : null
     const steps = {
         // ponytail: "connected" = the MCP server has written through /api/v1 at least once;
         // a read-only connection never ticks it (the step is optional).
         aiClient: mcpWrite,
-        requirements,
+        requirements: !!profile && requirementsConfigured(profile),
         sources: sources > 0,
-        jev: jev > 0,
+        triage: !!profile?.triage_configured,
         firstFetch: !!firstPosting,
     }
-    // Steps 1 (AI client) and 4 (JEV) are optional: a web-only user still finishes.
+    // Steps 1 (AI client) and 4 (triage) are optional: a web-only user still finishes.
     return { steps, complete: steps.requirements && steps.sources && steps.firstFetch }
 }
 

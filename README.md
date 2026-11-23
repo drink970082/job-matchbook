@@ -42,8 +42,8 @@ persistent delivery ledger exists.
 
 No auto-apply, no public multi-tenant service and no CAPTCHA workarounds. Private
 configuration, résumé files and databases are gitignored. A hosted screen backend
-receives JD text and your hard requirements, the JEV filter sends JD text and your
-private `jev_dir` profile to OpenRouter (or the screen backend), and connecting an assistant exposes
+receives JD text and your hard requirements, triage (JEV) sends JD text and your
+candidate profile's background and preferences to OpenRouter (or the screen backend), and connecting an assistant exposes
 the data returned by the enabled MCP tools to that chat.
 
 ## Quick start

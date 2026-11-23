@@ -11,7 +11,7 @@ data before selecting it.
 - **MCP free-text arguments that look like JSON are decoded:** the SDK JSON-parses a
   string argument typed `str | None` when it parses as JSON, so a note such as `{"a":1}`
   through `update_application_notes` (or `record_application`'s `notes`) fails
-  validation. `set_jev_profile` avoids it with plain `str`; the other text tools do not.
+  validation. `set_candidate_profile` avoids it with plain `str`; the other text tools do not.
 
 - **Source lifecycle adapter coverage:** the bounded one-shot refresh supports
   SmartRecruiters; other boards need verified source-specific identity and closure

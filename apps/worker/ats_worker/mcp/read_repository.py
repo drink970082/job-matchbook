@@ -1054,72 +1054,80 @@ class ReadOnlyATSRepository:
             "unresolved_30d": int(unresolved),
         }
 
-    def get_preferences(self) -> dict[str, Any]:
-        """The screen's stored hard requirements (null when none are set yet)."""
-        with self._connection() as conn:
-            row = conn.execute("SELECT * FROM candidate_preferences WHERE id=1").fetchone()
-        if row is None:
-            return {"preferences": None}
-        out = dict(row)
-        out["locations"] = json.loads(out["locations"] or "[]")
-        out["exclude_internships"] = bool(out["exclude_internships"])
-        out["exclude_contract"] = bool(out["exclude_contract"])
-        return {"preferences": out}
+    def get_candidate_profile(self) -> dict[str, Any]:
+        """The stored candidate profile (null until seeded or set) with its derived
+        highest degree and total years, which packs triage uses (question ids only), and
+        how many in-window postings a triage-affecting change would re-queue."""
+        from .. import profile  # the one worker derivation, shared with the stages
 
-    def get_jev_profile(self) -> dict[str, Any]:
-        """The stored JEV inputs the operator may edit, the question ids of the seeded packs,
-        and how many in-window postings a change would re-queue for a paid assessment."""
         since = (self._clock() - timedelta(days=JEV_WINDOW_DAYS)).astimezone(timezone.utc).date().isoformat()
         with self._connection() as conn:
             conn.execute("BEGIN")
-            row = conn.execute("SELECT * FROM jev_profile WHERE id=1").fetchone()
+            row = conn.execute("SELECT * FROM candidate_profile WHERE id=1").fetchone()
             in_window = conn.execute(
                 "SELECT COUNT(*) FROM job_postings p JOIN job_screenings s ON s.job_posting_id=p.id "
                 "WHERE p.pipeline_status='new' AND s.state='complete' AND json_valid(s.result_json) "
                 "AND COALESCE(json_extract(s.result_json,'$.disqualified'),0)=0 "
                 "AND substr(COALESCE(p.posted_at, p.created_at), 1, 10) >= ?", (since,)).fetchone()[0]
         if row is None:
-            return {"jev_profile": None, "reassess_on_change": int(in_window)}
+            return {"candidate_profile": None, "reassess_on_change": int(in_window)}
+        row = dict(row)
+        parsed = profile.from_row(row)
 
         def question_ids(text: str) -> list[str]:
             try:
                 return [q["id"] for q in json.loads(text)["questions"]]
             except (ValueError, KeyError, TypeError):
                 return []
-        return {"jev_profile": {
-            "profile_text": row["profile_text"], "yoe_context": row["yoe_context"],
-            "version": row["version"], "actor": row["actor"], "changed_at": row["changed_at"],
-            "pack_questions": {"preference_pack": question_ids(row["c_pack"]),
-                               "yoe_pack": question_ids(row["yoe_pack"])}},
-            "reassess_on_change": int(in_window)}
+        packs = parsed.custom_packs or profile.default_packs()
+        out = {k: (json.loads(row[k]) if k in profile.JSON_FIELDS else row[k])
+               for k in ("title_include", "title_exclude", "max_age_days", "locations",
+                         "work_authorization", "security_clearance", "education", "experience",
+                         "target_roles", "open_to", "not_interested", "version", "actor",
+                         "changed_at", "confirmed_at")}
+        out.update(
+            exclude_internships=bool(row["exclude_internships"]),
+            exclude_contract=bool(row["exclude_contract"]),
+            highest_degree=parsed.highest_degree, total_years=parsed.total_years,
+            custom_triage_context=parsed.custom_triage_context,
+            triage={"configured": parsed.triage_context() is not None,
+                    "packs": "custom" if parsed.custom_packs else "default",
+                    "pack_questions": {"preference_pack": question_ids(packs["preference_pack"]),
+                                       "yoe_pack": question_ids(packs["yoe_pack"])}})
+        return {"candidate_profile": out, "reassess_on_change": int(in_window)}
 
     def get_setup_status(self) -> dict[str, Any]:
-        """What a fresh install still needs, plus screens predating the last requirement change."""
+        """What a fresh install still needs, plus screens predating the last profile change."""
         with self._connection() as conn:
             conn.execute("BEGIN")
-            pref = conn.execute(
-                "SELECT version,changed_at,highest_degree,work_authorization,security_clearance,"
-                "locations,exclude_internships,exclude_contract FROM candidate_preferences WHERE id=1").fetchone()
+            prof = conn.execute(
+                "SELECT version,changed_at,education,work_authorization,security_clearance,"
+                "locations,exclude_internships,exclude_contract,target_roles,custom_triage_context "
+                "FROM candidate_profile WHERE id=1").fetchone()
             sources = conn.execute("SELECT COUNT(*) FROM watched_companies").fetchone()[0]
             categories = conn.execute(
                 "SELECT COUNT(*) FROM app_settings WHERE key='categories'").fetchone()[0]
             stale = None
-            if pref is not None and pref["changed_at"]:
+            if prof is not None and prof["changed_at"]:
                 stale = conn.execute(
                     "SELECT COUNT(*) FROM job_screenings s JOIN job_postings p ON p.id=s.job_posting_id "
                     "WHERE p.pipeline_status='new' AND s.state='complete' "
-                    "AND ats_instant_cmp(s.completed_at, ?) < 0", (pref["changed_at"],)).fetchone()[0]
-        configured = pref is not None and any((
-            pref["highest_degree"].strip(), pref["work_authorization"].strip(),
-            pref["security_clearance"].strip(), json.loads(pref["locations"] or "[]"),
-            pref["exclude_internships"], pref["exclude_contract"]))
+                    "AND ats_instant_cmp(s.completed_at, ?) < 0", (prof["changed_at"],)).fetchone()[0]
+        configured = prof is not None and any((
+            json.loads(prof["education"] or "[]"), prof["work_authorization"].strip(),
+            prof["security_clearance"].strip(), json.loads(prof["locations"] or "[]"),
+            prof["exclude_internships"], prof["exclude_contract"]))
+        triage = prof is not None and bool(json.loads(prof["target_roles"] or "[]")
+                                           or prof["custom_triage_context"])
         missing = [step for step, done in (
-            ("preferences: set_preferences (hard requirements the screen disqualifies on)", configured),
+            ("candidate profile: set_candidate_profile (hard requirements the screen discards on)",
+             configured),
             ("sources: add_source (company boards to fetch)", sources > 0)) if not done]
         return {
-            "preferences": {"configured": configured, "version": pref["version"] if pref else None,
-                            "changed_at": pref["changed_at"] if pref else None,
-                            "new_postings_screened_before_change": stale},
+            "candidate_profile": {"configured": configured, "triage_configured": triage,
+                                  "version": prof["version"] if prof else None,
+                                  "changed_at": prof["changed_at"] if prof else None,
+                                  "new_postings_screened_before_change": stale},
             "sources": int(sources),
             "categories_customized": bool(categories),
             "missing": missing,

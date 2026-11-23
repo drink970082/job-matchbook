@@ -59,10 +59,12 @@ stub-gate entry (that only costs a skipped optimization).
 
 ## Config-time inputs (you provide)
 
-1. `config.yaml` — company list + an optional `title_filter` (title-keyword
-   pre-filter) + the `candidate` screening block (degree / work authorization /
-   clearance / locations / internships; the screen records a verdict per posting in
-   `job_screenings` and never deletes one) + schedule. See the committed sample.
+1. `config.yaml` — company list + schedule, and optionally a one-time seed of the
+   candidate profile (`title_filter`, `title_exclude`, `max_age_days`, the `candidate`
+   block). After the first pass the DB-owned `candidate_profile` row is what every stage
+   reads (edit it in the web Settings page or with MCP `set_candidate_profile`); the
+   screen records a verdict per posting in `job_screenings` and never deletes one. See
+   the committed sample.
 2. `.env` — copy `.env.example` → `.env` and set `OLLAMA_HOST` (or pick another
    `SCREEN_BACKEND`; only the metered API backends need a key).
 
@@ -126,7 +128,10 @@ in [SPEC §7.1](../../docs/SPEC.md#71-worker-appsworkerats_worker).
   `mcp/` (`python -m ats_worker.mcp`, the MCP server).
 - **Pipeline stages:** `fetch/` (board adapters + recipe executors), `feed/`
   (discovery feeds), `screening/` (hard-requirement screen + backends), `jev.py`
-  (keep/skip filter, ranks via `ranking/`), orchestrated by `pipeline.py`.
+  (triage, the keep/skip stage, via `ranking/`), orchestrated by `pipeline.py`.
+- **Candidate profile:** `profile.py` (the one row every stage reads, derived fields,
+  the one-time seed; default packs in `triage_packs/`) and `migrate_profile.py` (the
+  operator migration from the legacy tables).
 - **Shared infrastructure:** `config.py`, `db.py`, `util.py`, `usage.py` (quota
   telemetry), `source_lifecycle.py`, `prompts/`.
 - **Offline, provider-free:** `preselection/` (profile, replay, review batches,
