@@ -170,11 +170,12 @@ def parse_stub(stub: dict, slug: str, company_name: str) -> dict:
 
 
 def fetch(slug: str, company_name: str, session: requests.Session | None = None,
-          timeout: int = 20, keep=None) -> list[dict]:
+          timeout: int = 20, keep=None, inactive: list | None = None) -> list[dict]:
     """List a board, then one detail GET per posting. `keep(stub)` is the optional stub
     gate (see `workday.fetch`): only 'drop' is honoured, skipping that detail GET. A
     stored stub would have no description, so every other verdict hydrates. A failed or
-    inactive detail returns nothing for that posting, which the caller counts."""
+    inactive detail returns nothing for that posting, which the caller counts; an
+    inactive one also appends its id to `inactive`, so it is not counted as failed."""
     base = API.format(slug=slug)
 
     def _page(http, offset):
@@ -194,6 +195,8 @@ def fetch(slug: str, company_name: str, session: requests.Session | None = None,
             detail.raise_for_status()
             payload = detail.json()
             if _explicitly_inactive(payload):
+                if inactive is not None:
+                    inactive.append(str(pid))  # list.append is atomic across threads
                 return None
             return parse_job(payload, slug, company_name)
         except Exception:

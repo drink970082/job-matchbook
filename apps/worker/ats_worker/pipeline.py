@@ -30,8 +30,9 @@ from urllib.parse import urlparse
 from . import db, screening
 from .jev import JevError
 from .screening.errors import provider_failure_category
-from .fetch import (ABSENCE_CLOSURE_SOURCES, DETAIL_SOURCES, STUB_GATE_NOW_SOURCES,
-                    STUB_GATE_SOURCES, prefilter_postings, recheck_id)
+from .fetch import (ABSENCE_CLOSURE_SOURCES, DETAIL_SOURCES, REPORTS_INACTIVE_SOURCES,
+                    STUB_GATE_NOW_SOURCES, STUB_GATE_SOURCES, STUB_OBSERVES_SOURCES,
+                    prefilter_postings, recheck_id)
 from .feed import prefilter as _prefilter
 from .feed import resolve as _resolve
 from .source_lifecycle import (assessment_input_hash,
@@ -108,9 +109,14 @@ def run_fetch(conn, companies, title_filter, *, now, fetch_fn=None,
             # Stub-gate verdicts, counted per call rather than per id: a workday stub
             # carries no external_id, so `gated` cannot count what was listed.
             verdicts = {"calls": 0, "drop": 0}
+            inactive: list[str] = []  # listed ids whose detail says closed
+            if c["source"] in REPORTS_INACTIVE_SOURCES:
+                kw["inactive"] = inactive
             if c["source"] in STUB_GATE_SOURCES:
-                def _observed_keep(stub, _gated=gated, _v=verdicts):
-                    if stub.get("external_id"):
+                observes = c["source"] in STUB_OBSERVES_SOURCES
+
+                def _observed_keep(stub, _gated=gated, _v=verdicts, _obs=observes):
+                    if _obs and stub.get("external_id"):
                         _gated.add(str(stub["external_id"]))
                     verdict = _keep(stub)
                     _v["calls"] += 1
@@ -129,9 +135,10 @@ def run_fetch(conn, companies, title_filter, *, now, fetch_fn=None,
             if verdicts["calls"]:
                 # Every stub the gate passed should come back; one that did not lost its
                 # detail call (workday and smartrecruiters return None on a failed or
-                # throttled detail GET).
+                # throttled detail GET), unless its detail reported it closed.
                 listed = verdicts["calls"]
-                detail_failed = max(0, verdicts["calls"] - verdicts["drop"] - len(postings))
+                detail_failed = max(0, verdicts["calls"] - verdicts["drop"] - len(postings)
+                                    - len(inactive))
             else:
                 listed = len(postings)
             tally["listed"] += listed

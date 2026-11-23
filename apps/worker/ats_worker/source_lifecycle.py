@@ -98,6 +98,9 @@ def verify_board(has_listings, source: str, slug: str, name: str) -> str | None:
 
     `has_listings` has `fetch.board_has_listings`' shape: it reads the board's list
     alone, never a per-posting detail call."""
+    from .fetch import RECIPE_SOURCES  # lazy: keeps this module free of the adapters
+    if source in RECIPE_SOURCES:
+        return f"{source} boards are not verified here: add them with the onboard-board skill"
     try:
         listed = has_listings(source, slug, name)
     except Exception as exc:  # noqa: BLE001 - any failure leaves the board unverified

@@ -625,7 +625,9 @@ worker modules are pure and dependency-injected; real services are wired only in
   Measured 2026-07-22 across 28 watchlist boards: 14,902 -> 6,703 detail calls (-55%).
   `smartrecruiters` is gated the same way, `drop` only (`parse_stub` from the list
   stub's id, name and location; a stored stub would carry no description), which also
-  gives `run_fetch` its listed count and lost details for the board health record.
+  gives `run_fetch` its listed count and lost details for the board health record. A
+  detail answering `active: false` appends its id to the fetch's `inactive` list
+  (`fetch.REPORTS_INACTIVE_SOURCES`), so a closed posting is not counted `detail_failed`.
   `max_age_days` also gates a workday stub: `parse_stub` dates the stub's relative prose
   ("Posted N+ Days Ago") against the injected `now` (`now - age`, treating the number as
   a lower bound), so a stale stub is dropped before its detail GET. Only the confident
@@ -1326,7 +1328,9 @@ worker modules are pure and dependency-injected; real services are wired only in
   each company and, **before any filter**, record the board's listing
   (`db.record_board_listing`, scoped to the board `(source, company_slug)`): every
   listed id — returned, or seen only by the `keep` stub gate (a title/age-dropped stub
-  is still listed) — is stamped `source_last_seen_at`. For a source in
+  is still listed; not for smartrecruiters, `fetch.STUB_OBSERVES_SOURCES`, whose list
+  keeps postings whose detail says `active: false`, so only a returned one is seen and a
+  closed row is never reopened by the list) — is stamped `source_last_seen_at`. For a source in
   `fetch.ABSENCE_CLOSURE_SOURCES` (greenhouse, lever, ashby, pinpoint, workable: one
   call that returns the whole board or raises) a stored posting of that board missing
   from **3 consecutive successful, non-empty** lists becomes `source_state='closed'`; a
@@ -1541,8 +1545,8 @@ worker modules are pure and dependency-injected; real services are wired only in
   fetch walks every search page before the stub gate) answer from their first list page
   through their own `has_listings`; phenom and workday call the stub gate per item of
   their first list page and stop at the first stub; the one-call boards (greenhouse,
-  lever, ashby, pinpoint, workable) make their one list call; recipe boards are refused,
-  as they are added with the onboard-board skill): a 404, a board that lists nothing, or any fetch error is rejected with the
+  lever, ashby, pinpoint, workable) make their one list call; recipe boards are refused
+  with a reason pointing at the onboard-board skill): a 404, a board that lists nothing, or any fetch error is rejected with the
   reason and nothing is added; the fetcher is injected into `create_server`, and a server
   built without one refuses `add_source`), `remove_source(source_id)` (returns the
   removed row), `override_triage(job_id, keep|skip|clear, reason?)`,
@@ -2244,7 +2248,8 @@ Triage evidence with duplicate object members at its root, screen map, or check 
   gate discard is stored as a requirements miss and is not kept, nor is a bodyless
   posting; `new` is how many of the kept were inserted; `detail_failed` is stubs the gate
   passed that came back as nothing (workday and smartrecruiters return nothing for a
-  failed or throttled detail GET; phenom and the `_detail` adapters return the posting
+  failed or throttled detail GET; a smartrecruiters detail reporting `active: false` is
+  not counted; phenom and the `_detail` adapters return the posting
   without a description, which counts as bodyless); `desc_median` is the kept postings'
   median, NULL when none was kept. A failed write of the record itself (a locked DB) is
   logged `health not recorded` and changes nothing else. A `browser` row skipped while

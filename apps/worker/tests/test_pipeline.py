@@ -696,6 +696,29 @@ def test_smartrecruiters_listing_812_with_every_detail_failing_reads_details_fai
     assert _state(conn, "Big") == "details_failed", "not `empty`: the board listed 812"
 
 
+class _SmartRecruitersClosed(_SmartRecruitersOutage):
+    """812 listed; every detail answers `active: false` (the list keeps closed postings)."""
+
+    def get(self, url, params=None, timeout=None):
+        from tests._helpers import FakeResponse
+        if url == self.LIST:
+            return super().get(url, params, timeout)
+        self.detail_gets += 1
+        return FakeResponse({"id": url.rsplit("/", 1)[1], "active": False})
+
+
+def test_smartrecruiters_details_reporting_closed_are_not_details_failed(db_path):
+    from ats_worker.fetch import fetch_company
+    conn = db.connect(db_path)
+    _watch(conn, ("smartrecruiters", "Big"))
+    http = _SmartRecruitersClosed()
+    pipeline.run_fetch(conn, [{"source": "smartrecruiters", "slug": "Big", "name": "Big"}], None,
+                       now=NOW, fetch_fn=lambda s, sl, n, **kw: fetch_company(s, sl, n, session=http, **kw))
+    h = _health(conn, "smartrecruiters", "Big")
+    assert (h["last_fetched"], h["last_kept"], h["last_detail_failed"]) == (812, 0, 0)
+    assert _state(conn, "Big") == "kept_zero"
+
+
 @pytest.mark.parametrize("failed, state", [(6, "details_failed"), (2, "ok")])
 def test_a_board_mostly_losing_its_details_is_not_healthy(db_path, failed, state):
     """10 stubs reach hydration: `failed` lose their detail, the rest are full JDs."""

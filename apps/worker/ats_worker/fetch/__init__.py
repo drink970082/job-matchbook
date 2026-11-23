@@ -43,6 +43,17 @@ RECIPE_SOURCES = frozenset({"custom", "browser"})
 # Being gated is also what lets run_fetch count its listed stubs and lost details.
 STUB_GATE_SOURCES = frozenset({"phenom", "workday", "smartrecruiters", "icims", "custom", "browser"})
 
+# Of those, the ones whose list stub proves the posting is live, so a stub the gate saw
+# (dropped or not) counts as observed on the board. Not smartrecruiters: its list keeps
+# postings whose detail says `active: false`, so only a posting that came back is seen
+# (else a pass would reopen a row closed by --refresh-source or run_expire). workday's
+# stub carries no id, so it observes nothing either way.
+STUB_OBSERVES_SOURCES = frozenset({"phenom", "workday", "icims", "custom", "browser"})
+
+# Sources whose fetch accepts `inactive`, a list it appends the external_id of each
+# listed posting whose detail explicitly reports it closed: not a failed detail.
+REPORTS_INACTIVE_SOURCES = frozenset({"smartrecruiters"})
+
 # Of those, the ones whose fetch also accepts `now`: workday's list stub dates
 # itself in relative prose ("Posted 30+ Days Ago"), so parse_stub needs the
 # injected clock to turn it into a date the max-age gate can read. Every other
@@ -234,7 +245,8 @@ def recheck_id(row) -> str | None:
 
 
 __all__ = [
-    "ADAPTERS", "ABSENCE_CLOSURE_SOURCES", "DETAIL_SOURCES", "STUB_GATE_SOURCES", "STUB_GATE_NOW_SOURCES",
+    "ADAPTERS", "ABSENCE_CLOSURE_SOURCES", "DETAIL_SOURCES", "REPORTS_INACTIVE_SOURCES",
+    "STUB_GATE_SOURCES", "STUB_GATE_NOW_SOURCES", "STUB_OBSERVES_SOURCES",
     "filter_postings", "prefilter_postings",
     "fetch_company", "fetch_one_company", "recheck_id",
     "ashby", "greenhouse", "lever", "workday", "pinpoint", "smartrecruiters",

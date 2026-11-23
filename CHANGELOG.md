@@ -18,7 +18,8 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
   `enable_browser_sources` is off is recorded `disabled`. A stub-gate board's `fetched`
   (and its health log line) is now the stubs it listed, not the postings that came back,
   and `smartrecruiters` joins the stub gate (`drop` only, skipping off-title detail
-  GETs), so its listed count and lost details are counted too. The Sources tab's Last
+  GETs), so its listed count and lost details are counted too (an `active: false` detail
+  is not a lost one, and only a returned posting counts as seen). The Sources tab's Last
   fetch column and Health filter tell apart never fetched, fetch failed, board listed
   nothing, detail pages failing, descriptions missing, filters kept 0 and teaser
   descriptions, and a board mostly losing its details or descriptions is not shown
