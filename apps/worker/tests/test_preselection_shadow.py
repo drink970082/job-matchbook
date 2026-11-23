@@ -1048,15 +1048,15 @@ def test_backoff_exhaustion_does_not_start_an_attempt_after_deadline(tmp_path):
             ASSESSOR,
             transport,
             journal,
-            limits(max_elapsed_seconds=0.1, max_attempts_per_request=2),
+            limits(max_elapsed_seconds=5, max_attempts_per_request=2),
             clock,
             lambda current: current.save(tmp_path / "backoff-budget.json"),
             enabled=True,
-            retry_policy=RetryPolicy(1, 0.2, 0.2, 1.0),
+            retry_policy=RetryPolicy(1, 10, 10, 1.0),
             sleeper=sleeper,
         )
     assert len(sleeper.delays) == 1
-    assert 0 < sleeper.delays[0] < 0.2
+    assert 0 < sleeper.delays[0] < 10
     assert len(transport.calls) == 1
     assert len(journal.records) == 1
     assert journal.records[0].status == "retryable_failure"
