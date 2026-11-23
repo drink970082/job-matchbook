@@ -105,124 +105,6 @@ const SCREEN_OUTCOME_SQL = `CASE
     ELSE 'unknown'
 END`
 
-const KNOWN_PIPELINE_STATUSES_SQL = ['new', 'scored', 'notified', 'applied', 'discarded', 'failed', 'removed', 'expired']
-    .map((status) => `'${status}'`).join(',')
-const CANDIDATE_PIPELINE_STATUSES_SQL = ['new', 'scored', 'notified']
-    .map((status) => `'${status}'`).join(',')
-const SUPPORTED_SCREEN_CHECKS_SQL = ['location', 'internships', 'employment_type', 'degree', 'authorization', 'clearance']
-    .map((check) => `'${check}'`).join(',')
-const DETERMINISTIC_SCREEN_CHECKS_SQL = ['location', 'internships', 'employment_type']
-    .map((check) => `'${check}'`).join(',')
-const MAX_SAFE_JSON_REVISION_SQL = '9007199254740991'
-
-function triageCheckShapeSql(result: string, supportedChecks: string): string {
-    return `json_type(${result}, '$.screen')='object'
-        AND NOT EXISTS (
-            SELECT screen_member.key FROM json_each(${result}, '$.screen') AS screen_member
-            GROUP BY screen_member.key HAVING COUNT(*)>1
-        )
-        AND NOT EXISTS (
-            SELECT 1 FROM json_each(${result}, '$.screen') AS triage_check
-            WHERE triage_check.type!='object'
-               OR triage_check.key NOT IN (${supportedChecks})
-               OR CASE WHEN triage_check.type='object'
-                       THEN COALESCE(json_type(triage_check.value, '$.pass'),'missing')
-                            NOT IN ('true','false') ELSE 0 END
-               OR CASE WHEN triage_check.type='object'
-                       THEN (json_type(triage_check.value, '$.note') IS NOT NULL
-                             AND json_type(triage_check.value, '$.note')!='text')
-                       ELSE 0 END
-               OR CASE WHEN triage_check.type='object' THEN EXISTS (
-                    SELECT 1 FROM json_each(triage_check.value) AS triage_field
-                    WHERE triage_field.key NOT IN ('pass','note')
-               ) ELSE 0 END
-               OR CASE WHEN triage_check.type='object' THEN EXISTS (
-                    SELECT triage_field.key FROM json_each(triage_check.value) AS triage_field
-                    GROUP BY triage_field.key HAVING COUNT(*)>1
-               ) ELSE 0 END
-        )`
-}
-
-function triageValidResultSql(result: string, disqualified: boolean): string {
-    const flag = disqualified ? "'true'" : "'false'"
-    const passCheck = disqualified ? "json_type(triage_check.value, '$.pass')='false'"
-        : "json_type(triage_check.value, '$.pass')='true'"
-    const allChecks = triageCheckShapeSql(result, SUPPORTED_SCREEN_CHECKS_SQL)
-    const noFailure = disqualified ? '1=1' : `NOT EXISTS (
-        SELECT 1 FROM json_each(${result}, '$.screen') AS triage_check
-        WHERE CASE WHEN triage_check.type='object'
-                   THEN json_type(triage_check.value, '$.pass')='false' ELSE 0 END
-    )`
-    return `s.state='complete' AND json_valid(s.result_json)=1
-        AND json_type(${result}, '$')='object'
-        AND json_type(${result}, '$.disqualified')=${flag}
-        AND (json_type(${result}, '$.disqualification_reason') IS NULL
-             OR json_type(${result}, '$.disqualification_reason')='text')
-        AND NOT EXISTS (
-            SELECT triage_root_field.key FROM json_each(${result}) AS triage_root_field
-            GROUP BY triage_root_field.key HAVING COUNT(*)>1
-        )
-        AND NOT EXISTS (SELECT 1 FROM json_each(${result}) AS triage_root_field
-                        WHERE triage_root_field.key NOT IN
-                            ('screen','disqualified','disqualification_reason'))
-        AND ${allChecks}
-        AND EXISTS (SELECT 1 FROM json_each(${result}, '$.screen') AS triage_check
-                    WHERE CASE WHEN triage_check.type='object' THEN ${passCheck} ELSE 0 END)
-        AND ${noFailure}`
-}
-
-function triageRuleOnlySql(result: string): string {
-    return `${triageCheckShapeSql(result, DETERMINISTIC_SCREEN_CHECKS_SQL)}
-        AND json_type(${result}, '$.disqualified')='true'
-        AND EXISTS (SELECT 1 FROM json_each(${result}, '$.screen') AS triage_check
-                    WHERE CASE WHEN triage_check.type='object'
-                               THEN json_type(triage_check.value, '$.pass')='false' ELSE 0 END)`
-}
-
-// This SQL expression is the query-time counterpart of jobTriageSummary. Keep all
-// JSON validation here so unsupported rows remain visible as needs_review and the
-// filter/count run before LIMIT/OFFSET.
-const TRIAGE_STATUS_SQL = (() => {
-    const result = "CASE WHEN json_valid(s.result_json) THEN s.result_json ELSE '{}' END"
-    const legacy = "CASE WHEN json_valid(p.score_detail) THEN p.score_detail ELSE '{}' END"
-    const standaloneDisqualified = triageValidResultSql(result, true)
-    const standaloneCandidate = triageValidResultSql(result, false)
-    const ruleOnly = triageRuleOnlySql(result)
-    const legacyRuleOnly = triageRuleOnlySql(legacy)
-    const legacyRootShape = `json_type(${legacy}, '$')='object'
-        AND json_type(${legacy}, '$.disqualified')='true'
-        AND (json_type(${legacy}, '$.disqualification_reason') IS NULL
-             OR json_type(${legacy}, '$.disqualification_reason')='text')
-        AND (json_type(${legacy}, '$.source_content_revision') IS NULL
-             OR json_type(${legacy}, '$.source_content_revision')='null'
-             OR (json_type(${legacy}, '$.source_content_revision') IN ('integer','real')
-                 AND json_extract(${legacy}, '$.source_content_revision')>0
-                 AND json_extract(${legacy}, '$.source_content_revision')<=${MAX_SAFE_JSON_REVISION_SQL}
-                 AND json_extract(${legacy}, '$.source_content_revision')=
-                     CAST(json_extract(${legacy}, '$.source_content_revision') AS INTEGER)))
-        AND NOT EXISTS (
-            SELECT legacy_field.key FROM json_each(${legacy}) AS legacy_field
-            GROUP BY legacy_field.key HAVING COUNT(*)>1
-        )
-        AND NOT EXISTS (SELECT 1 FROM json_each(${legacy}) AS legacy_field
-                        WHERE legacy_field.key NOT IN
-                            ('screen','disqualified','disqualification_reason','source_content_revision'))`
-    return `CASE
-        WHEN p.pipeline_status IS NULL OR p.pipeline_status NOT IN (${KNOWN_PIPELINE_STATUSES_SQL})
-            THEN 'needs_review'
-        WHEN s.id IS NOT NULL AND (${standaloneDisqualified}) AND (${ruleOnly})
-            THEN 'rule_disqualified'
-        WHEN s.id IS NOT NULL AND (${standaloneDisqualified})
-            THEN 'screen_disqualified'
-        WHEN s.id IS NOT NULL AND (${standaloneCandidate})
-             AND p.pipeline_status IN (${CANDIDATE_PIPELINE_STATUSES_SQL}) THEN 'candidate'
-        WHEN s.id IS NULL AND p.pipeline_status='discarded'
-             AND json_valid(p.score_detail)=1 AND (${legacyRootShape})
-             AND (${legacyRuleOnly}) THEN 'rule_disqualified'
-        ELSE 'needs_review'
-    END`
-})()
-
 function escapeLikeLiteral(value: string): string {
     return `%${value.replace(/[!%_]/g, (char) => `!${char}`)}%`
 }
@@ -242,50 +124,36 @@ function checkedScreenOutcome(value: ScreenOutcome | undefined): ScreenOutcome |
     return value
 }
 
-// --- JEV status: a port of worker/mcp/read_repository.py, kept identical ------------
-// The override applies while it was set on the posting's current content (NULL counts
-// as revision 1, as in the worker); otherwise the model status stands. Stale = the
-// source changed, or the verdict predates the latest pass's recorded policy.
-const OVERRIDE_APPLIES_SQL = `(o.id IS NOT NULL AND o.decision IN ('keep','skip')
-    AND COALESCE(o.source_content_revision,1)=COALESCE(p.source_content_revision,1))`
-const JEV_MODEL_STATUS_SQL = `CASE WHEN j.id IS NULL THEN 'unassessed' WHEN j.state<>'complete' THEN 'failed'
-    WHEN j.source_content_revision IS NOT p.source_content_revision THEN 'stale'
-    WHEN j.policy_sha256 IS NOT COALESCE((SELECT value FROM app_settings
-        WHERE key='jev_current_policy_sha256'), j.policy_sha256) THEN 'stale'
-    WHEN j.verdict IN ('keep','skip') THEN j.verdict ELSE 'failed' END`
-const JEV_STATUS_SQL = `CASE WHEN ${OVERRIDE_APPLIES_SQL} THEN o.decision ELSE ${JEV_MODEL_STATUS_SQL} END`
-const JEV_JOIN_SQL = `LEFT JOIN job_jev_assessments j ON j.job_posting_id=p.id
-    LEFT JOIN job_triage_overrides o ON o.job_posting_id=p.id`
+// --- Effective status (#226): one CASE, the same as worker/mcp/read_repository.py's
+// _STATUS_SQL, both pinned by worker/tests/fixtures/effective-status-cases.json. The
+// operator's override wins if one exists (not bound to the content revision: nothing
+// else re-evaluates on a content change either), else the stored verdict.
+const STATUS_SQL = `CASE WHEN o.decision IN ('keep','skip') THEN o.decision ELSE p.verdict END`
+// The profile version the verdict was judged under: triage's when it completed, else
+// the requirements stage's.
+const PROFILE_VERSION_SQL = `CASE WHEN j.state='complete' THEN j.profile_version ELSE s.profile_version END`
+// The funnel stage (lib/job-stages.ts): closed first, then `other` once a posting left
+// `new`, else its effective status.
+const STAGE_SQL = `CASE WHEN p.source_state='closed' THEN 'closed' WHEN p.pipeline_status<>'new' THEN 'other'
+    ELSE ${STATUS_SQL} END`
+// "Postings for you" (#207): the keep stage. Without triage the worker stores keep once
+// the hard requirements pass, so one rule serves both modes.
+const FOR_YOU_SQL = `(${STAGE_SQL})='keep'`
 
-// Simple CASE (operand evaluated once): the triage and JEV expressions are the costly
-// parts, and the searched form would evaluate each twice per row.
-const STAGE_AFTER_TRIAGE_SQL = `CASE WHEN p.pipeline_status<>'new' THEN 'other'
-    ELSE CASE (${JEV_STATUS_SQL}) WHEN 'keep' THEN 'keep' WHEN 'skip' THEN 'jev_skip' ELSE 'unassessed' END END`
-const STAGE_SQL = `CASE WHEN p.source_state='closed' THEN 'closed' ELSE CASE (${TRIAGE_STATUS_SQL})
-    WHEN 'rule_disqualified' THEN 'rule_rejected'
-    WHEN 'screen_disqualified' THEN 'screen_rejected'
-    WHEN 'needs_review' THEN CASE WHEN p.pipeline_status='discarded' THEN 'screen_rejected'
-        ELSE ${STAGE_AFTER_TRIAGE_SQL} END
-    ELSE ${STAGE_AFTER_TRIAGE_SQL} END END`
-
-// "Postings for you" (#207): not applied, not closed at the source, not marked not
-// interested; then triage keep when triage is configured (a target role or a custom
-// context, the rule of profileView's triage_configured, so new postings will be assessed)
-// and has run at least once, else passed the hard requirements, so an install without
-// triage does not see an empty page. The mode subqueries are uncorrelated, so SQLite runs
-// them once.
-const JEV_MODE_SQL = `(EXISTS (SELECT 1 FROM candidate_profile WHERE id=1
-        AND (json_array_length(target_roles) > 0 OR custom_triage_context IS NOT NULL))
-    AND EXISTS (SELECT 1 FROM job_jev_assessments))`
-const FOR_YOU_SQL = `(p.pipeline_status='new' AND p.source_state<>'closed'
-    AND NOT (${OVERRIDE_APPLIES_SQL} AND o.decision='skip')
-    AND CASE WHEN ${JEV_MODE_SQL} THEN (${STAGE_SQL})='keep'
-        ELSE (${TRIAGE_STATUS_SQL})='candidate' END)`
-
-// Which "for you" mode is active, for the one line above the list.
+// Which line the list shows above "for you": triage is configured in the profile (a
+// target role or a custom context).
 export async function getJobsMode(): Promise<'jev' | 'screen'> {
-    const rows = await prisma.$queryRaw<Array<{ jev: number | bigint }>>(Prisma.sql`SELECT ${Prisma.raw(JEV_MODE_SQL)} AS jev`)
-    return Number(rows[0]?.jev ?? 0) ? 'jev' : 'screen'
+    const profile = await prisma.candidate_profile.findUnique({
+        where: { id: 1 }, select: { target_roles: true, custom_triage_context: true },
+    })
+    let roles: unknown = []
+    try {
+        roles = JSON.parse(profile?.target_roles ?? '[]')
+    } catch {
+        roles = []
+    }
+    return profile && ((Array.isArray(roles) && roles.length > 0) || profile.custom_triage_context != null)
+        ? 'jev' : 'screen'
 }
 
 function jevReasons(raw: unknown): string[] {
@@ -299,7 +167,8 @@ function jevReasons(raw: unknown): string[] {
 
 const FROM_SQL = `FROM job_postings p
     LEFT JOIN job_screenings s ON s.job_posting_id=p.id
-    ${JEV_JOIN_SQL}`
+    LEFT JOIN job_jev_assessments j ON j.job_posting_id=p.id
+    LEFT JOIN job_triage_overrides o ON o.job_posting_id=p.id`
 
 function jobsWhereSql(filter: JobPostingsFilter): Prisma.Sql {
     validateJobPostingsFilter(filter)
@@ -341,10 +210,10 @@ type RawInventoryPosting = Prisma.job_postingsGetPayload<{}> & {
     screening_updated_at: string | null
     screening_source_content_revision: number | null
     stage: JobStage
-    jev_status: string
-    jev_model_status: string
+    status: string
+    profile_version: number | bigint | null
+    jev_state: string | null
     jev_reasons_json: string | null
-    override_applies: number | bigint | null
     override_decision: string | null
     override_reason: string | null
     override_actor: string | null
@@ -372,10 +241,9 @@ export async function getJobPostings(params: JobPostingsFilter = {}) {
                    s.updated_at AS screening_updated_at,
                    s.source_content_revision AS screening_source_content_revision,
                    (${Prisma.raw(STAGE_SQL)}) AS stage,
-                   (${Prisma.raw(JEV_STATUS_SQL)}) AS jev_status,
-                   (${Prisma.raw(JEV_MODEL_STATUS_SQL)}) AS jev_model_status,
-                   j.reasons_json AS jev_reasons_json,
-                   ${Prisma.raw(OVERRIDE_APPLIES_SQL)} AS override_applies,
+                   (${Prisma.raw(STATUS_SQL)}) AS status,
+                   (${Prisma.raw(PROFILE_VERSION_SQL)}) AS profile_version,
+                   j.state AS jev_state, j.reasons_json AS jev_reasons_json,
                    o.decision AS override_decision, o.reason AS override_reason,
                    o.actor AS override_actor, o.created_at AS override_set_at
             ${Prisma.raw(FROM_SQL)}
@@ -392,8 +260,8 @@ export async function getJobPostings(params: JobPostingsFilter = {}) {
             screening_id, screening_state, screening_result_json, screening_error_message,
             screening_backend, screening_model, screening_effort, screening_evaluator_version,
             screening_updated_at, screening_source_content_revision,
-            jev_status, jev_model_status, jev_reasons_json,
-            override_applies, override_decision, override_reason, override_actor, override_set_at,
+            profile_version, jev_state, jev_reasons_json,
+            override_decision, override_reason, override_actor, override_set_at,
             score_detail, ...posting
         } = row
         const screening = screening_id == null ? null : {
@@ -413,15 +281,14 @@ export async function getJobPostings(params: JobPostingsFilter = {}) {
             score_detail,
             screen_summary: standaloneScreenSummary(screening),
             legacy_screen_evidence: legacyScreenEvidence(score_detail),
-            triage_summary: jobTriageSummary(posting.pipeline_status, score_detail, screening),
+            triage_summary: jobTriageSummary(posting.pipeline_status, screening),
             source_lifecycle: sourceLifecycleSummary({ ...posting, score_detail }, screening),
+            profile_version: profile_version == null ? null : Number(profile_version),
             jev: {
-                status: jev_status,
-                model_status: jev_model_status,
-                reasons: jev_model_status === 'keep' || jev_model_status === 'skip' ? jevReasons(jev_reasons_json) : [],
+                reasons: jev_state === 'complete' ? jevReasons(jev_reasons_json) : [],
                 override: override_decision == null ? null : {
                     decision: override_decision, reason: override_reason, actor: override_actor,
-                    set_at: override_set_at, applies: Boolean(Number(override_applies ?? 0)),
+                    set_at: override_set_at,
                 },
             },
         }
@@ -520,10 +387,10 @@ export async function markJobApplied(id: number, category: string | undefined, s
     }
 }
 
-// --- Triage override (#155): the operator's keep/skip over JEV's verdict --------
-// One row per posting; it applies while the posting's source_content_revision is the
-// one recorded here (the MCP read side decides that). Every set/replace/clear is
-// audited, and a replace or clear keeps the row it overwrote.
+// --- Triage override (#155): the operator's keep/skip over the stored verdict ------
+// One row per posting, any verdict (keep rescues a requirements discard); it holds until
+// cleared. The content revision is recorded as provenance only. Every set/replace/clear
+// is audited, and a replace or clear keeps the row it overwrote.
 
 const MAX_OVERRIDE_REASON = 500
 
@@ -533,8 +400,6 @@ export async function setTriageOverride(jobId: number, decision: string, reason:
     const why = reason?.trim() || null
     if (why && why.length > MAX_OVERRIDE_REASON) return { success: false, error: `reason is over ${MAX_OVERRIDE_REASON} characters` }
     try {
-        // The revision is read in the write transaction so a concurrent refresh cannot
-        // leave the override pinned to content it was never set on.
         const data = await prisma.$transaction(async (tx) => {
             const job = await tx.job_postings.findUnique({
                 where: { id: jobId }, select: { source_content_revision: true },

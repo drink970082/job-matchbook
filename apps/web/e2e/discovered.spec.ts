@@ -45,3 +45,10 @@ test('Undo restores an earlier override instead of deleting it', async ({ page }
     await page.getByRole('button', { name: 'Undo' }).click()
     await expect(page.locator('tr', { hasText: 'Globex Analytics' })).toBeVisible()
 })
+
+test('a keep override rescues a requirements discard into postings for you', async ({ page }) => {
+    await addOverride('Initech Cloud', 'keep')   // an MCP keep on a posting the screen discarded
+
+    await page.goto('/jobs')
+    await expect(page.locator('tr', { hasText: 'Initech Cloud' })).toBeVisible()
+})

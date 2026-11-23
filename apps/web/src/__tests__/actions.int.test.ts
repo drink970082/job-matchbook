@@ -317,7 +317,7 @@ test('getApplications sorts by company or status on request, and ignores an unkn
 })
 
 
-// --- getJobPostings: ordering and paging (the funnel stages: jev-status-parity.int) --
+// --- getJobPostings: ordering and paging (the funnel stages: effective-status-parity.int) --
 
 test('getJobPostings returns created_at and posted_at for each row', async () => {
     await prisma.job_postings.create({ data: makeJobPosting({ external_id: 'dt', created_at: '2026-06-03T00:00:00.000Z', posted_at: '2026-06-01' }) })
