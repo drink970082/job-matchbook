@@ -344,22 +344,32 @@ def _settle(conn: sqlite3.Connection, posting_id: int, verdict: str, *, now: str
                  "WHERE id=? AND verdict='pending'", (verdict, now, posting_id))
 
 
-def count_legacy_discards(conn: sqlite3.Connection) -> int:
-    """Rows still in the retired `pipeline_status='discarded'` shape. The worker writes
-    none; until ats_worker.migrate_evaluate_once moves them, a pass would age them out
-    as `not_evaluated` instead of `discarded`, so run_once refuses."""
+def needs_evaluate_once_migration(conn: sqlite3.Connection) -> bool:
+    """True until ats_worker.migrate_evaluate_once has run: a row is still in the retired
+    `pipeline_status='discarded'` shape, or a pending posting carries a finished screen
+    discard or triage verdict. The worker settles both the moment it writes them, so
+    neither exists after the migration; before it, a pass would age them out as
+    `not_evaluated`. run_once, the daemon and the migration all read this one test."""
     return conn.execute(
-        "SELECT COUNT(*) FROM job_postings WHERE pipeline_status='discarded'").fetchone()[0]
+        "SELECT EXISTS (SELECT 1 FROM job_postings WHERE pipeline_status='discarded') "
+        "OR EXISTS (SELECT 1 FROM job_postings p WHERE p.verdict='pending' AND ("
+        "EXISTS (SELECT 1 FROM job_screenings s WHERE s.job_posting_id=p.id "
+        "AND s.state='complete' AND json_valid(s.result_json) "
+        "AND COALESCE(json_extract(s.result_json,'$.disqualified'),0)=1) "
+        "OR EXISTS (SELECT 1 FROM job_jev_assessments j WHERE j.job_posting_id=p.id "
+        "AND j.state='complete')))").fetchone()[0] == 1
 
 
-def age_out(conn: sqlite3.Connection, *, since: str, now: str) -> int:
+def age_out(conn: sqlite3.Connection, *, since: str, now: str, commit: bool = True) -> int:
     """Finalize every pending posting outside the window as `not_evaluated`: nothing
-    evaluates it any more. Returns the rows aged out this call."""
+    evaluates it any more. Returns the rows aged out this call. `commit=False` leaves
+    the write in the caller's transaction (the migration)."""
     cur = conn.execute(
         "UPDATE job_postings SET verdict='not_evaluated',verdict_at=? WHERE id IN "
         f"(SELECT p.id FROM job_postings p WHERE p.verdict='pending' AND NOT ({IN_WINDOW}))",
         (now, since))
-    conn.commit()
+    if commit:
+        conn.commit()
     return cur.rowcount
 
 

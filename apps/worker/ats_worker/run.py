@@ -195,12 +195,12 @@ def run_once(cfg, *, db_path, env,
         # records its scope): its search scope filters fetch, its hard requirements drive
         # the deterministic pre-screen gate and the screen, and triage reads it below. No
         # row or no requirement => no gate, no SCREEN call. A malformed row raises here.
+        if db.needs_evaluate_once_migration(conn):
+            raise RuntimeError(_LEGACY_DISCARDS)
         prof = _profile_for_pass(conn, cfg, now=now)
         candidate = prof.screen_candidate() if prof else None
         scope = prof or profile.CandidateProfile()
         version = prof.version if prof else None
-        if db.count_legacy_discards(conn):
-            raise RuntimeError(_LEGACY_DISCARDS)
         run_id = db.start_pass(conn, now=now, fetch_only=fetch_only, jev_enabled=jev_enabled,
                                config=_pass_config(cfg, scope, screen=screen_cfg,
                                                    triage=triage_cfg))
@@ -339,8 +339,8 @@ def run_once(cfg, *, db_path, env,
 
 
 _LEGACY_DISCARDS = (
-    "legacy pipeline_status='discarded' postings await the one-time migration: with the "
-    "worker stopped, run `python3 -m ats_worker.migrate_evaluate_once migrate --db <db>`")
+    "this DB awaits the one-time evaluate-once migration (legacy discards or unsettled "
+    "screen/triage verdicts): with the worker stopped, run `python3 -m ats_worker.migrate_evaluate_once migrate --db <db>`")
 
 
 def _run_jev(conn, prof, *, env, limit: int, max_usd: Decimal, now: str) -> dict:
@@ -904,7 +904,7 @@ def main(argv=None) -> None:
         if not db.has_table(conn, "worker_runs"):
             raise SystemExit(f"{args.db} has no worker_runs table: the schema is older "
                              "than this worker. Run `make db-push`, then restart.")
-        if db.count_legacy_discards(conn):
+        if db.needs_evaluate_once_migration(conn):
             raise SystemExit(f"{args.db}: {_LEGACY_DISCARDS}, then restart.")
         _profile_for_pass(conn, cfg, now=_now())
     finally:

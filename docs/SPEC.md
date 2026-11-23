@@ -487,8 +487,10 @@ worker modules are pure and dependency-injected; real services are wired only in
   no profile row, or one with no target role and no custom triage context). Watchlist fetch counts
   are per listing per pass, including listings already stored. The daemon refuses to
   start (non-zero exit naming `make db-push`) on a DB with no `worker_runs` table, and
-  a pass raises while legacy `pipeline_status='discarded'` rows await
-  `ats_worker.migrate_evaluate_once` (below).
+  a pass raises (before it reads or seeds the profile) while
+  `db.needs_evaluate_once_migration` holds: a legacy `pipeline_status='discarded'` row, or
+  a pending posting with a complete disqualifying screen or a complete triage row, which
+  `ats_worker.migrate_evaluate_once` (below) settles.
 - **`config.py` — load/validate `config.yaml`.** Validates `source ∈ VALID_SOURCES`
   (the watchlist-capable boards: {greenhouse, lever, ashby, workday, pinpoint,
   smartrecruiters, workable, icims, phenom, custom, browser} — feed-only sources oracle/jobvite
@@ -870,9 +872,12 @@ worker modules are pure and dependency-injected; real services are wired only in
   outside it to the final `not_evaluated` (`db.age_out`), counted in the pass record and
   on Activity. The stage that finishes a posting writes the verdict in the same
   transaction as its result: a requirements disqualification (fetch gate or screen) is
-  `discarded`; a completed triage keep/skip is the verdict; a pass is `keep` when triage
-  is not configured for the pass (no `--jev`, or a profile with no target role and no
-  custom context; invalid custom packs count as configured and wait). Nothing re-queues:
+  `discarded`; a completed triage keep/skip is the verdict; a posting that passes a screen
+  run while triage is not configured for the pass (no `--jev`, or a profile with no target
+  role and no custom context; invalid custom packs count as configured and wait) is
+  `keep`. A posting that passed under triage and was left untriaged (triage later
+  unconfigured or failing) stays `pending` and ages out to `not_evaluated`; nothing
+  settles it `keep` afterwards. Nothing re-queues:
   a profile edit, a JD content change (source refresh) or a model change never
   re-evaluates; `evaluator_version`, backend, model and `profile_version` are recorded,
   never compared. The one-time operator migration
@@ -884,9 +889,12 @@ worker modules are pure and dependency-injected; real services are wired only in
   rules (disqualifying screen `discarded`; completed triage keep/skip stands, stale or
   not; a passing screen `keep` unless the readers' triage mode is on — a target role or
   custom context and at least one triage row; unfinished work `pending` in the window,
-  else `not_evaluated`), and deletes the retired `jev_current_policy_sha256` setting. It
-  refuses, writing nothing, before the push or on a `discarded` row that is not exactly
-  the legacy shape or already has a screen row; a rerun reports "already migrated".
+  else `not_evaluated`), and deletes the retired `jev_current_policy_sha256` setting, all
+  in one transaction (a kill leaves the DB as it was). It refuses, writing nothing, before
+  the push or on a `discarded` row that is not exactly the legacy shape or already has a
+  screen row. "Already migrated" is `db.needs_evaluate_once_migration` false (and no
+  untriaged pass to keep), the same test the pass and daemon refuse on; a rerun then
+  writes nothing.
 
   **Candidate profile** (`profile.py`, #224). One `candidate_profile` row (§8), the only
   candidate input; `run._profile_for_pass` reads it once per pass. Fetch reads the search
@@ -1471,7 +1479,7 @@ worker modules are pure and dependency-injected; real services are wired only in
   `reasons` (the model's) and `override` (`decision, reason, actor, set_at, applies`, or
   null); the keep/skip filter and counts use the effective status. `get_job` adds model, the legacy policy hash
   (null on new rows) and attempt times; `get_ats_overview` adds `jev_filter_counts` over
-  `pipeline_status=new`, not `source_state=closed`, and `verdict_counts`, the stored verdict
+  `pipeline_status=new`, not `source_state=closed`, not verdict `discarded`, and `verdict_counts`, the stored verdict
   over every posting (`not_evaluated` = aged out of the window unfinished).
   `list_jobs` keeps metadata search as the default and offers opt-in literal `all_text`
   matching over title, company, location and description; `%`, `_` and `!` are escaped,
@@ -2386,7 +2394,7 @@ automated coverage — those rely on code review or the human in the loop, not a
 | **Zero false discards** over every distinct location string in the live DB, gated in CI against a committed corpus labeled by an INDEPENDENT oracle (not by the code under test); the residual leak set is pinned EXACTLY, in both directions, so the accepted trade cannot drift silently | `test_location.py` (`test_no_us_eligible_string_is_ever_discarded`, `test_the_leak_set_is_pinned_exactly`, `test_the_corpus_is_labeled_the_way_the_gate_assumes`, `test_a_discard_always_names_a_country_the_string_actually_mentions`), `tests/fixtures/location_corpus.jsonl` |
 | Fetch-time max-age + title_exclude drop | `test_fetch.py::test_prefilter_*` |
 | Deterministic gate hoisted to fetch (requirements result + verdict `discarded`, no Ollama); a watchlist and a feed miss are stored identically | `test_pipeline.py::test_run_fetch_stores_a_location_miss_as_a_requirements_discard`, `test_feed_pipeline.py::test_a_watchlist_and_a_feed_location_miss_are_stored_identically` |
-| Evaluate once (#225): both stages run only on pending in-window postings and record the profile version; the finishing stage writes the verdict (keep without triage); a profile edit or content change re-queues nothing; aged-out postings are `not_evaluated` and counted; a pass refuses while legacy discards remain; the migration backs up, moves legacy discards, backfills verdicts, refuses unexpected rows and is idempotent | `test_evaluate_once.py`, `test_screen_pipeline.py` (`test_a_finished_screen_writes_the_verdict_and_its_profile_version`, `test_the_screen_runs_only_inside_the_window_and_only_on_pending_rows`), `test_jev.py::test_run_jev_persists_verdicts_and_leaves_lifecycle_alone`, `test_migrate_evaluate_once.py`, `test_mcp_repository.py::test_overview_counts_stored_verdicts_including_aged_out_postings`, `web/src/__tests__/activity.int.test.ts` |
+| Evaluate once (#225): both stages run only on pending in-window postings and record the profile version; the finishing stage writes the verdict (keep without triage); a profile edit or content change re-queues nothing; aged-out postings are `not_evaluated` and counted; a pass refuses (before seeding the profile) while legacy discards or unsettled screen/triage verdicts remain; the migration backs up, moves legacy discards, backfills verdicts in one transaction, refuses unexpected rows and is idempotent | `test_evaluate_once.py`, `test_screen_pipeline.py` (`test_a_finished_screen_writes_the_verdict_and_its_profile_version`, `test_the_screen_runs_only_inside_the_window_and_only_on_pending_rows`), `test_jev.py::test_run_jev_persists_verdicts_and_leaves_lifecycle_alone`, `test_migrate_evaluate_once.py`, `test_mcp_repository.py::test_overview_counts_stored_verdicts_including_aged_out_postings`, `test_mcp_repository.py::test_jev_filter_counts_leave_out_discarded_postings`, `web/src/__tests__/activity.int.test.ts` |
 | The code-side gates (intern title, location string) run BEFORE the model call and short-circuit it: a row they disqualify makes no backend call, carries no `provider_error`, and its reason is the deterministic one alone | `test_screen.py` (`test_a_deterministically_disqualified_row_never_reaches_the_provider`, `test_a_deterministic_gate_short_circuits_the_model_reason`, `test_multiple_failing_gates_join_reasons`), `test_pipeline.py`  |
 | A provider error never disqualifies on the sponsorship **phrase floor** — the deterministic gates still stand, but the blunt whole-description scan is skipped and `authorization` is left absent; `SCREEN_BACKEND=none`, which has no provider to fail, still records that floor verdict | `test_screen.py` (`test_a_provider_error_never_disqualifies_on_the_sponsorship_phrase_floor`, `test_screen_backend_none_still_records_the_authorization_floor_verdict`) |
 | A **blind** live backend (nothing usable: not a dict, or neither a `screen` object nor any requirement key) is a `provider_error`, not a verdict; the FLAT shape the 4B emits ~1 call in 100 is a real verdict and is honoured, byte-identical to the nested shape — so it cannot discard on the phrase floor and cannot record breaker successes; the narrow scope is pinned on the other side, where an empty `screen` dict is an answer and keeps the floor | `test_screen.py` (`test_a_blind_response_is_a_provider_error_not_a_verdict`, `test_an_empty_screen_object_is_a_verdict_and_keeps_the_floor`, `test_the_flat_shape_is_a_verdict_and_is_honoured`, `test_the_flat_shape_and_the_schema_shape_agree`, `test_the_observed_flat_response_is_kept_not_discarded`) |

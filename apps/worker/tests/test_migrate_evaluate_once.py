@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
+from contextlib import closing
 from pathlib import Path
 
 import pytest
@@ -94,8 +95,49 @@ def test_moves_legacy_discards_into_the_requirements_shape_and_backfills_verdict
     # Idempotent: a second run reports and writes nothing.
     again = []
     assert mig.migrate(path, now="2026-11-23T00:00:00.000Z", out=again.append) == 0
-    assert again == ["already migrated: no legacy discard left and the verdicts are set"]
+    assert again == [mig.ALREADY]
     assert _verdicts(path)["untriaged-recent"] == "pending"
+
+
+def test_a_migration_killed_mid_way_writes_nothing_and_a_rerun_completes(tmp_path, monkeypatch):
+    """Move + backfill + setting delete + age-out are one transaction: a kill at the last
+    phase leaves the legacy shape intact, so the rerun is not mistaken for 'migrated'."""
+    path, conn = _db(tmp_path)
+    _add(conn, "legacy", status="discarded", detail=LEGACY)
+    _add(conn, "kept", screen=("complete", False), jev=("complete", "keep"))
+    conn.close()
+
+    def killed(*_a, **_k):
+        raise KeyboardInterrupt
+    monkeypatch.setattr(mig.db, "age_out", killed)
+    with pytest.raises(KeyboardInterrupt):
+        mig.migrate(path, now=NOW, out=lambda _l: None)
+    with sqlite3.connect(path) as c:
+        assert c.execute("SELECT pipeline_status FROM job_postings WHERE external_id='legacy'"
+                         ).fetchone()[0] == "discarded"
+        assert c.execute("SELECT COUNT(*) FROM job_screenings WHERE backend='deterministic'"
+                         ).fetchone()[0] == 0
+        assert c.execute("SELECT COUNT(*) FROM app_settings").fetchone()[0] == 1
+    assert set(_verdicts(path).values()) == {"pending"}
+
+    monkeypatch.undo()
+    assert mig.migrate(path, now=NOW, out=lambda _l: None) == 0
+    assert _verdicts(path) == {"legacy": "discarded", "kept": "keep"}
+
+
+def test_no_legacy_discard_still_backfills_unsettled_verdicts(tmp_path):
+    """An install with zero legacy discards is not 'already migrated' while a finished
+    screen discard or triage verdict sits on a pending posting."""
+    path, conn = _db(tmp_path)
+    _add(conn, "rejected", screen=("complete", True))
+    _add(conn, "kept", screen=("complete", False), jev=("complete", "keep"))
+    conn.close()
+    lines = []
+    assert mig.migrate(path, now=NOW, out=lines.append) == 0
+    assert mig.ALREADY not in lines
+    assert _verdicts(path) == {"rejected": "discarded", "kept": "keep"}
+    with closing(db.connect(path)) as c:
+        assert not db.needs_evaluate_once_migration(c)
 
 
 def test_without_triage_a_passing_screen_backfills_keep(tmp_path):

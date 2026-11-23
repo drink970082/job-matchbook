@@ -12,7 +12,8 @@ behavior. Completed work belongs in CHANGELOG, not this queue.
   #223). [Spec](superpowers/specs/2026-11-20-candidate-profile-design.md). #224 is merged
   (#270) and deployed; #225 is merged, not yet deployed. Deploy steps, with the worker
   stopped: deploy and `npx prisma db push`; `python3 -m ats_worker.migrate_evaluate_once
-  migrate --db <db>` (backs up first; a pass and the daemon refuse until it ran); start
+  migrate --db <db>` (backs up first; a pass and the daemon refuse while legacy discards or unsettled
+  screen/triage verdicts remain); start
   the worker. #226 (readers on the stored verdict, drops `policy_sha256` and the `stale`
   rule) and #227 remain.
 

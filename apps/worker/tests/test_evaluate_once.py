@@ -153,6 +153,32 @@ def test_a_pass_refuses_while_legacy_discards_await_the_migration(tmp_path, boar
         _pass(dbfile)
 
 
+@pytest.mark.parametrize("unsettled", [
+    "INSERT INTO job_screenings (job_posting_id, state, result_json, backend, evaluator_version, "
+    "last_attempted_at, completed_at, created_at) VALUES (1, 'complete', "
+    "'{\"screen\":{},\"disqualified\":true}', 'ollama', 'v', 'x', 'x', 'x')",
+    "INSERT INTO job_jev_assessments (job_posting_id, state, verdict, model, "
+    "last_attempted_at, created_at) VALUES (1, 'complete', 'keep', 'm', 'x', 'x')",
+])
+def test_a_pass_refuses_with_no_legacy_discard_but_an_unsettled_verdict(
+        tmp_path, board, provider, unsettled):
+    """Zero legacy discards (or a migration killed after moving them): a pending posting
+    with a finished screen discard or triage verdict still needs the backfill, and a pass
+    would age it out as not_evaluated. It refuses before it seeds or writes anything."""
+    dbfile = bootstrap_db(tmp_path / "a.db")
+    conn = db.connect(dbfile)
+    db.upsert_postings(conn, [make_posting("old")], now="2026-06-04T08:00:00.000Z")
+    conn.execute(unsettled)
+    conn.commit()
+    conn.close()
+    with pytest.raises(RuntimeError, match="migrate_evaluate_once"):
+        _pass(dbfile)
+    conn = db.connect(dbfile)
+    assert conn.execute("SELECT COUNT(*) FROM candidate_profile").fetchone()[0] == 0
+    assert conn.execute("SELECT verdict FROM job_postings").fetchone()[0] == "pending"
+    conn.close()
+
+
 def test_the_daemon_refuses_to_start_while_legacy_discards_remain(monkeypatch, tmp_path):
     dbfile = bootstrap_db(tmp_path / "a.db")
     conn = db.connect(dbfile)

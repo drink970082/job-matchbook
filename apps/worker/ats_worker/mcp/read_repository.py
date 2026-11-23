@@ -1161,7 +1161,7 @@ class ReadOnlyATSRepository:
             jev_count_map = {row["status"]: int(row["count"]) for row in conn.execute(
                 f"SELECT {_jev_status_sql()} AS status,COUNT(*) AS count FROM job_postings p"
                 + _JEV_JOIN + " WHERE p.pipeline_status='new' AND p.source_state<>'closed' "
-                "GROUP BY status").fetchall()}
+                "AND p.verdict<>'discarded' GROUP BY status").fetchall()}
             verdict_count_map = {row["verdict"]: int(row["count"]) for row in conn.execute(
                 "SELECT verdict, COUNT(*) AS count FROM job_postings GROUP BY verdict")}
             screening_records = self._group_counts(conn, "job_screenings", "state")
@@ -1205,7 +1205,7 @@ class ReadOnlyATSRepository:
                     ],
                 },
                 "jev_filter_counts": {
-                    "scope": "pipeline_status=new, not source_state=closed",
+                    "scope": "pipeline_status=new, not source_state=closed, not verdict=discarded",
                     "counts": [{"status": status, "count": jev_count_map.get(status, 0)}
                                for status in JEV_STATUSES],
                     "semantics": ("list_jobs hides skip (jev='keep') and closed "

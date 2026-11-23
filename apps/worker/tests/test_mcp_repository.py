@@ -1177,3 +1177,18 @@ def test_overview_counts_stored_verdicts_including_aged_out_postings(tmp_path):
         {"verdict": "skip", "count": 0}, {"verdict": "discarded", "count": 0},
         {"verdict": "not_evaluated", "count": 2}]
     assert "window" in counts["semantics"]
+
+
+def test_jev_filter_counts_leave_out_discarded_postings(tmp_path):
+    """A discard is pipeline_status='new' with verdict='discarded' now (#225); it is not
+    awaiting triage, so it is no `unassessed` row."""
+    path = bootstrap_db(tmp_path / "v.db")
+    conn = sqlite3.connect(path)
+    for pid, verdict in ((1, "pending"), (2, "discarded"), (3, "discarded")):
+        conn.execute("INSERT INTO job_postings (id, source, external_id, company_name, job_title, "
+                     "job_url, description, created_at, verdict) VALUES (?, 'greenhouse', ?, 'A', "
+                     "'Eng', 'https://x', 'jd', '2026-11-01T00:00:00Z', ?)", (pid, str(pid), verdict))
+    conn.commit()
+    jev = ReadOnlyATSRepository(path).get_ats_overview()["jev_filter_counts"]
+    assert {r["status"]: r["count"] for r in jev["counts"]}["unassessed"] == 1
+    assert "verdict" in jev["scope"]

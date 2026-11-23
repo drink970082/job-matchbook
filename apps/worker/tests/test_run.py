@@ -60,7 +60,7 @@ def _stub_pass_record(monkeypatch):
     monkeypatch.setattr(run.db, "start_pass", lambda conn, **_: 1)
     monkeypatch.setattr(run.db, "update_pass_counts", lambda *_a, **_k: None)
     monkeypatch.setattr(run.db, "finish_pass", lambda *_a, **_k: None)
-    monkeypatch.setattr(run.db, "count_legacy_discards", lambda conn: 0)
+    monkeypatch.setattr(run.db, "needs_evaluate_once_migration", lambda conn: False)
     monkeypatch.setattr(run.db, "age_out", lambda conn, **_: 0)
 
 
@@ -881,7 +881,7 @@ def test_a_scheduled_pass_skips_the_slot_instead_of_dying(monkeypatch, tmp_path,
     monkeypatch.setattr(run, "_profile_for_pass", lambda conn, cfg, now: None)
     monkeypatch.setattr(run.db, "connect", lambda path: type("C", (), {"close": lambda self: None})())
     monkeypatch.setattr(run.db, "has_table", lambda conn, name: True)
-    monkeypatch.setattr(run.db, "count_legacy_discards", lambda conn: 0)
+    monkeypatch.setattr(run.db, "needs_evaluate_once_migration", lambda conn: False)
     real_load_config = cfgmod.load_config
     monkeypatch.setattr(run.config_mod, "load_config",
                         lambda path: real_load_config("companies: []\n"))
@@ -967,7 +967,7 @@ def _daemon_harness(monkeypatch, schedule_hours=4):
     # The startup preference seed; a no-op here (no real DB behind the daemon stub).
     monkeypatch.setattr(run.db, "connect", lambda path: type("C", (), {"close": lambda self: None})())
     monkeypatch.setattr(run.db, "has_table", lambda conn, name: True)
-    monkeypatch.setattr(run.db, "count_legacy_discards", lambda conn: 0)
+    monkeypatch.setattr(run.db, "needs_evaluate_once_migration", lambda conn: False)
     monkeypatch.setattr(run, "_profile_for_pass", lambda conn, cfg, now: None)
     real_load_config = cfgmod.load_config
     monkeypatch.setattr(run.config_mod, "load_config",
