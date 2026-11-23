@@ -12,6 +12,8 @@ behavior. Completed work belongs in CHANGELOG, not this queue.
   #223). [Spec](superpowers/specs/2026-11-20-candidate-profile-design.md). #224 (#270)
   and #225 (#276) are merged and deployed. #226 (readers on the stored verdict, drops
   `policy_sha256` and the `stale` rule) and #227 remain.
+- **Activity status strip reads the pass record** `[WEB · S]` (#249, branch
+  `feat/249-activity-pass-record`): the strip shows the latest `worker_runs` row.
 
 These references reserve unfinished work; they do not claim the branches are currently
 executing or establish merge readiness. Inspect actual refs/worktrees and coordinate
