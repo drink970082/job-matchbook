@@ -41,6 +41,7 @@ test('tells apart a failed fetch, filters keeping none, teasers and a board neve
         row(5, { name: 'Teaser Co', health: 'teaser', last_desc_median: 600 }),
         row(6, { name: 'Fresh Co', ...never }),
         row(7, { name: 'Headless Co', source: 'browser', ...never, health: 'disabled', last_fetch_status: 'disabled' }),
+        row(8, { name: 'Broken Co', health: 'bodyless', last_fetched: 25, last_kept: 0, last_new: 0, last_bodyless: 9 }),
     ]} />)
     const cell = (name: string) => screen.getByText(name).closest('tr')!
     expect(cell('Healthy Co')).toHaveTextContent('30 listed, 6 kept, 2 new')
@@ -50,12 +51,14 @@ test('tells apart a failed fetch, filters keeping none, teasers and a board neve
     expect(cell('Teaser Co')).toHaveTextContent('Teaser descriptions (median 600 chars)')
     expect(cell('Fresh Co')).toHaveTextContent('Never fetched')
     expect(cell('Headless Co')).toHaveTextContent('Not fetched: browser sources are off')
+    expect(cell('Broken Co')).toHaveTextContent('Descriptions missing: 9 postings came back with none')
     fireEvent.change(screen.getByLabelText('Health'), { target: { value: 'fetch_failed' } })
     expect(screen.getAllByRole('row')).toHaveLength(2)
     expect(screen.getByText('Moved Co')).toBeInTheDocument()
     fireEvent.change(screen.getByLabelText('Health'), { target: { value: 'attention' } })
     expect(screen.getAllByRole('row').map((r) => r.textContent)).toEqual([
-        expect.stringContaining('Company'), expect.stringContaining('Empty Co'), expect.stringContaining('Filtered Co'),
+        expect.stringContaining('Company'), expect.stringContaining('Broken Co'), expect.stringContaining('Empty Co'),
+        expect.stringContaining('Filtered Co'),
         expect.stringContaining('Moved Co'), expect.stringContaining('Teaser Co')])
 })
 

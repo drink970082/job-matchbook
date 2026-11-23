@@ -527,7 +527,7 @@ def test_run_fetch_health_line_on_an_empty_board(db_path, capsys):
     pipeline.run_fetch(conn, [{"source": "lever", "slug": "gone", "name": "Gone"}],
                        None, now=NOW, fetch_fn=lambda *a, **kw: [])
     line = [l for l in capsys.readouterr().out.splitlines() if "lever/gone" in l][0]
-    assert "fetched=0" in line and "desc_median=0" in line
+    assert "fetched=0" in line and "desc_median=-" in line  # nothing measured
     assert "TEASER" not in line, "an empty board is not a teaser board"
 
 
@@ -594,7 +594,57 @@ def test_a_failing_board_records_its_error_category_and_the_pass_goes_on(db_path
     # the previous one's.
     assert _health(conn, "lever", "fine") == {
         "last_fetched_at": LATER, "last_fetch_status": "ok", "last_fetched": 0,
-        "last_kept": 0, "last_new": 0, "last_bodyless": 0, "last_desc_median": 0}
+        "last_kept": 0, "last_new": 0, "last_bodyless": 0, "last_desc_median": None}
+
+
+def test_the_median_ignores_gate_discarded_stubs_returned_unhydrated(db_path):
+    """A stub the location gate discards comes back with no description (no detail call
+    was made); it is not a teaser JD, so the median measures hydrated postings only."""
+    conn = db.connect(db_path)
+    _watch(conn, ("phenom", "far"), ("phenom", "allfar"))
+
+    def fetch_fn(source, slug, name, **kw):
+        far = [_posting(f"{slug}{i}", source="phenom", location="Shanghai, China", description="")
+               for i in range(5)]
+        return far if slug == "allfar" else far + [_posting("ok", source="phenom", description="x" * 2000)]
+
+    pipeline.run_fetch(conn, [{"source": "phenom", "slug": s, "name": s} for s in ("far", "allfar")],
+                       None, now=NOW, fetch_fn=fetch_fn, candidate={"locations": ["remote", "USA"]})
+    far, allfar = _health(conn, "phenom", "far"), _health(conn, "phenom", "allfar")
+    assert (far["last_kept"], far["last_desc_median"]) == (6, 2000)
+    assert (allfar["last_kept"], allfar["last_desc_median"]) == (5, None), "nothing hydrated to measure"
+    assert [db.board_health(conn.execute(
+        "SELECT * FROM watched_companies WHERE slug=?", (s,)).fetchone()) for s in ("far", "allfar")] == ["ok", "ok"]
+
+
+def test_a_board_whose_every_posting_came_back_bodyless_is_not_kept_zero(db_path):
+    """A broken description selector is not the operator's filters keeping nothing."""
+    conn = db.connect(db_path)
+    _watch(conn, ("greenhouse", "broken"))
+    pipeline.run_fetch(conn, [{"source": "greenhouse", "slug": "broken", "name": "Broken"}], None,
+                       now=NOW, fetch_fn=lambda *a, **kw: [_posting(str(i), description="") for i in range(4)])
+    row = conn.execute("SELECT * FROM watched_companies WHERE slug='broken'").fetchone()
+    assert (row["last_fetched"], row["last_kept"], row["last_bodyless"]) == (4, 0, 4)
+    assert db.board_health(row) == "bodyless"
+
+
+def test_a_failed_health_write_after_a_good_fetch_keeps_the_board_ok(db_path, monkeypatch, capsys):
+    """The postings were stored: the board is not counted failed nor recorded as an error."""
+    conn = db.connect(db_path)
+    _watch(conn, ("lever", "fine"))
+    calls = []
+
+    def flaky(conn, source, slug, **kw):
+        calls.append(kw["status"])
+        raise sqlite3.OperationalError("database is locked")
+
+    monkeypatch.setattr(db, "record_board_health", flaky)
+    counts: dict = {}
+    inserted = pipeline.run_fetch(conn, [{"source": "lever", "slug": "fine", "name": "Fine"}], None,
+                                  now=NOW, fetch_fn=lambda *a, **kw: [_posting("1", source="lever")],
+                                  counts=counts)
+    assert (inserted, counts["boards_failed"], calls) == (1, 0, ["ok"])
+    assert "lever/fine: health not recorded" in capsys.readouterr().out
 
 
 def test_a_health_write_that_fails_does_not_stop_the_pass(db_path, monkeypatch, capsys):

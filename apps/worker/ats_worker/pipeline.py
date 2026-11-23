@@ -180,17 +180,11 @@ def run_fetch(conn, companies, title_filter, *, now, fetch_fn=None,
             tally["inserted"] += added
             figures = _board_health(listed, kept, bodyless, added)
             _log_board_health(c, figures)
-            db.record_board_health(conn, c["source"], c["slug"], now=now, status="ok",
-                                   figures=figures)
+            record_health(conn, c, now=now, status="ok", figures=figures)
         except Exception as exc:  # noqa: BLE001 — one bad board must not abort the rest
             tally["boards_failed"] += 1
             print(f"[fetch] {c.get('source')}/{c.get('slug')}: skipped after error: {exc}")
-            try:
-                db.record_board_health(conn, c.get("source"), c.get("slug"), now=now,
-                                       status=observation_error_category(exc))
-            except Exception as write_exc:  # noqa: BLE001 — the next board still fetches
-                print(f"[fetch] {c.get('source')}/{c.get('slug')}: health not recorded: "
-                      f"{write_exc}")
+            record_health(conn, c, now=now, status=observation_error_category(exc))
             continue
     return tally["inserted"]
 
@@ -233,13 +227,26 @@ def _valid_posting(p: dict) -> bool:
     return all(str((p or {}).get(k) or "").strip() for k in _REQUIRED_FIELDS)
 
 
+def record_health(conn, company, *, now, status: str, figures: dict | None = None) -> None:
+    """Write a board's last-pass record, logging instead of raising: a failed write (a
+    locked database) neither stops the pass nor turns a fetched board into a failure."""
+    try:
+        db.record_board_health(conn, company.get("source"), company.get("slug"), now=now,
+                               status=status, figures=figures)
+    except Exception as exc:  # noqa: BLE001 — the record is diagnostics; the pass goes on
+        print(f"[fetch] {company.get('source')}/{company.get('slug')}: "
+              f"health not recorded: {exc}")
+
+
 def _board_health(listed: int, kept, bodyless, added: int) -> dict:
     """One board's figures for this pass (db.BOARD_HEALTH_FIGURES): what it listed,
     what the filters kept (bodyless already dropped), how many were new, how many came
-    with no description, and the kept postings' median description length."""
-    lengths = sorted(len(p.get("description") or "") for p in kept)
+    with no description, and the median description length of the kept postings that
+    were hydrated. A gate discard is left out of the median: a stub-gate adapter returns
+    it un-hydrated, with no description, by design. None when nothing was measured."""
+    lengths = sorted(len(p.get("description") or "") for p in kept if not p.get("requirements"))
     return {"fetched": listed, "kept": len(kept), "new": added, "bodyless": len(bodyless),
-            "desc_median": lengths[len(lengths) // 2] if lengths else 0}
+            "desc_median": lengths[len(lengths) // 2] if lengths else None}
 
 
 def _log_board_health(company, h: dict) -> None:
@@ -252,11 +259,12 @@ def _log_board_health(company, h: dict) -> None:
     median is the cheapest thing that would have said so. The same figures are stored on
     the watchlist row (db.record_board_health) for the Sources page and list_sources.
     """
-    teaser = h["kept"] and h["desc_median"] < db.TEASER_MEDIAN_CHARS
+    median = h["desc_median"]
+    teaser = median is not None and median < db.TEASER_MEDIAN_CHARS
     note = " TEASER? (board may need a detail step)" if teaser else ""
     print(f"[fetch] {company['source']}/{company['slug']}: fetched={h['fetched']} "
           f"kept={h['kept']} new={h['new']} bodyless={h['bodyless']} "
-          f"desc_median={h['desc_median']}{note}")
+          f"desc_median={'-' if median is None else median}{note}")
 
 
 def _detail_fetch(detail_fetch_fn, source: str, slug: str, ids,

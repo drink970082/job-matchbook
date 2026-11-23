@@ -203,8 +203,10 @@ TEASER_MEDIAN_CHARS = 1500
 def board_health(row) -> str:
     """The state a watchlist row's last-pass record reads as (#231): never_fetched,
     disabled (a browser row skipped while enable_browser_sources is off), fetch_failed,
-    empty (listed nothing), kept_zero (listed, filters kept none), teaser, or ok. `row`
-    is a mapping of the watched_companies last_* columns."""
+    empty (listed nothing), bodyless (nothing kept, and postings came back with no
+    description: a broken selector, not the filters), kept_zero (listed, filters kept
+    none), teaser (a measured median under the threshold; NULL = nothing hydrated to
+    measure), or ok. `row` is a mapping of the watched_companies last_* columns."""
     status = row["last_fetch_status"]
     if not status:
         return "never_fetched"
@@ -215,8 +217,9 @@ def board_health(row) -> str:
     if not row["last_fetched"]:
         return "empty"
     if not row["last_kept"]:
-        return "kept_zero"
-    if (row["last_desc_median"] or 0) < TEASER_MEDIAN_CHARS:
+        return "bodyless" if row["last_bodyless"] else "kept_zero"
+    median = row["last_desc_median"]
+    if median is not None and median < TEASER_MEDIAN_CHARS:
         return "teaser"
     return "ok"
 

@@ -166,7 +166,7 @@ model watched_companies {
   last_kept         Int? // left after the title/age filters, minus bodyless
   last_new          Int? // of those, newly inserted
   last_bodyless     Int? // dropped for an empty description
-  last_desc_median  Int? // median description chars of the kept postings (< 1500 = teaser)
+  last_desc_median  Int? // median description chars of the hydrated kept postings (< 1500 = teaser); NULL if none
 
   @@unique([source, slug]) // dedup key
 }

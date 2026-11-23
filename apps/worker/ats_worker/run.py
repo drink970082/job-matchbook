@@ -227,7 +227,7 @@ def run_once(cfg, *, db_path, env,
                 print(f"skipping {len(skipped)} browser-source row(s) "
                       f"(enable_browser_sources is off): {names}")
             for c in skipped:  # health reads `disabled`, not a never-fetched mystery
-                db.record_board_health(conn, c["source"], c["slug"], now=now, status="disabled")
+                pipeline.record_health(conn, c, now=now, status="disabled")
             companies = [c for c in companies if c["source"] != "browser"]
 
         fetch_counts: dict = {}

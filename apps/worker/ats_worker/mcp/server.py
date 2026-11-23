@@ -336,10 +336,13 @@ def create_server(repository: ReadOnlyATSRepository | None = None,
         """The watchlist: every company board the worker fetches each pass (id, source, slug,
         name, has_recipe), with postings_30d per board and unresolved_30d (feed listings no
         board could be resolved for). Each board carries its last pass: last_fetched_at,
-        last_fetch_status (ok or an error category such as http_404), last_fetched (listed),
-        last_kept (after title/age filters), last_new, last_bodyless, last_desc_median, and
-        `health`: never_fetched, fetch_failed, empty (listed nothing), kept_zero (filters
-        kept none), teaser (kept median description under 1500 chars) or ok."""
+        last_fetch_status (ok, disabled, or an error category such as http_404),
+        last_fetched (listed), last_kept (after title/age filters), last_new, last_bodyless,
+        last_desc_median (hydrated postings only; null when none), and `health`:
+        never_fetched, disabled (a browser board skipped while browser sources are off),
+        fetch_failed, empty (listed nothing), bodyless (kept nothing because postings came
+        back with no description: a broken scraper), kept_zero (filters kept none), teaser
+        (median description under 1500 chars) or ok."""
         return read(repo.list_sources)
 
     @server.tool(annotations=_READ_ONLY)

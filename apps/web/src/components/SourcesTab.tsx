@@ -35,10 +35,10 @@ type Sort = { key: 'name' | 'postings_30d'; dir: 'asc' | 'desc' }
 
 // The last worker pass per board (#231): what it says, and whether it needs a look.
 const HEALTH_LABEL: Record<BoardHealth, string> = {
-    never_fetched: 'Never fetched', disabled: 'Browser sources off', fetch_failed: 'Fetch failed', empty: 'Board listed nothing',
+    never_fetched: 'Never fetched', disabled: 'Browser sources off', fetch_failed: 'Fetch failed', empty: 'Board listed nothing', bodyless: 'Descriptions missing',
     kept_zero: 'Filters kept 0', teaser: 'Teaser descriptions', ok: 'Healthy',
 }
-const ATTENTION: readonly BoardHealth[] = ['fetch_failed', 'empty', 'kept_zero', 'teaser']
+const ATTENTION: readonly BoardHealth[] = ['fetch_failed', 'empty', 'bodyless', 'kept_zero', 'teaser']
 
 function LastFetch({ s }: { s: WatchedSource }) {
     const at = s.last_fetched_at ? `Last pass ${s.last_fetched_at}` : 'Fetched on the next worker pass'
@@ -50,6 +50,8 @@ function LastFetch({ s }: { s: WatchedSource }) {
         fetch_failed: [`Fetch failed: ${s.last_fetch_status}`, 'text-red-600',
             `${at}. A 404 is usually a wrong slug, or the company moved platforms`],
         empty: ['Board listed nothing', 'text-amber-600', `${at}. Usually a wrong slug, or the company moved platforms`],
+        bodyless: [`Descriptions missing: ${s.last_bodyless} postings came back with none`, 'text-amber-600',
+            `${at}. Usually a moved description selector on the board, not your filters`],
         kept_zero: [`${s.last_fetched} listed, filters kept 0`, 'text-muted-foreground',
             `${at}. Your title and age filters matched none of this board's postings`],
         teaser: [`Teaser descriptions (median ${s.last_desc_median} chars)`, 'text-amber-600',

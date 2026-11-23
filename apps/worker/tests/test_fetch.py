@@ -353,11 +353,27 @@ def test_board_has_listings_reads_a_smartrecruiters_list_page_alone():
         board_has_listings("smartrecruiters", "Typo", "Typo", session=missing)
 
 
+def test_board_has_listings_reads_an_icims_board_from_its_first_search_page():
+    """icims walks every search page before its stub gate runs; verifying reads page 0."""
+    html = (FIXTURES / "icims.html").read_text()
+    session = FakeSession(text=html)
+    assert board_has_listings("icims", "careers-acme", "Acme", session=session) is True
+    assert len(session.calls) == 1 and session.calls[0][2]["params"]["pr"] == 0
+    assert board_has_listings("icims", "x", "X", session=FakeSession(text="<html></html>")) is False
+
+
 def test_board_has_listings_stops_a_stub_gate_board_at_its_first_stub():
     """A two-step board answers from its first list page: no detail call, no page 2."""
     session = FakeSession(payload=load("workday_list.json"))
     assert board_has_listings("workday", "acme/wd1/External", "Acme", session=session) is True
     assert [m for m, _, _ in session.calls] == ["POST"]
+
+
+def test_board_has_listings_refuses_a_recipe_board_before_any_request():
+    session = FakeSession(payload={})
+    with pytest.raises(ValueError, match="onboard-board"):
+        board_has_listings("custom", "acme", "Acme", session=session)
+    assert session.calls == []
 
 
 def test_board_has_listings_uses_a_one_call_boards_list():

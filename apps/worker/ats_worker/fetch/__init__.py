@@ -183,14 +183,20 @@ def board_has_listings(source: str, slug: str, company_name: str, **kwargs) -> b
     """Whether a board lists at least one posting, read from its list alone: the
     verify-on-add check (#231). Never makes a per-posting detail call.
 
-    An adapter whose fetch hydrates every posting without a stub gate says how to
-    answer this itself (`has_listings(slug, **kwargs)`, smartrecruiters). A stub-gate
-    board stops at its first stub. Every other adapter's fetch is one list call.
-    Raises what the fetch raises (a 404 for a wrong slug)."""
+    An adapter whose fetch would make more than its first list request before a stub
+    could stop it answers itself (`has_listings(slug, **kwargs)`: smartrecruiters, which
+    hydrates every posting, and icims, which walks every search page first). The other
+    stub-gate boards (phenom, workday) call the gate per item of their first list page,
+    and stop at its first stub. Every other adapter's fetch is one list call. Recipe
+    boards (custom, browser) list every page before their gate and are not verified
+    here: they are added with the onboard-board skill. Raises what the fetch raises (a
+    404 for a wrong slug)."""
     try:
         adapter = ADAPTERS[source]
     except KeyError:
         raise ValueError(f"unknown source: {source!r}")
+    if source in RECIPE_SOURCES:
+        raise ValueError(f"{source} boards are verified by the onboard-board skill, not here")
     own = getattr(adapter, "has_listings", None)
     if own is not None:
         return own(slug, **kwargs)

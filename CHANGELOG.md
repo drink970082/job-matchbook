@@ -12,16 +12,17 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 - **Per-board fetch health (#231)**: every pass writes each watchlist board's result on
   its `watched_companies` row (`last_fetched_at`, `last_fetch_status` = `ok` or the
   closed error category, `last_fetched`, `last_kept`, `last_new`, `last_bodyless`,
-  `last_desc_median`); a failing board records its category and the pass goes on, even
-  when that write fails, and a browser row skipped while `enable_browser_sources` is off
-  is recorded `disabled`. A
+  `last_desc_median`, over hydrated postings only); a failing board records its category
+  and the pass goes on, and a failed record write is only logged. A browser row skipped
+  while `enable_browser_sources` is off is recorded `disabled`, and a board that kept
+  nothing because every posting came back without a description reads `bodyless`. A
   stub-gate board's `fetched` (and its health log line) is now the stubs it listed, not
   the postings that came back. The Sources tab's Last fetch column and Health filter tell
   apart never fetched, fetch failed, board listed nothing, filters kept 0 and teaser
   descriptions, replacing the 48h "Pending first fetch" guess; MCP `list_sources`
   returns the same columns and `health`. MCP `add_source` reads the board's list once
   through the worker's adapter (after a web `dry_run` of the add; no per-posting detail
-  call, smartrecruiters answering from one list page) and rejects a 404, an empty board
+  call; smartrecruiters and icims answer from one list page) and rejects a 404, an empty board
   or a fetch error with the reason; a web add stays unverified until the next
   pass. **Operator step:** `make db-push` (seven new nullable columns), then restart
   ats-web and the MCP server.
