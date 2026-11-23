@@ -9,16 +9,11 @@ behavior. Completed work belongs in CHANGELOG, not this queue.
 ## In flight
 
 - **One candidate profile; evaluate each posting once** `[WORKER+WEB+MCP · L]` (epic
-  #223). [Spec](superpowers/specs/2026-11-20-candidate-profile-design.md). #224 (profile
-  row, migration, one form, one MCP pair) on `feat/224-candidate-profile`: landed, PR
-  open. Operator steps after merge, in order, with the worker stopped until migrate is done: stop it; `python3 -m
-  ats_worker.migrate_profile backup --db <db>`; deploy and `npx prisma db push
-  --accept-data-loss`; `python3 -m ats_worker.migrate_profile migrate --db <db>
-  --legacy-db <backup> --config config.yaml`; start the worker. #225 is next.
-- **Operator step for #247** (deploy): back up `db/`, then `make db-push` before the new
-  worker starts; without the `worker_runs` table the daemon refuses to start.
-- **Operator step for #243** (deploy): back up `db/`, then run
-  `prisma/backfill-applied-history-243.mjs` against the deployed DB.
+  #223). [Spec](superpowers/specs/2026-11-20-candidate-profile-design.md). #224 merged
+  (#270), not yet deployed. Deploy steps, in order, with the worker stopped until migrate
+  is done: stop it; `python3 -m ats_worker.migrate_profile backup --db <db>`; deploy and
+  `npx prisma db push --accept-data-loss`; `python3 -m ats_worker.migrate_profile migrate
+  --db <db> --legacy-db <backup> --config config.yaml`; start the worker. #225 is next.
 
 These references reserve unfinished work; they do not claim the branches are currently
 executing or establish merge readiness. Inspect actual refs/worktrees and coordinate

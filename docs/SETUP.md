@@ -102,9 +102,8 @@ skips a posting whose required minimum is above them.
 
 The MCP server is a stdio process started by your AI client. It reads the shared SQLite
 database read-only; with a write key it can also log applications, update statuses and
-notes, override keep/skip, manage the watchlist and set preferences and the JEV
-profile, all through the
-web's `/api/v1`. It has no user authentication of its own: connect it only to a client or
+notes, override keep/skip, manage the watchlist and set the candidate profile, all through the web's
+`/api/v1`. It has no user authentication of its own: connect it only to a client or
 workspace you trust, and it exposes whatever its tools return to that chat.
 
 **1. Install and check the server** (after Path A or B, so the schema exists):
@@ -146,13 +145,17 @@ them. Use the Python that has the requirements installed (a venv's absolute path
 ChatGPT, through [OpenAI Secure MCP Tunnel](https://developers.openai.com/api/docs/guides/secure-mcp-tunnels):
 install the tunnel client from the Platform tunnel settings (it needs a tunnel id, a
 runtime API key and Tunnels Read + Use access), then initialize a dedicated profile from
-`apps/worker` without putting the key in shell history:
+`apps/worker` without putting the keys in shell history. The tunnel inherits the MCP
+server's key: with the read-write key ChatGPT gets the write tools, without it only the
+read tools. Keep the key in a `chmod 600` file (`~/.config/ats-mcp/api-key`), as
+[`chatgpt.txt`](../apps/web/templates/mcp/chatgpt.txt) shows:
 
 ```bash
 cd apps/worker
 read -r -p 'OpenAI tunnel ID: ' ATS_TUNNEL_ID
 read -r -s -p 'Tunnel runtime API key: ' CONTROL_PLANE_API_KEY; printf '\n'
 export CONTROL_PLANE_API_KEY
+export ATS_API_KEY="$(cat ~/.config/ats-mcp/api-key)"   # step 2's read-write key; omit for read-only
 tunnel-client init --sample sample_mcp_stdio_local --profile ats-local \
   --tunnel-id "$ATS_TUNNEL_ID" --mcp-command 'python -m ats_worker.mcp'
 tunnel-client doctor --profile ats-local --explain

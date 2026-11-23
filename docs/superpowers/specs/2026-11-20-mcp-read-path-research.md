@@ -174,10 +174,8 @@ Option A, scoped for #257:
    five-vocabulary filter set.
 4. **Separate loopback port.** MCP listens on its own loopback port, and the tunnel points
    only at that port. The web origin and its server actions are never behind the tunnel.
-5. **Open: tunnel key scope.** The deployed ChatGPT tunnel is read-write today: its
-   launcher exports `ATS_API_KEY` with the read-write key, matching
-   `apps/web/templates/mcp/chatgpt.txt`. `docs/SETUP.md` Path D omits the key (read-only),
-   so the two shipped instructions disagree. Keeping read-write is the status quo;
-   a read key would remove ChatGPT's write tools. To decide before #257 ships.
+5. **Tunnel key scope: read-write.** The ChatGPT tunnel keeps the read-write key it runs
+   with today, matching `apps/web/templates/mcp/chatgpt.txt` and `docs/SETUP.md` Path D.
+   #257's HTTP transport carries the same scope.
 
 With 2, 3 and 4, A is about 4-4.5 days.
