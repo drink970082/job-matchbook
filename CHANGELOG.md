@@ -9,6 +9,21 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 
 ### Added
 
+- **Evaluate each posting once (#225)**: the screen and triage share one window
+  (`posted_at`, else `created_at`, within 7 days) and run at most once per posting; each
+  result records the `candidate_profile.version` it ran under. The worker writes the new
+  stored verdict `job_postings.verdict` (`pending | keep | skip | discarded |
+  not_evaluated`, plus `verdict_at`) when the last configured stage finishes (passing
+  the requirements is `keep` without triage), and ages a pending posting that leaves the
+  window to `not_evaluated`, counted in the pass record (`verdict.aged_out`), MCP
+  `get_ats_overview` (`verdict_counts`) and the Activity strip. Fetch-time
+  location/internship/contract discards are stored as a requirements result
+  (`job_screenings`, backend `deterministic`) on a `new` posting, and the feed applies
+  the same gate, so both paths store a miss identically. **Operator step:** with the
+  worker stopped, `make db-push`, then `python3 -m ats_worker.migrate_evaluate_once
+  migrate --db <db>`: it backs the DB up, moves the legacy `pipeline_status='discarded'`
+  rows into the new shape, backfills every verdict once from today's status rules and
+  drops the `jev_current_policy_sha256` setting. A pass refuses until it ran.
 - **Pass record (#247)**: a new `worker_runs` table holds one row per worker pass:
   start/finish time, `running | ok | failed` (`abandoned` when a pass died and the next
   one found it still `running`), the fetch-only/JEV mode flags, the effective runtime
@@ -20,6 +35,11 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 
 ### Removed
 
+- **Re-evaluation (#225)**: `--rescreen-screened`, the JEV policy hash re-queue (the
+  worker no longer writes `policy_sha256` or `jev_current_policy_sha256`) and the
+  source-revision re-queue. A profile edit, a JD change or a model change re-evaluates
+  nothing, so MCP `get_candidate_profile` drops `reassess_on_change` and the Settings
+  form no longer asks to confirm a re-assessment cost.
 - **Fit-scorer columns** (#174): `job_postings.score`, `attempts`, `notify_attempts`,
   `deprioritized_at` and the `promotion_dismissed` table leave the Prisma schema, the
   worker fixture and the MCP entity list. Only the worker insert still wrote

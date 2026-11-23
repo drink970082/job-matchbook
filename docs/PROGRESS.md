@@ -9,12 +9,14 @@ behavior. Completed work belongs in CHANGELOG, not this queue.
 ## In flight
 
 - **One candidate profile; evaluate each posting once** `[WORKER+WEB+MCP · L]` (epic
-  #223). [Spec](superpowers/specs/2026-11-20-candidate-profile-design.md). #224 merged
-  (#270), not yet deployed. Deploy steps, in order, with the worker stopped until migrate
-  is done: stop it; `python3 -m ats_worker.migrate_profile backup --db <db>`; deploy and
-  `npx prisma db push --accept-data-loss`; `python3 -m ats_worker.migrate_profile migrate
-  --db <db> --legacy-db <backup> --config config.yaml`; start the worker. #225 is next.
-  - #225 (Slice B, evaluate once) in flight on `feat/225-evaluate-once`.
+  #223). [Spec](superpowers/specs/2026-11-20-candidate-profile-design.md). #224 (#270)
+  and #225 merged, not yet deployed. Deploy steps, in order, with the worker stopped
+  until the last migrate is done: stop it; `python3 -m ats_worker.migrate_profile backup
+  --db <db>`; deploy and `npx prisma db push --accept-data-loss`; `python3 -m
+  ats_worker.migrate_profile migrate --db <db> --legacy-db <backup> --config
+  config.yaml`; `python3 -m ats_worker.migrate_evaluate_once migrate --db <db>` (backs
+  up first; a pass refuses until it ran); start the worker. #226 (readers on the stored
+  verdict, drops `policy_sha256` and the `stale` rule) and #227 remain.
 
 These references reserve unfinished work; they do not claim the branches are currently
 executing or establish merge readiness. Inspect actual refs/worktrees and coordinate
@@ -55,10 +57,9 @@ owns active branch claims. Documentation plans do not launch agents or deploy se
   applications table, not only `application_id`.
 - No persistent Brief delivery ledger. Cross-day deduplication is
   best-effort; background task/tunnel access still needs workflow-level acceptance.
-- `--jev-backend extract` is unmeasured and has no shadow mode: one pass replaces the
-  production policy hash (every native verdict shows stale) and overwrites native rows
-  that cost money to rebuild. Do not switch production to it before a measurement path
-  exists.
+- `--jev-backend extract` is unmeasured and has no shadow mode: every posting triaged
+  while it runs keeps that verdict for good (nothing re-evaluates). Do not switch
+  production to it before a measurement path exists.
 - Optional model quality remains bounded by corpus provenance. Luna/medium screening
   lacks an effort-identified accuracy run.
   These limitations matter for judgment changes, not as blockers for unrelated work.

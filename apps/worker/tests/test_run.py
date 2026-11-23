@@ -60,6 +60,8 @@ def _stub_pass_record(monkeypatch):
     monkeypatch.setattr(run.db, "start_pass", lambda conn, **_: 1)
     monkeypatch.setattr(run.db, "update_pass_counts", lambda *_a, **_k: None)
     monkeypatch.setattr(run.db, "finish_pass", lambda *_a, **_k: None)
+    monkeypatch.setattr(run.db, "count_legacy_discards", lambda conn: 0)
+    monkeypatch.setattr(run.db, "age_out", lambda conn, **_: 0)
 
 
 def test_run_once_fetch_only_stops_before_the_screen(monkeypatch):
@@ -386,7 +388,6 @@ def test_screen_only_is_an_accepted_alias_for_the_default_pass(tmp_path, monkeyp
 
 @pytest.mark.parametrize("mode_args", [
     ["--screen-only", "--fetch-only"],
-    ["--rescreen-screened", "--fetch-only"],
     ["--screen-only", "--screen-limit", "0"],
     ["--fetch-only", "--screen-unlimited"],
     ["--screen-only", "--screen-unlimited", "--screen-limit", "1"],
@@ -402,14 +403,12 @@ def test_screen_only_invalid_combinations_fail_before_config_or_db(
                   "--env", str(env_file), "--db", str(tmp_path / "db.sqlite")])
 
 
-def test_rescreen_screened_requires_one_shot(tmp_path, monkeypatch):
-    env_file = tmp_path / ".env"
-    env_file.write_text("")
-    monkeypatch.setattr(run.config_mod, "load_config",
-                        lambda _path: pytest.fail("config must not load"))
+def test_rescreen_screened_is_gone(tmp_path, capsys):
+    # Each posting is evaluated once (#225): there is no re-run flag to clear results.
     with pytest.raises(SystemExit):
-        run.main(["--screen-only", "--rescreen-screened", "--config", "unused.yaml",
-                  "--env", str(env_file), "--db", str(tmp_path / "db.sqlite")])
+        run.main(["--once", "--rescreen-screened", "--config", "unused.yaml",
+                  "--db", str(tmp_path / "db.sqlite")])
+    assert "unrecognized arguments: --rescreen-screened" in capsys.readouterr().err
 
 
 @pytest.mark.parametrize("mode_args", [
@@ -882,6 +881,7 @@ def test_a_scheduled_pass_skips_the_slot_instead_of_dying(monkeypatch, tmp_path,
     monkeypatch.setattr(run, "_profile_for_pass", lambda conn, cfg, now: None)
     monkeypatch.setattr(run.db, "connect", lambda path: type("C", (), {"close": lambda self: None})())
     monkeypatch.setattr(run.db, "has_table", lambda conn, name: True)
+    monkeypatch.setattr(run.db, "count_legacy_discards", lambda conn: 0)
     real_load_config = cfgmod.load_config
     monkeypatch.setattr(run.config_mod, "load_config",
                         lambda path: real_load_config("companies: []\n"))
@@ -967,6 +967,7 @@ def _daemon_harness(monkeypatch, schedule_hours=4):
     # The startup preference seed; a no-op here (no real DB behind the daemon stub).
     monkeypatch.setattr(run.db, "connect", lambda path: type("C", (), {"close": lambda self: None})())
     monkeypatch.setattr(run.db, "has_table", lambda conn, name: True)
+    monkeypatch.setattr(run.db, "count_legacy_discards", lambda conn: 0)
     monkeypatch.setattr(run, "_profile_for_pass", lambda conn, cfg, now: None)
     real_load_config = cfgmod.load_config
     monkeypatch.setattr(run.config_mod, "load_config",
@@ -1115,7 +1116,7 @@ def test_the_daemon_installs_a_timestamped_logging_handler(monkeypatch):
 @pytest.mark.parametrize('modes', [
     {'fetch_only': True, 'refresh_unscored': True},
     {'screen_limit': 0},
-    {'refresh_unscored': True, 'rescreen_screened': True,
+    {'refresh_unscored': True, 'fetch_only': True,
      'refresh_source': 'smartrecruiters'},
 ])
 def test_run_once_invalid_modes_fail_before_opening_database(tmp_path, monkeypatch, modes):

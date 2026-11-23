@@ -135,16 +135,21 @@ def run_once(cfg, *, db_path, env,
              screen_backend=DEFAULT_SCREEN_BACKEND,
              screen_model=None,
              screen_effort=None,
-             screen_limit: int | None = 40, rescreen_screened: bool = False,
+             screen_limit: int | None = 40,
              fetch_only: bool = False, screen_workers: int = 0,
              refresh_unscored: bool = False,
              refresh_source: str | None = None, refresh_limit: int = 25,
              jev_enabled: bool = False, jev_limit: int = 300,
              jev_max_usd: Decimal = Decimal("0.10"),
              jev_backend: str = "openrouter-native") -> None:
-    """Run fetch -> feed -> expire -> screen exactly once (`fetch_only` stops before
-    the screen). The screen never sees the résumé or profile; `jev_backend="extract"`
-    sends the JEV profile and experience context to the screen provider."""
+    """Run fetch -> feed -> expire -> screen -> triage exactly once (`fetch_only` stops
+    before the screen). The screen never sees the résumé or profile; `jev_backend="extract"`
+    sends the JEV profile and experience context to the screen provider.
+
+    Each posting is evaluated once (#225): the stages take only pending postings inside
+    the shared window (pipeline.EVALUATION_WINDOW_DAYS), each result records the profile
+    version, and a pending posting outside the window is aged out to `not_evaluated`.
+    A profile edit therefore re-queues nothing."""
     if jev_enabled and jev_backend not in JEV_BACKENDS:
         raise ValueError(f"unknown jev backend: {jev_backend!r}")
     if jev_enabled and jev_backend == "extract" and screen_backend == "none":
@@ -154,7 +159,7 @@ def run_once(cfg, *, db_path, env,
     if not fetch_only and screen_limit is not None and screen_limit <= 0:
         raise ValueError("the screen pass requires a positive --screen-limit")
     if refresh_unscored:
-        if fetch_only or rescreen_screened:
+        if fetch_only:
             raise ValueError("unscored refresh is a standalone worker mode")
         if refresh_source != "smartrecruiters":
             raise ValueError("unscored refresh requires --refresh-source smartrecruiters")
@@ -182,8 +187,7 @@ def run_once(cfg, *, db_path, env,
         effective_effort = (screen_effort or "medium") if provider.effort else None
         screen_cfg = None if fetch_only else {
             "backend": screen_backend, "model": effective_model, "effort": effective_effort,
-            "limit": screen_limit, "workers": screen_workers or 1,
-            "rescreen": rescreen_screened}
+            "limit": screen_limit, "workers": screen_workers or 1}
         triage_cfg = None if not jev_enabled else {
             "backend": jev_backend, "limit": jev_limit,
             "max_usd": None if jev_backend == "extract" else str(jev_max_usd)}
@@ -194,6 +198,9 @@ def run_once(cfg, *, db_path, env,
         prof = _profile_for_pass(conn, cfg, now=now)
         candidate = prof.screen_candidate() if prof else None
         scope = prof or profile.CandidateProfile()
+        version = prof.version if prof else None
+        if db.count_legacy_discards(conn):
+            raise RuntimeError(_LEGACY_DISCARDS)
         run_id = db.start_pass(conn, now=now, fetch_only=fetch_only, jev_enabled=jev_enabled,
                                config=_pass_config(cfg, scope, screen=screen_cfg,
                                                    triage=triage_cfg))
@@ -225,7 +232,7 @@ def run_once(cfg, *, db_path, env,
         pipeline.run_fetch(conn, companies, list(scope.title_include), now=now,
                            fetch_fn=fetch_company, title_exclude=list(scope.title_exclude),
                            max_age_days=scope.max_age_days, candidate=candidate,
-                           counts=fetch_counts)
+                           profile_version=version, counts=fetch_counts)
         record("fetch", fetch_counts)
 
         # Discovery feeds: broad listing streams resolved back to boards. Runs
@@ -254,6 +261,7 @@ def run_once(cfg, *, db_path, env,
                     title_filter=list(scope.title_include),
                     title_exclude=list(scope.title_exclude),
                     max_age_days=scope.max_age_days,
+                    candidate=candidate, profile_version=version,
                 )
         record("feed", feed_counts)
 
@@ -268,6 +276,13 @@ def run_once(cfg, *, db_path, env,
         if gone:
             print(f"expired {gone} dead posting(s)")
 
+        # A pending posting that left the window is final: nothing evaluates it any more.
+        aged = db.age_out(conn, since=pipeline.window_start(now), now=now)
+        record("verdict", {"aged_out": aged})
+        if aged:
+            print(f"[verdict] {aged} posting(s) left the {pipeline.EVALUATION_WINDOW_DAYS}-day "
+                  "window unevaluated: not_evaluated")
+
         # Operator quota control: --fetch-only stops here so a board refresh (and its
         # log) costs zero screen calls. The 'new' rows wait for a later screen pass —
         # fetch is idempotent (upsert DO NOTHING).
@@ -277,10 +292,6 @@ def run_once(cfg, *, db_path, env,
             db.finish_pass(conn, run_id, now=_now(), counts=counts)
             return
 
-        if rescreen_screened:
-            cleared = db.clear_completed_screenings(conn)
-            print(f"rescreen-screened: cleared {cleared} cached result(s) for eligible "
-                  "new postings")
         num_ctx = int(env.get("OLLAMA_NUM_CTX", "8192"))
         screen_extract = make_screener(
             screen_backend, env=env, http=requests, model=ollama_model,
@@ -291,30 +302,45 @@ def run_once(cfg, *, db_path, env,
             return screen_posting(posting, extract=screen_extract,
                                    candidate=candidate, num_ctx=num_ctx)
 
+        # Triage is configured when the pass runs it and the profile gives it something to
+        # judge (a target role or custom context); otherwise passing the requirements is
+        # the posting's final `keep`. Invalid custom packs still count as configured, so
+        # those postings wait (pending) for the repair instead of being kept unjudged.
+        triage = jev_enabled and prof is not None and prof.triage_texts() is not None
         record("screen", pipeline.run_screen(
             conn, now=now, screen_fn=screen_only_fn, extract=screen_extract,
             candidate=candidate, backend=screen_backend, model=effective_model,
             effort=effective_effort, limit=screen_limit,
-            screen_workers=screen_workers or 1, clock=_now))
+            screen_workers=screen_workers or 1, clock=_now,
+            profile_version=version, triage=triage))
         # Refresh the quota bar (and its re-login notice) for the subscription the
         # screen just spent; one free GET, best-effort by contract.
         if provider.quota:
             capture_usage(os.path.join(
                 os.path.dirname(os.path.realpath(db_path)), QUOTA_FILE), screen_backend)
-        if jev_enabled:
+        if triage:
             if jev_backend == "extract":
-                triage = _run_jev_extract(
+                triaged = _run_jev_extract(
                     conn, prof, extract=screen_extract, limit=jev_limit, now=now,
                     max_description_chars=num_ctx * 2,
                     model=f"extract:{jev.EXTRACT_PROMPT_VERSION}:{screen_backend}:"
                           f"{effective_model}:{effective_effort}:jd{num_ctx * 2}")
             else:
-                triage = _run_jev(conn, prof, env=env, limit=jev_limit, max_usd=jev_max_usd,
+                triaged = _run_jev(conn, prof, env=env, limit=jev_limit, max_usd=jev_max_usd,
                                   now=now)
-            record("triage", triage)
+            record("triage", triaged)
+        elif jev_enabled:
+            _triage_inputs(prof)  # logs why triage has nothing to judge
+            print("[triage] passing the requirements is the final keep this pass")
+            record("triage", {"skipped": _triage_skip_reason(prof)})
         db.finish_pass(conn, run_id, now=_now(), counts=counts)
     finally:
         conn.close()
+
+
+_LEGACY_DISCARDS = (
+    "legacy pipeline_status='discarded' postings await the one-time migration: with the "
+    "worker stopped, run `python3 -m ats_worker.migrate_evaluate_once migrate --db <db>`")
 
 
 def _run_jev(conn, prof, *, env, limit: int, max_usd: Decimal, now: str) -> dict:
@@ -335,8 +361,8 @@ def _run_jev(conn, prof, *, env, limit: int, max_usd: Decimal, now: str) -> dict
         print(f"[jev] model metadata unavailable ({type(exc).__name__}); skipping this pass")
         return {"skipped": provider_failure_category(exc)}
     tally = pipeline.run_jev(
-        conn, now=now, policy_sha=inputs.policy_sha(resolved), model=resolved,
-        limit=limit, max_usd=max_usd, clock=_now,
+        conn, now=now, model=resolved, limit=limit, max_usd=max_usd, clock=_now,
+        profile_version=prof.version if prof else None,
         jev_fn=lambda posting: jev.assess(posting, inputs=inputs, post=client.post,
                                           resolved_model=resolved))
     return {**tally, "model": resolved}
@@ -345,15 +371,15 @@ def _run_jev(conn, prof, *, env, limit: int, max_usd: Decimal, now: str) -> dict
 def _run_jev_extract(conn, prof, *, extract, limit: int, model: str, now: str,
                      max_description_chars: int | None = None) -> dict:
     """JEV_BACKEND=extract: the packs through the screen provider. `model` names the
-    backend, model and effort, so it joins policy_sha and a switch re-queues every verdict.
+    backend, model and effort and is recorded on each verdict (provenance, never compared).
     The seam reports no cost: --jev-limit is the cap and --jev-max-usd never trips."""
     inputs = _triage_inputs(prof)
     if inputs is None:
         return {"skipped": _triage_skip_reason(prof)}
     print(f"[jev] backend {model} (UNVALIDATED; no cost reported, --jev-limit caps postings)")
     tally = pipeline.run_jev(
-        conn, now=now, policy_sha=inputs.policy_sha(model), model=model,
-        limit=limit, max_usd=Decimal("Infinity"), clock=_now,
+        conn, now=now, model=model, limit=limit, max_usd=Decimal("Infinity"), clock=_now,
+        profile_version=prof.version if prof else None,
         jev_fn=lambda posting: jev.assess_extract(posting, inputs=inputs, extract=extract,
                                                   max_description_chars=max_description_chars))
     return {**tally, "model": model}
@@ -723,9 +749,6 @@ def main(argv=None) -> None:
     screen_budget.add_argument("--screen-unlimited", action="store_true",
                                help="explicitly remove the screen provider-call cap; "
                                     "retains the provider breaker")
-    parser.add_argument("--rescreen-screened", action="store_true",
-                        help="clear successful screen cache for eligible 'new' rows; "
-                             "requires --once")
     parser.add_argument("--jev", action="store_true",
                         help="after the screen, run triage, the keep/skip stage, with the JEV "
                              "provider (reads the candidate profile; the default "
@@ -771,8 +794,6 @@ def main(argv=None) -> None:
             parser.error("--refresh-unscored requires --refresh-source smartrecruiters")
         if not 1 <= args.refresh_limit <= pipeline.UNSCORED_REFRESH_MAX:
             parser.error("--refresh-limit must be between 1 and 25")
-        if args.rescreen_screened:
-            parser.error("--refresh-unscored is a standalone worker mode")
     elif args.refresh_source is not None:
         parser.error("--refresh-source requires --refresh-unscored")
     if args.screen_unlimited:
@@ -790,10 +811,6 @@ def main(argv=None) -> None:
         parser.error("--screen-workers must be >= 0 (0 selects the default)")
     if args.screen_effort and args.screen_effort not in SCREEN_EFFORT_VALUES:
         parser.error("SCREEN_EFFORT must be one of " + ", ".join(SCREEN_EFFORT_VALUES))
-    if args.rescreen_screened and args.fetch_only:
-        parser.error("--rescreen-screened has no effect with --fetch-only")
-    if args.rescreen_screened and not args.once:
-        parser.error("--rescreen-screened is one-shot: pass --once")
 
     cfg = config_mod.load_config(args.config)
     if args.jev:
@@ -853,7 +870,6 @@ def main(argv=None) -> None:
                          screen_model=args.screen_model,
                          screen_effort=args.screen_effort,
                          screen_limit=args.screen_limit,
-                         rescreen_screened=args.rescreen_screened,
                          fetch_only=args.fetch_only,
                          screen_workers=args.screen_workers,
                          refresh_unscored=args.refresh_unscored,
@@ -888,6 +904,8 @@ def main(argv=None) -> None:
         if not db.has_table(conn, "worker_runs"):
             raise SystemExit(f"{args.db} has no worker_runs table: the schema is older "
                              "than this worker. Run `make db-push`, then restart.")
+        if db.count_legacy_discards(conn):
+            raise SystemExit(f"{args.db}: {_LEGACY_DISCARDS}, then restart.")
         _profile_for_pass(conn, cfg, now=_now())
     finally:
         conn.close()

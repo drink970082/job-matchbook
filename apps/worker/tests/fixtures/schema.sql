@@ -43,6 +43,8 @@ CREATE TABLE "job_postings" (
     "source_content_hash" TEXT,
     "source_content_revision" INTEGER,
     "source_content_changed_at" TEXT,
+    "verdict" TEXT NOT NULL DEFAULT 'pending',
+    "verdict_at" TEXT,
     CONSTRAINT "job_postings_application_id_fkey" FOREIGN KEY ("application_id") REFERENCES "applications" ("id") ON DELETE SET NULL ON UPDATE CASCADE
 );
 
@@ -60,6 +62,7 @@ CREATE TABLE "job_screenings" (
     "last_attempted_at" TEXT NOT NULL,
     "completed_at" TEXT,
     "source_content_revision" INTEGER,
+    "profile_version" INTEGER,
     "created_at" TEXT NOT NULL,
     "updated_at" TEXT,
     CONSTRAINT "job_screenings_job_posting_id_fkey" FOREIGN KEY ("job_posting_id") REFERENCES "job_postings" ("id") ON DELETE CASCADE ON UPDATE CASCADE
@@ -74,8 +77,9 @@ CREATE TABLE "job_jev_assessments" (
     "result_json" TEXT,
     "error_category" TEXT,
     "model" TEXT,
-    "policy_sha256" TEXT NOT NULL,
+    "policy_sha256" TEXT,
     "source_content_revision" INTEGER,
+    "profile_version" INTEGER,
     "cost_usd" TEXT,
     "last_attempted_at" TEXT NOT NULL,
     "completed_at" TEXT,
@@ -178,6 +182,7 @@ CREATE TABLE "worker_runs" (
 );
 
 CREATE INDEX "job_postings_pipeline_status_idx" ON "job_postings"("pipeline_status");
+CREATE INDEX "job_postings_verdict_idx" ON "job_postings"("verdict");
 CREATE INDEX "job_postings_source_source_last_check_attempted_at_idx" ON "job_postings"("source", "source_last_check_attempted_at");
 CREATE UNIQUE INDEX "job_screenings_job_posting_id_key" ON "job_screenings"("job_posting_id");
 CREATE UNIQUE INDEX "job_jev_assessments_job_posting_id_key" ON "job_jev_assessments"("job_posting_id");

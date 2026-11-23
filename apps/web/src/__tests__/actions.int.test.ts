@@ -521,8 +521,8 @@ test('exportApplicationsCSV neutralizes formula-injection cells', async () => {
 
 // --- bulkRemove / bulkReopen / removeAllInView ----------------------------
 
-test('getCandidateProfile returns the row and counts only eligible postings from the last 7 days', async () => {
-    expect(await getCandidateProfile()).toEqual({ profile: null, reassessOnChange: 0 })
+test('getCandidateProfile returns the row and no re-assessment count (look forward only)', async () => {
+    expect(await getCandidateProfile()).toEqual({ profile: null })
     await prisma.candidate_profile.create({ data: { id: 1, locations: '["remote"]', actor: 'config', updated_at: 'x',
         custom_packs: '{"preference_pack":"private","yoe_pack":"private"}' } })
     const day = (ago: number) => new Date(Date.now() - ago * 86_400_000).toISOString().slice(0, 10)
@@ -540,5 +540,5 @@ test('getCandidateProfile returns the row and counts only eligible postings from
     const s = await getCandidateProfile()
     expect(s.profile).toMatchObject({ locations: ['remote'], packs: 'custom', version: 1, actor: 'config', triage_configured: false })
     expect(JSON.stringify(s.profile)).not.toContain('private')   // pack texts stay out of the read
-    expect(s.reassessOnChange).toBe(1)
+    expect(Object.keys(s)).toEqual(['profile'])
 })

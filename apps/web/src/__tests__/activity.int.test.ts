@@ -50,5 +50,16 @@ test('the status strip counts postings, JEV work, failures and spend', async () 
         job_posting_id: id, state, cost_usd: cost, policy_sha256: 'p', last_attempted_at: now, created_at: now } })
     await jev(p1.id, 'complete', '0.0003')
     await jev(p2.id, 'provider_error', '0.0001')
-    expect(await getActivityStatus()).toEqual({ lastFetchedAt: now, new24h: 1, new7d: 1, assessed24h: 1, failures24h: 1, spend7dUsd: 0.0004 })
+    expect(await getActivityStatus()).toEqual({ lastFetchedAt: now, new24h: 1, new7d: 1, assessed24h: 1, failures24h: 1,
+        spend7dUsd: 0.0004, agedOut7d: 0, agedOutTotal: 0 })
+})
+
+test('the status strip counts postings that left the window unevaluated (PRINCIPLES 5)', async () => {
+    const now = new Date().toISOString()
+    const aged = (external_id: string, verdict_at: string) => prisma.job_postings.create({ data: makeJobPosting({
+        external_id, created_at: '2026-01-01T00:00:00.000Z', verdict: 'not_evaluated', verdict_at }) })
+    await aged('recent', now)
+    await aged('older', '2026-01-09T00:00:00.000Z')
+    await prisma.job_postings.create({ data: makeJobPosting({ external_id: 'kept', verdict: 'keep', verdict_at: now }) })
+    expect(await getActivityStatus()).toMatchObject({ agedOut7d: 1, agedOutTotal: 2 })
 })

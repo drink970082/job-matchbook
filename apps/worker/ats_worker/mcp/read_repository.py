@@ -20,8 +20,6 @@ from ..source_lifecycle import (SOURCE_ERROR_CATEGORIES, assessment_freshness,
                                 has_embedded_screen, has_fit_assessment)
 
 
-# Must match pipeline.JEV_MAX_AGE_DAYS (the read side does not import the worker).
-JEV_WINDOW_DAYS = 7
 DEFAULT_BUSY_TIMEOUT_MS = 5_000
 DEFAULT_PAGE_SIZE = 25
 MAX_PAGE_SIZE = 100
@@ -106,6 +104,8 @@ _TRIAGE_STATUS_SET = frozenset(TRIAGE_STATUSES)
 # JEV keep/skip filter status of a posting. Only `skip` is hidden by default; a posting
 # never assessed, whose assessment failed, or whose source changed since is shown.
 JEV_STATUSES = ("keep", "skip", "unassessed", "failed", "stale")
+# job_postings.verdict (#225), written once by the worker.
+VERDICTS = ("pending", "keep", "skip", "discarded", "not_evaluated")
 _JEV_FILTERS = frozenset({"keep", "skip", "all"})
 # A posting closed at its source (source_state='closed') is hidden by default, as the
 # web files it only under its `closed` stage (tests/fixtures/closed-stage-cases.json).
@@ -1056,21 +1056,15 @@ class ReadOnlyATSRepository:
 
     def get_candidate_profile(self) -> dict[str, Any]:
         """The stored candidate profile (null until seeded or set) with its derived
-        highest degree and total years, which packs triage uses (question ids only), and
-        how many in-window postings a triage-affecting change would re-queue."""
+        highest degree and total years and which packs triage uses (question ids only).
+        An edit applies to postings evaluated afterwards and re-assesses none (#225)."""
         from .. import profile  # the one worker derivation, shared with the stages
 
-        since = (self._clock() - timedelta(days=JEV_WINDOW_DAYS)).astimezone(timezone.utc).date().isoformat()
         with self._connection() as conn:
             conn.execute("BEGIN")
             row = conn.execute("SELECT * FROM candidate_profile WHERE id=1").fetchone()
-            in_window = conn.execute(
-                "SELECT COUNT(*) FROM job_postings p JOIN job_screenings s ON s.job_posting_id=p.id "
-                "WHERE p.pipeline_status='new' AND s.state='complete' AND json_valid(s.result_json) "
-                "AND COALESCE(json_extract(s.result_json,'$.disqualified'),0)=0 "
-                "AND substr(COALESCE(p.posted_at, p.created_at), 1, 10) >= ?", (since,)).fetchone()[0]
         if row is None:
-            return {"candidate_profile": None, "reassess_on_change": int(in_window)}
+            return {"candidate_profile": None}
         row = dict(row)
         parsed = profile.from_row(row)
 
@@ -1094,7 +1088,7 @@ class ReadOnlyATSRepository:
                     "packs": "custom" if parsed.custom_packs else "default",
                     "pack_questions": {"preference_pack": question_ids(packs["preference_pack"]),
                                        "yoe_pack": question_ids(packs["yoe_pack"])}})
-        return {"candidate_profile": out, "reassess_on_change": int(in_window)}
+        return {"candidate_profile": out}
 
     def get_setup_status(self) -> dict[str, Any]:
         """What a fresh install still needs, plus screens predating the last profile change."""
@@ -1168,6 +1162,8 @@ class ReadOnlyATSRepository:
                 f"SELECT {_jev_status_sql()} AS status,COUNT(*) AS count FROM job_postings p"
                 + _JEV_JOIN + " WHERE p.pipeline_status='new' AND p.source_state<>'closed' "
                 "GROUP BY status").fetchall()}
+            verdict_count_map = {row["verdict"]: int(row["count"]) for row in conn.execute(
+                "SELECT verdict, COUNT(*) AS count FROM job_postings GROUP BY verdict")}
             screening_records = self._group_counts(conn, "job_screenings", "state")
             pipeline_counts = self._group_counts(conn, "job_postings", "pipeline_status")
             application_counts = self._group_counts(conn, "applications", "status")
@@ -1214,6 +1210,14 @@ class ReadOnlyATSRepository:
                                for status in JEV_STATUSES],
                     "semantics": ("list_jobs hides skip (jev='keep') and closed "
                                   "(closed='exclude') by default"),
+                },
+                "verdict_counts": {
+                    "scope": "all job_postings",
+                    "counts": [{"verdict": v, "count": verdict_count_map.get(v, 0)}
+                               for v in VERDICTS],
+                    "semantics": ("the stored evaluation verdict, set once per posting; "
+                                  "not_evaluated = left the evaluation window before every "
+                                  "configured stage finished"),
                 },
                 "eligible_screen_backlog": {
                     "scope": "pipeline_status=new",

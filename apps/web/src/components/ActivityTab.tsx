@@ -63,13 +63,14 @@ export function ActivityTab({ status, initial, loadMore }: Props) {
             <Card>
                 <CardHeader className="pb-2"><CardTitle className="text-base">System status</CardTitle></CardHeader>
                 <CardContent className="space-y-4">
-                    <div className="grid grid-cols-2 gap-3 md:grid-cols-6">
+                    <div className="grid grid-cols-2 gap-3 md:grid-cols-7">
                         <Stat label="Last new posting" value={status.lastFetchedAt ? ago(status.lastFetchedAt) : 'never'} warn={stale} />
                         <Stat label="New postings, 24h" value={String(status.new24h)} />
                         <Stat label="New postings, 7d" value={String(status.new7d)} />
                         <Stat label="Triage assessed, 24h" value={String(status.assessed24h)} />
                         <Stat label="Triage cost, 7d" value={`USD ${status.spend7dUsd.toFixed(status.spend7dUsd < 0.01 ? 4 : 2)}`} />
                         <Stat label="Triage failures, 24h" value={String(status.failures24h)} warn={status.failures24h > 0} />
+                        <Stat label="Aged out unevaluated" value={`${status.agedOut7d} in 7d, ${status.agedOutTotal} total`} />
                     </div>
                     {stale && (
                         <p className="text-xs text-amber-600">No new posting in over a day: the worker may be stopped.</p>

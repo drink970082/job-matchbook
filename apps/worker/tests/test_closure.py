@@ -174,12 +174,12 @@ def test_closed_rows_leave_the_screen_and_jev_queues(db_path):
     _seed(conn, ["open", "shut"])
     conn.execute("UPDATE job_postings SET source_state='closed' WHERE external_id='shut'")
     conn.commit()
-    assert [r["external_id"] for r in db.get_screen_candidates(conn)] == ["open"]
+    assert [r["external_id"] for r in db.get_screen_candidates(conn, "2000-01-01")] == ["open"]
     for r in conn.execute("SELECT id FROM job_postings").fetchall():
         db.save_screening(conn, r["id"], state="complete",
                           result={"screen": {}, "disqualified": False,
                                   "disqualification_reason": ""},
                           error_category=None, backend="ollama", model="m",
                           effort=None, evaluator_version="v", now=NOW)
-    ids = [r["external_id"] for r in db.get_jev_candidates(conn, "sha", "2000-01-01")]
+    ids = [r["external_id"] for r in db.get_jev_candidates(conn, "2000-01-01")]
     assert ids == ["open"]

@@ -39,8 +39,7 @@ const MAX_CLEARANCE = 100
 const MAX_AGE_DAYS = 3650
 const MAX_PROFILE_TEXT = 16000
 const MAX_YOE_CONTEXT = 2000
-// What triage reads: a change to one of these re-queues in-window postings for a paid
-// assessment while the JEV policy hash still decides re-runs.
+// What triage reads (background, preferences, custom context and packs).
 export const TRIAGE_FIELDS: readonly ProfileField[] = ['education', 'experience', 'target_roles', 'open_to',
     'not_interested', 'custom_triage_context', 'custom_packs']
 export const PROFILE_FIELDS: readonly ProfileField[] = ['title_include', 'title_exclude', 'max_age_days', 'locations',

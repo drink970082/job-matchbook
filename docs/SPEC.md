@@ -203,12 +203,13 @@ The watchlist path additionally runs deterministic, no-LLM filtering **at fetch*
 before either ingestion path ever reaches Ollama: `fetch.prefilter_postings` (the
 candidate profile's `title_include` keep-list + `title_exclude` drop + `max_age_days` freshness drop)
 narrows what each company fetch returns, and the same intern/location gate the
-screen stage uses (`score.deterministic_screen`) runs immediately after — a gate
-miss is upserted straight to `discarded` (with its reason), skipping the Ollama call
-entirely. The feed runs the same `prefilter_postings` over its listings' own metadata
-before resolving them (§7.1 feed ingestion), but **not** the deterministic
-intern/location gate: those postings gate one stage later at `screen_posting`, which
-runs the identical `deterministic_screen` helper.
+screen stage uses (`screening.deterministic_screen`) runs immediately after — a gate
+miss is stored `new` with a completed requirements result (`job_screenings`, backend
+`deterministic`, the same shape as a screen-time rule discard) and the final verdict
+`discarded`, skipping the Ollama call entirely. The feed runs the same
+`prefilter_postings` over its listings' own metadata before resolving them (§7.1 feed
+ingestion), and the same gate (`pipeline._gate_discard`) before its upsert, so a
+watchlist miss and a feed miss of the same posting are stored identically.
 
 A posting moves through a `pipeline_status` state machine in the database
 (§[9](#9-behaviors-and-invariants)). "Mark Applied" is the seam between the two
@@ -431,8 +432,7 @@ worker modules are pure and dependency-injected; real services are wired only in
   effort, default `medium`), `--screen-limit N` (positive provider-call cap per pass,
   default 40 or `SCREEN_LIMIT`), `--screen-unlimited` (explicitly remove that cap; the
   provider breaker and successful-result cache stay active), `--screen-workers`
-  (default 1), `--rescreen-screened` (clear successful screen cache for eligible `new`
-  rows before a one-shot pass; requires `--once`), `--fetch-only` (run fetch/feed/expire
+  (default 1), `--fetch-only` (run fetch/feed/expire
   then stop before any screen call — a quota-free board refresh), `--screen-only`
   (accepted no-op alias for the default pass, kept for existing service files),
   `--refresh-unscored --refresh-source smartrecruiters --refresh-limit N` (standalone,
@@ -461,14 +461,14 @@ worker modules are pure and dependency-injected; real services are wired only in
   résumé or profile file.
   **Pass record:** every pass except `--refresh-unscored` writes one `worker_runs` row
   (§8). `db.start_pass` inserts it `running` with the mode flags and the effective
-  runtime config (`_pass_config`: screen backend/model/effort/limit/workers/rescreen,
+  runtime config (`_pass_config`: screen backend/model/effort/limit/workers,
   triage backend/limit/USD cap, enabled feeds, browser sources on/off, and the candidate
   profile's `max_age_days` (the profile is read, or seeded, before the row is written);
   an allowlist, so no env value or secret is ever recorded). Because the caller holds
   `pass_lock`, any row still `running` at that point belongs to a dead pass and is
   marked `failed` / `abandoned` (`finished_at` stays null). Each stage's tally is
   written as it finishes (`counts_json` keys `fetch`, `feed` per feed name, `expire`,
-  `screen`, `triage`), so a pass that raises stays `running` with the stages it
+  `verdict` (`aged_out`), `screen`, `triage`), so a pass that raises stays `running` with the stages it
   finished; the end of the pass sets `ok` and `finished_at`. Stage failures that the
   pass survives (a dead screen backend, a skipped triage) are counted, not a `failed`
   pass. Tallies: fetch `boards_attempted`/`boards_failed`, `listed` (for a stub-gate
@@ -480,13 +480,15 @@ worker modules are pure and dependency-injected; real services are wired only in
   `dropped_age` (feed date), `no_url`, `unresolved_by_reason` (resolver and list/detail
   failures), `duplicate` (same board id twice), `already_stored`, `not_on_board`,
   `resolved` (postings fetched from the board), which splits into `dropped_age_board` +
-  `inserted`; expire `checked`, `closed`, `inconclusive`;
+  `inserted`, plus `discarded` (requirements-gate discards among them); expire `checked`, `closed`, `inconclusive`;
   screen the `run_screen` tally plus `disqualified_by_reason` and `errors_by_category`;
   triage the `run_jev` tally plus `errors_by_category` and the resolved `model`, or
   `{"skipped": no_api_key | no_profile | invalid_packs | <provider category>}` (`no_profile`:
   no profile row, or one with no target role and no custom triage context). Watchlist fetch counts
   are per listing per pass, including listings already stored. The daemon refuses to
-  start (non-zero exit naming `make db-push`) on a DB with no `worker_runs` table.
+  start (non-zero exit naming `make db-push`) on a DB with no `worker_runs` table, and
+  a pass raises while legacy `pipeline_status='discarded'` rows await
+  `ats_worker.migrate_evaluate_once` (below).
 - **`config.py` — load/validate `config.yaml`.** Validates `source ∈ VALID_SOURCES`
   (the watchlist-capable boards: {greenhouse, lever, ashby, workday, pinpoint,
   smartrecruiters, workable, icims, phenom, custom, browser} — feed-only sources oracle/jobvite
@@ -836,19 +838,47 @@ worker modules are pure and dependency-injected; real services are wired only in
   to an argparse default (§12).
 
   **Screen lifecycle.** `pipeline.run_screen` applies `screen_posting` and the
-  deterministic hard-requirement rules. It stores one latest result per posting in `job_screenings`,
-  leaving `job_postings.pipeline_status`, fit `score_detail` and application links
-  untouched. Successful results are reused
-  until `--rescreen-screened --once` explicitly clears them for eligible
-  `new` postings. Provider errors remain retryable and are selected oldest-attempt-first
+  deterministic hard-requirement rules to pending in-window `new` postings (evaluation
+  lifecycle below). It stores one result per posting in `job_screenings`, with the
+  `profile_version` it ran under, leaving `job_postings.pipeline_status`, fit
+  `score_detail` and application links untouched. A completed result is final and never
+  re-run. Provider errors remain retryable and are selected oldest-attempt-first
   after fresh rows, under the configured positive per-pass provider-call cap (default
   40), or without a call-count cap when `--screen-unlimited` is explicit. The existing
   circuit-breaker policy remains active in either mode; there is no per-row retry budget or automatic input-hash
   invalidation. Deterministic-only outcomes do not spend provider-call capacity and are
   still processed after the cap. A provider error stores only a closed safe category and
   fixed summary, never raw exception text. A per-result transaction re-checks that the
-  posting is still `new`; a provider call interrupted before commit can be repeated on
-  a later pass (at-least-once external execution).
+  posting is still `new` and pending; a provider call interrupted before commit can be
+  repeated on a later pass (at-least-once external execution).
+
+  **Evaluation lifecycle** (#225). A `new` posting is evaluated once: fetch ->
+  requirements -> triage (when configured) -> a stored verdict
+  (`job_postings.verdict`, `pending | keep | skip | discarded | not_evaluated`, plus
+  `verdict_at`). Both stages take only `pending` postings inside one shared window:
+  `posted_at`, else `created_at`, on or after now minus
+  `pipeline.EVALUATION_WINDOW_DAYS` (7). Inside it, deferred work (a cap, the breaker, a
+  retryable provider error) keeps its place; each pass first ages every pending posting
+  outside it to the final `not_evaluated` (`db.age_out`), counted in the pass record and
+  on Activity. The stage that finishes a posting writes the verdict in the same
+  transaction as its result: a requirements disqualification (fetch gate or screen) is
+  `discarded`; a completed triage keep/skip is the verdict; a pass is `keep` when triage
+  is not configured for the pass (no `--jev`, or a profile with no target role and no
+  custom context; invalid custom packs count as configured and wait). Nothing re-queues:
+  a profile edit, a JD content change (source refresh) or a model change never
+  re-evaluates; `evaluator_version`, backend, model and `profile_version` are recorded,
+  never compared. The one-time operator migration
+  (`python3 -m ats_worker.migrate_evaluate_once migrate --db <db>`, after the schema
+  push) backs the DB up with the SQLite backup API, moves each legacy discard
+  (`pipeline_status='discarded'` with the screen verdict in `score_detail`) into the
+  requirements shape (`pipeline_status` back to `new`, `score_detail` cleared, verdict
+  `discarded` at its `created_at`), backfills every verdict once from today's status
+  rules (disqualifying screen `discarded`; completed triage keep/skip stands, stale or
+  not; a passing screen `keep` unless the readers' triage mode is on — a target role or
+  custom context and at least one triage row; unfinished work `pending` in the window,
+  else `not_evaluated`), and deletes the retired `jev_current_policy_sha256` setting. It
+  refuses, writing nothing, before the push or on a `discarded` row that is not exactly
+  the legacy shape or already has a screen row; a rerun reports "already migrated".
 
   **Candidate profile** (`profile.py`, #224). One `candidate_profile` row (§8), the only
   candidate input; `run._profile_for_pass` reads it once per pass. Fetch reads the search
@@ -886,32 +916,29 @@ worker modules are pure and dependency-injected; real services are wired only in
 
   **JEV keep/skip filter** (`jev.py`, `pipeline.run_jev`, opt-in `--jev`). User-facing
   this is **triage**, the keep/skip stage; JEV is its one provider. After the
-  screen, each screened, not-disqualified `new` posting gets two native OpenRouter JEV
+  screen, each pending, screened, not-disqualified in-window `new` posting gets two native OpenRouter JEV
   calls (`typesafe/jev-1.13`): the preference question pack with the approved profile,
   and a one-question required-experience pack with education/experience facts only. The
   verdict is `skip` when preference is `weak` or the applicable mandatory experience
   floor (the route matching the candidate's degree; ranges use the lower bound) answers
   a `jev.YOE_SKIP` key: `three_plus` (a fixed 3-year floor, the operator's measured
   pack) or `above_candidate` (above the years stated in the experience context, the
-  example pack); everything else, including `unknown`, is `keep`. One latest row per
-  posting lives in `job_jev_assessments`; `pipeline_status` and screen state are never
-  touched. An operator override (`job_triage_overrides`, set through MCP
+  example pack); everything else, including `unknown`, is `keep`. One row per
+  posting lives in `job_jev_assessments` with the `profile_version` it ran under; a
+  completed keep/skip is the posting's final verdict; `pipeline_status` and screen state
+  are never touched. An operator override (`job_triage_overrides`, set through MCP
   `override_triage`) is read-side only: JEV still assesses the posting and never reads or
-  writes the override. A row is re-queued when the policy hash (profile, both packs, the
-  experience context, the resolved model, the rule version) or the posting's source
-  revision changes; provider errors retry oldest-first after fresh work. Only postings
-  from the last 7 days (`pipeline.JEV_MAX_AGE_DAYS`; `posted_at`, else `created_at`) are
-  assessed or retried; older ones stay `unassessed` and listed, and an out-of-window
-  `failed` or `stale` label is final (shown, never re-assessed). A pass is
+  writes the override. A completed verdict is never re-queued; provider errors retry
+  oldest-first after fresh work, inside the shared window only. A pass is
   sequential with no in-pass retries, capped by `--jev-limit` (default 300) and
   `--jev-max-usd` (default 0.10, settled charges including partial failures, checked
   before each posting, so a pass can exceed it by one posting's two calls). An unknown
   charge (missing/negative/non-finite cost, BYOK, or any transport failure other than a
   connect timeout) stops the
   pass; a dead backend trips the shared breaker. A request over 32,768 bytes is never
-  sent, is stored as `request_too_large`, and is not retried until its source or policy
-  changes. Each pass records its policy hash in `app_settings`
-  (`jev_current_policy_sha256`) so MCP can label older verdicts stale. Without
+  sent, is stored as `request_too_large`, and is never retried (it ages out). No
+  policy hash is stored or compared (`policy_sha256` is a dead nullable column until
+  #226 drops it with the reader rules). Without
   `OPENROUTER_API_KEY` or model metadata the stage is skipped with a log line; fetch and
   screen have already run. The four inputs (`profile_text`, both packs, `yoe_context`)
   come from the candidate profile (`triage_texts()` above); `--jev` needs no other
@@ -927,9 +954,9 @@ worker modules are pure and dependency-injected; real services are wired only in
   per pack, so the screen provider receives the JEV profile and experience context.
   The JD is truncated to `num_ctx * 2` characters with the screen's marker, and the
   questions come after the data. Ollama ignores the schema (`format="json"`), so there
-  the enum is enforced only by post-validation. The policy hash names the prompt
-  version, screen backend, model, effort and truncation width, so changing any of them
-  re-queues every verdict. The seam reports no cost: `--jev-limit` is the only cap
+  the enum is enforced only by post-validation. The recorded `model` names the prompt
+  version, screen backend, model, effort and truncation width (provenance; a change
+  re-queues nothing). The seam reports no cost: `--jev-limit` is the only cap
   (default 40 postings here, not 300), an explicit `--jev-max-usd` is refused, and no
   OpenRouter key is needed. Refused with `--screen-backend none`. **UNVALIDATED**: the
   measured basis above is native-only.
@@ -1294,9 +1321,9 @@ worker modules are pure and dependency-injected; real services are wired only in
   — when a `candidate` is configured — run the **same** deterministic intern/location
   gate as the post-LLM screen (`screening.deterministic_screen`, shared code, not a
   reimplementation) against each surviving posting *before* it is ever upserted. A
-  gate miss is tagged `pipeline_status="discarded"` with a screen-shaped
-  `score_detail` right there at fetch time — visible in the Discovered "Discarded"
-  bucket with its reason — **without** an Ollama call; a company that raises is
+  gate miss is stored with its requirements result and verdict `discarded` right there
+  at fetch time — visible in the Discovered rejected buckets with its reason —
+  **without** an Ollama call; a company that raises is
   logged-and-skipped so the rest of the watchlist still ingests. Finally, a surviving
   posting with **no description is dropped, logged, and recorded in `feed_unresolved`**
   (`feed="watchlist"`, `reason="empty_description"`) — `_valid_posting`, the same
@@ -1304,13 +1331,13 @@ worker modules are pure and dependency-injected; real services are wired only in
   (`upsert_postings` is `ON CONFLICT DO NOTHING`, so a later cycle never back-fills it)
   and would be screened blind, so a board whose list endpoint carries no
   JD simply yields nothing that cycle — while the `feed_unresolved` record surfaces the
-  silently-broken scraper on the Unresolved board (dropping, not storing as `discarded`,
+  silently-broken scraper on the Unresolved board (dropping, not storing a discard,
   keeps the id re-fetchable so the board self-heals if a later cycle returns the body).
-  Rows already tagged `discarded` are exempt —
+  Gate discards are exempt —
   the stub gate returns those deliberately un-hydrated and they never reach the screen. `screen_posting`
   still runs `deterministic_screen` again post-LLM (preserving any degree/auth/
-  clearance disqualification the SCREEN call found), so the feed path — which never
-  goes through `run_fetch` — gates identically, just one stage later.
+  clearance disqualification the SCREEN call found); the feed path applies the fetch
+  gate itself before its upsert (`candidate` passed to `run_feed`).
   `run_feed` (optional) runs
   the feed: feed gate → operator pre-filter (`prefilter_postings`, the same call
   `run_fetch` makes) → resolve → record-unresolved, then groups survivors by
@@ -1421,19 +1448,22 @@ worker modules are pure and dependency-injected; real services are wired only in
   mark job descriptions, application notes, recipes and scraped text as untrusted data.
   `list_jobs` takes `jev` (`keep` default, `skip`, `all`): `keep` hides only `new`
   postings whose current JEV verdict is `skip` and reports `jev_filter.hidden_skip_count`
-  on the first page; unassessed, failed, non-`new` and stale (source revision changed,
-  or a policy other than the latest pass recorded) postings are shown.
+  on the first page; unassessed, failed, non-`new` and stale (source revision changed;
+  the worker no longer records a policy, so a policy never marks one stale) postings are
+  shown.
   It also takes `closed` (`exclude` default, `only`, `all`): `exclude` hides every
   `source_state='closed'` posting, as the web files it only under its `closed` stage, and
   `hidden_skip_count` and the overview's `jev_filter_counts` leave closed rows out;
   `only` lists just those (pinned with the web by `worker/tests/fixtures/closed-stage-cases.json`).
   `jev.status` is the **effective** status: an operator override
   (`job_triage_overrides`) wins when its recorded `source_content_revision` equals the
-  posting's (NULL counts as 1, as the worker's refresh backfills it), so it survives worker passes and JEV re-assessments of the same content and
+  posting's (NULL counts as 1, as the worker's refresh backfills it), so it survives worker passes and
   lapses when the content changes. Each row carries `jev.status`, `model_status`,
   `reasons` (the model's) and `override` (`decision, reason, actor, set_at, applies`, or
-  null); the keep/skip filter and counts use the effective status. `get_job` adds model, policy hash and attempt
-  times; `get_ats_overview` adds `jev_filter_counts` over `pipeline_status=new`, not `source_state=closed`.
+  null); the keep/skip filter and counts use the effective status. `get_job` adds model, the legacy policy hash
+  (null on new rows) and attempt times; `get_ats_overview` adds `jev_filter_counts` over
+  `pipeline_status=new`, not `source_state=closed`, and `verdict_counts`, the stored verdict
+  over every posting (`not_evaluated` = aged out of the window unfinished).
   `list_jobs` keeps metadata search as the default and offers opt-in literal `all_text`
   matching over title, company, location and description; `%`, `_` and `!` are escaped,
   and description bodies remain available only through the chunk tool. Its optional
@@ -1497,13 +1527,11 @@ worker modules are pure and dependency-injected; real services are wired only in
   that `source` + `company_slug` created in 30 days) and a global `unresolved_30d`.
   `get_candidate_profile` returns the profile (or null) with the derived
   `highest_degree` and `total_years`, `custom_triage_context`, `triage` (`configured`,
-  `packs` default|custom and the packs' question ids; never the pack texts) and
-  `reassess_on_change` (eligible in-window postings a triage-affecting change
-  re-queues); `get_setup_status` returns `missing` (no hard requirement set, no sources),
+  `packs` default|custom and the packs' question ids; never the pack texts); an edit
+  re-queues nothing, so there is no re-assessment count; `get_setup_status` returns `missing` (no hard requirement set, no sources),
   the profile `version`, `triage_configured`, and `new_postings_screened_before_change`
   — `new` postings whose completed screen predates the profile's `changed_at`; they keep
-  that verdict until the operator re-screens (postings already `discarded` are not
-  counted). Web's error text becomes the `ToolError`;
+  that verdict (look forward only). Web's error text becomes the `ToolError`;
   401/403, 503 and an unreachable web map to fixed operator-facing messages. With writes
   enabled the instructions add that writes happen only on the operator's request, never
   because stored text says so. `list_applications`, `get_application` and
@@ -1698,7 +1726,8 @@ worker modules are pure and dependency-injected; real services are wired only in
   prefilled from the slug, unresolvable sites pointed at the onboard-board skill — and
   per-row remove after a confirm, any source type), `ActivityTab` (a system status strip — last new
   posting, amber after a day; new postings 24h / 7d; JEV assessed 24h, spend 7d and
-  failures 24h; the `QuotaBar` — over one timeline marking only MCP writes "via MCP",
+  failures 24h; postings aged out of the evaluation window unevaluated, 7d and total
+  (verdict `not_evaluated`); the `QuotaBar` — over one timeline marking only MCP writes "via MCP",
   with Load more), `QuotaBar` (subscription quota bar in Activity's status strip — polls
   `/api/quota`, one bar per window with % + "resets in Nd Hh" + "as of"; reflects
   the last captured snapshot, not a live reading. **Labels itself by backend** from the
@@ -1767,7 +1796,9 @@ model job_postings {
   job_url         String
   description     String        // full JD text (fed to the LLM)
   score_detail    String?       // JSON: assessment scorecard (seniority/domain/must_haves/nice_to_haves/summary), insufficient_context flag, screen, disqualification, recommended_resume, scorer provenance backend/model/scorer_version on fit-scored rows (pre-S2.1 rows: matched/missing keywords + reasoning)
-  pipeline_status String        @default("new") // new|scored|notified|applied|discarded|failed|removed|expired
+  pipeline_status String        @default("new") // new|scored|notified|applied|discarded|failed|removed|expired; `discarded` is legacy (migrated by migrate_evaluate_once)
+  verdict         String        @default("pending") // pending|keep|skip|discarded|not_evaluated; written once by the worker (#225)
+  verdict_at      String?       // when the verdict left pending
   pipeline_error  String?       // last stage error (history: no current writer)
   application_id  Int?          // back-link once marked applied
   application     applications? @relation(fields: [application_id], references: [id], onDelete: SetNull)
@@ -1789,6 +1820,7 @@ model job_postings {
 
   @@unique([source, external_id])  // dedup key
   @@index([pipeline_status])
+  @@index([verdict])
   @@index([source, source_last_check_attempted_at])
 }
 
@@ -1805,7 +1837,8 @@ model job_screenings {
   evaluator_version String
   last_attempted_at String
   completed_at      String?
-  source_content_revision Int? // posting revision used by this completed screen
+  source_content_revision Int? // posting revision used by this completed screen (provenance)
+  profile_version   Int?         // candidate_profile.version it ran under (display only)
   created_at        String
   updated_at        String?
   job_posting       job_postings @relation(fields: [job_posting_id], references: [id], onDelete: Cascade)
@@ -1824,8 +1857,8 @@ model job_triage_overrides {     // operator keep/skip over JEV; JEV never write
   job_posting             job_postings @relation(fields: [job_posting_id], references: [id], onDelete: Cascade)
 }
 
-// JEV keep/skip filter (worker `run_jev`). One latest assessment per posting; a skip
-// only hides the row from the MCP default list, it never changes pipeline_status.
+// JEV keep/skip filter (worker `run_jev`). One assessment per posting, made once; a
+// completed one sets job_postings.verdict. It never changes pipeline_status.
 model job_jev_assessments {
   id                      Int          @id @default(autoincrement())
   job_posting_id          Int          @unique
@@ -1835,8 +1868,9 @@ model job_jev_assessments {
   result_json             String?      // native answers of both questions
   error_category          String?
   model                   String?
-  policy_sha256           String       // profile + question packs + model binding
+  policy_sha256           String?      // legacy; no longer written or compared, dropped in #226
   source_content_revision Int?
+  profile_version         Int?         // candidate_profile.version it ran under (display only)
   cost_usd                String?
   last_attempted_at       String
   completed_at            String?
@@ -1980,9 +2014,8 @@ not change other adapters.
   row, list entries added or removed, with the raw text under Advanced; an unedited
   context keeps its stored bytes, an edit keeps compact JSON compact). One Save sends
   every field through `setCandidateProfile` (actor `web`); it loads with
-  `getCandidateProfile`, which also counts the in-window postings a triage-affecting
-  change re-assesses, and a change to what triage reads asks for confirmation with that
-  count and an estimated cost first.
+  `getCandidateProfile`. A save re-assesses nothing already evaluated, so it asks no
+  cost confirmation.
 
 **Schema changes and migrations.** The schema is applied with `prisma db push`
 (`make db-push`), so there is **no migration history**. This is a deliberate tradeoff
@@ -2003,13 +2036,14 @@ them when changing behavior.
 **Pipeline state machine** (`pipeline.py`):
 
 ```
-fetch:   (new posting)            → new
-                                  → discarded      (code-only gate fail at ingest)
-feed:    (surfaced posting, JD via board adapter) → new   (optional, alongside fetch)
-screen:  new                      → new            (result stored in job_screenings;
-                                                    lifecycle untouched)
-jev:     new (screened, not dq)   → new            (keep/skip in job_jev_assessments;
-                                                    lifecycle untouched; --jev only)
+fetch:   (new posting)            → new            (verdict pending, or discarded with
+                                                    a requirements result on a gate miss)
+feed:    (surfaced posting, JD via board adapter) → new   (same gate; alongside fetch)
+screen:  new, pending, in window  → new            (result in job_screenings; verdict
+                                                    discarded, or keep without triage)
+jev:     new, pending, passed     → new            (job_jev_assessments; verdict keep|skip;
+                                                    --jev only)
+age-out: pending, outside window  → unchanged      (verdict not_evaluated)
 expire:  new|scored|notified, detail source, board 404/410 → unchanged
                                                    (source_state='closed'; capped at
                                                     50/pass, least-recently-checked
@@ -2024,7 +2058,7 @@ only `smartrecruiters` rows in `new`, `failed`, `discarded`, or `expired`, with 
 assessment and no application link; `--refresh-limit` bounds the request count to 25.
 Only a matching SmartRecruiters ID with `active=false` confirms source closure. A valid
 active payload can update company/title/location/JD and the content revision; a changed
-revision leaves existing assessments intact and visible as stale. Timeouts, blocks,
+revision leaves existing assessments and the verdict intact (nothing re-evaluates). Timeouts, blocks,
 404/410, malformed payloads, and incomplete content are inconclusive. Every source write
 rechecks identity and eligibility in a transaction. Refresh does not change
 `pipeline_status`, applications, notes, status history, or retention, and calls no model.
@@ -2063,8 +2097,11 @@ Triage evidence with duplicate object members at its root, screen map, or check 
   `candidate` block skips the model call; deterministic location/internship gates still
   run. Provider calls default to a positive cap of 40; explicit `--screen-unlimited`
   removes only the count cap, retaining success caching and the provider breaker. An
-  ingest-gate `discarded` row keeps a screen-shaped `score_detail` (including
-  `disqualification_reason`) so the UI can explain *why*.
+  ingest-gate discard stores its requirements result (including
+  `disqualification_reason`) in `job_screenings` so the UI can explain *why*.
+- **Each posting is evaluated at most once, inside the window.** A stored verdict never
+  leaves its value; a profile edit, a content change or a model change re-queues
+  nothing; a pending posting outside the window becomes `not_evaluated`.
 - **Concurrent screen calls never reorder or mis-associate a write.** Every `db.*`
   write stays on the calling thread.
 - **`now` is injected** per run (ISO-8601 UTC ms), making the pipeline
@@ -2226,9 +2263,10 @@ CI guard (`tools/check_schema_drift.mjs`, `make check-schema`).
 
 **Failure handling and recovery limits:**
 
-- **`failed` and `discarded` are terminal for the worker.** Nothing requeues them;
-  No reopen path exists (the web's Reopen went with #158): a wrong screen discard stays
-  discarded, visible under Screen rejected with its kept `disqualification_reason`.
+- **A verdict is terminal for the worker,** as are the legacy `failed` and `discarded`
+  states. Nothing requeues them; no reopen path exists yet (the override rescue of a
+  discard is #226): a wrong discard stays discarded, visible under its rejected bucket
+  with its kept `disqualification_reason`.
 - **A dead screen *provider* circuit-breaks the screen pass.** `screen_posting` errs
   toward KEEP on any provider failure, which is right for one flaky call and wrong for
   an outage. The verdict carries `provider_error`; `run_screen` stores a closed-category
@@ -2318,7 +2356,7 @@ automated coverage — those rely on code review or the human in the loop, not a
 | Discovery and read-only evidence access need no fit scoring or delivery | `tests/test_run.py` (`fetch_only` isolation case), `tests/test_screen_pipeline.py`, `tests/test_mcp_repository.py`, `tests/test_mcp_protocol.py`; existing behavior, unchanged by this documentation update |
 | Pipeline stage gating + per-item failure isolation | `worker/tests/test_pipeline.py`, `integration/test_pipeline_e2e.py` |
 | Screen-only stores result/provenance separately, preserves posting/fit lifecycle fields, caches completed rows, retries provider errors oldest-first under the provider-call cap, and re-checks eligibility before commit | `test_screen_pipeline.py` (`test_screen_results_cache_and_leave_fit_lifecycle_unchanged`, `test_provider_cap_counts_failures_and_errors_retry_oldest_first`, `test_screen_result_is_not_saved_if_lifecycle_changes_during_provider_call`, `test_provider_exception_text_is_not_persisted`) |
-| A pass is fetch then screen; `--screen-only` is an accepted alias; invalid mode combinations are rejected; Codex defaults to Luna/medium when no overrides are set | `test_run.py` (`test_run_once_defaults_codex_to_luna_medium`, `test_screen_only_is_an_accepted_alias_for_the_default_pass`, `test_screen_only_invalid_combinations_fail_before_config_or_db`, `test_rescreen_screened_requires_one_shot`), `test_backends_screen.py` |
+| A pass is fetch then screen; `--screen-only` is an accepted alias; invalid mode combinations are rejected; Codex defaults to Luna/medium when no overrides are set | `test_run.py` (`test_run_once_defaults_codex_to_luna_medium`, `test_screen_only_is_an_accepted_alias_for_the_default_pass`, `test_screen_only_invalid_combinations_fail_before_config_or_db`, `test_rescreen_screened_is_gone`), `test_backends_screen.py` |
 | Pass record: one `worker_runs` row per pass; a failing screen backend still records `ok` with errors by category; a raising pass stays `running` and the next marks it `failed`/`abandoned`; no secret in the recorded config; stage tallies | `test_worker_runs.py` |
 | Dedup `(source, external_id)` on ingest | `test_db.py`, `test_pipeline.py` |
 | WAL + `busy_timeout` pragmas on connect | `test_db.py` |
@@ -2338,7 +2376,8 @@ automated coverage — those rely on code review or the human in the loop, not a
 | Deterministic location gate (`location_verdict`, pycountry + geonamescache, evidence-tiered): a NAMED country / US state decides alone and outranks the remote hint; city/subdivision evidence is diacritic-folded, votes for every reading it allows, and discards only when corroborated; region acronyms are a stoplist; any allowed evidence keeps | `test_location.py` (`test_resolve_location`, `test_location_verdict_marks_what_escalates`, `test_token_country_*`, `test_folding_is_the_same_function_everywhere`) + gate integration tests in `test_location.py` |
 | **Zero false discards** over every distinct location string in the live DB, gated in CI against a committed corpus labeled by an INDEPENDENT oracle (not by the code under test); the residual leak set is pinned EXACTLY, in both directions, so the accepted trade cannot drift silently | `test_location.py` (`test_no_us_eligible_string_is_ever_discarded`, `test_the_leak_set_is_pinned_exactly`, `test_the_corpus_is_labeled_the_way_the_gate_assumes`, `test_a_discard_always_names_a_country_the_string_actually_mentions`), `tests/fixtures/location_corpus.jsonl` |
 | Fetch-time max-age + title_exclude drop | `test_fetch.py::test_prefilter_*` |
-| Deterministic gate hoisted to fetch (discarded, no Ollama) | `test_pipeline.py::test_run_fetch_marks_location_miss_discarded` |
+| Deterministic gate hoisted to fetch (requirements result + verdict `discarded`, no Ollama); a watchlist and a feed miss are stored identically | `test_pipeline.py::test_run_fetch_stores_a_location_miss_as_a_requirements_discard`, `test_feed_pipeline.py::test_a_watchlist_and_a_feed_location_miss_are_stored_identically` |
+| Evaluate once (#225): both stages run only on pending in-window postings and record the profile version; the finishing stage writes the verdict (keep without triage); a profile edit or content change re-queues nothing; aged-out postings are `not_evaluated` and counted; a pass refuses while legacy discards remain; the migration backs up, moves legacy discards, backfills verdicts, refuses unexpected rows and is idempotent | `test_evaluate_once.py`, `test_screen_pipeline.py` (`test_a_finished_screen_writes_the_verdict_and_its_profile_version`, `test_the_screen_runs_only_inside_the_window_and_only_on_pending_rows`), `test_jev.py::test_run_jev_persists_verdicts_and_leaves_lifecycle_alone`, `test_migrate_evaluate_once.py`, `test_mcp_repository.py::test_overview_counts_stored_verdicts_including_aged_out_postings`, `web/src/__tests__/activity.int.test.ts` |
 | The code-side gates (intern title, location string) run BEFORE the model call and short-circuit it: a row they disqualify makes no backend call, carries no `provider_error`, and its reason is the deterministic one alone | `test_screen.py` (`test_a_deterministically_disqualified_row_never_reaches_the_provider`, `test_a_deterministic_gate_short_circuits_the_model_reason`, `test_multiple_failing_gates_join_reasons`), `test_pipeline.py`  |
 | A provider error never disqualifies on the sponsorship **phrase floor** — the deterministic gates still stand, but the blunt whole-description scan is skipped and `authorization` is left absent; `SCREEN_BACKEND=none`, which has no provider to fail, still records that floor verdict | `test_screen.py` (`test_a_provider_error_never_disqualifies_on_the_sponsorship_phrase_floor`, `test_screen_backend_none_still_records_the_authorization_floor_verdict`) |
 | A **blind** live backend (nothing usable: not a dict, or neither a `screen` object nor any requirement key) is a `provider_error`, not a verdict; the FLAT shape the 4B emits ~1 call in 100 is a real verdict and is honoured, byte-identical to the nested shape — so it cannot discard on the phrase floor and cannot record breaker successes; the narrow scope is pinned on the other side, where an empty `screen` dict is an answer and keeps the floor | `test_screen.py` (`test_a_blind_response_is_a_provider_error_not_a_verdict`, `test_an_empty_screen_object_is_a_verdict_and_keeps_the_floor`, `test_the_flat_shape_is_a_verdict_and_is_honoured`, `test_the_flat_shape_and_the_schema_shape_agree`, `test_the_observed_flat_response_is_kept_not_discarded`) |
@@ -2401,7 +2440,7 @@ automated coverage — those rely on code review or the human in the loop, not a
 | Board absence closes: 3rd consecutive successful non-empty list without the id closes it, a failed or empty fetch never counts, relisting reopens; filter- and stub-gate-dropped ids still stamped seen; board-scoped stamp and count; workday/smartrecruiters/phenom/browser/icims/custom never close by absence; closed rows leave the screen and JEV queues | `test_closure.py` |
 | Explicit one-shot source refresh stays within 1–25 SmartRecruiters requests without following redirects, selects only unscored/unlinked rows without fit assessment, validates identity and visible core JD content, preserves state on inconclusive/closed results, reopens source availability without relabeling detail-check time, and skips concurrent eligibility changes | `test_source_lifecycle.py`, `test_run.py::test_run_once_unscored_refresh_runs_as_an_isolated_source_only_mode`, `test_smartrecruiters.py` |
 | Explicitly inactive SmartRecruiters details cannot insert or reopen a source observation on normal feed/watchlist ingestion; missing `active` remains compatible and normal ingest never records closure | `test_smartrecruiters.py` (`test_fetch_one_rejects_an_explicitly_inactive_detail`, `test_fetch_skips_explicitly_inactive_detail_but_keeps_missing_active_compatibility`), `test_feed_pipeline.py` (`test_run_feed_does_not_insert_smartrecruiters_explicitly_inactive_detail`, `test_run_fetch_does_not_reopen_closed_smartrecruiters_row_from_inactive_detail`), `test_source_lifecycle.py` |
-| Complete source content is hashed/revisioned; duplicate listings only advance seen time; completed fit and standalone assessments capture the source revision; changed content makes old screen evidence stale without a provider rerun | `test_source_lifecycle.py`, `test_db.py`, `test_screen_pipeline.py` |
+| Complete source content is hashed/revisioned; duplicate listings only advance seen time; completed fit and standalone assessments capture the source revision; changed content never triggers a provider rerun | `test_source_lifecycle.py`, `test_db.py`, `test_screen_pipeline.py` |
 | Tracker shows confirmed source state, inconclusive attempt and separate fit/screen freshness in list and detail views; invalid source timestamps and invalid captured revisions remain null/unknown | `web/src/lib/__tests__/source-lifecycle.test.ts`, `web/src/components/__tests__/DiscoveredJobsTable.test.tsx`, `web/src/components/__tests__/JobDetailModal.test.tsx` |
 | Read-only MCP job list/detail exposes bounded source state and freshness summaries without leaking raw errors or JD text; invalid captured screen revisions remain unknown | `tests/test_mcp_repository.py::test_source_lifecycle_separates_state_from_fit_and_screen_freshness`, `test_source_lifecycle_invalid_screen_revisions_are_unknown_in_list_and_detail`, `test_source_lifecycle_rejects_boolean_screen_revisions`, `test_source_lifecycle_rejects_unsafe_current_fit_and_screen_revisions`, `test_source_lifecycle_accepts_maximum_safe_revision` |
 | Explicit unlimited screen mode processes more than 40 provider calls, reuses completed cache, preserves the dead-provider breaker; CLI rejects out-of-mode/conflicting use, and explicit unlimited overrides the environment cap while zero stays invalid | `tests/test_screen_pipeline.py` (`test_unlimited_screen_exceeds_default_cap_and_still_caches_success`, `test_unlimited_screen_retains_dead_provider_breaker`), `tests/test_run.py` (`test_screen_unlimited_cli_overrides_environment_limit`, `test_screen_only_invalid_combinations_fail_before_config_or_db`) |
@@ -2413,7 +2452,7 @@ automated coverage — those rely on code review or the human in the loop, not a
 | MCP protocol without a write key advertises only the fourteen read-only/closed-world tools, exposes research filters, returns structured data and safe errors, leaves application rows unchanged, and serves list → next page → get_job → all chunks through local stdio | `tests/test_mcp_protocol.py` (`test_in_memory_protocol_lists_read_only_tools_and_returns_structured_data`, `test_protocol_errors_are_actionable_without_exposing_database_paths`, `test_stdio_subprocess_uses_protocol_and_only_reads_its_configured_database`, `test_stdio_research_path_pages_gets_chunks_and_reports_safe_error`); CI installs `requirements-mcp.txt` so these cannot skip there |
 | Standalone screen assessment times are sampled after each provider result on the DB thread and passed from `run.py` | `tests/test_screen_pipeline.py::test_screen_saves_sample_clock_after_each_result_on_the_db_thread`, `tests/test_run.py::test_run_once_defaults_codex_to_luna_medium` |
 | Worker SQL fixture ↔ `schema.prisma`, including `job_screenings`, in sync | `test_schema_sync.py` + `tools/check_schema_drift.mjs` (CI) |
-| JEV: skip only on weak preference or a YOE skip key (`three_plus` / `above_candidate`); caps, re-queue on policy/source change, unknown charge stops the pass; MCP default hides only current skips | `test_jev.py`, `test_mcp_repository.py::test_jev_filter_*` |
+| JEV: skip only on weak preference or a YOE skip key (`three_plus` / `above_candidate`); caps, no re-queue, unknown charge stops the pass; MCP default hides only current skips | `test_jev.py`, `test_mcp_repository.py::test_jev_filter_*` |
 | Candidate profile (#224): one row drives the fetch scope, the screen and triage; config.yaml seeds it once, then set keys are ignored and logged; a fresh install is configured by the row alone; highest degree and total years derive from the background rows identically on web and worker (one fixture); a malformed row fails the pass; the migration keeps the screen decision and the JEV policy hash, touches no stored verdict, is idempotent and never overwrites an edited row; the form, the route and MCP share one validation | `test_profile.py`, `test_migrate_profile.py`, `test_run.py` (`test_run_once_seeds_the_profile_once_then_reads_the_db`, `test_fresh_install_without_config_is_configured_by_the_row_alone`, `test_run_once_rejects_an_off_vocabulary_stored_value`), `test_jev.py` (`test_triage_reads_the_structured_profile_with_the_default_packs`, `test_jev_dir_seeds_the_profile_and_keeps_the_policy_hash_of_the_files`), `test_mcp_repository.py::test_get_candidate_profile_*`, `test_mcp_write.py::test_set_candidate_profile_*`, `web/src/lib/__tests__/candidate-profile.test.ts`, `web/src/__tests__/api-v1.int.test.ts`, `web/src/components/__tests__/SettingsPanel.test.tsx` |
 | No private file (`.env` / résumé / db / `config.yaml`) tracked by git | `tools/check_privacy.mjs` (+ `--self-test`; CI) |
 
