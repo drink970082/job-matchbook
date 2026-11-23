@@ -14,6 +14,11 @@ export interface PassRecord {
     counts: Record<string, any>
 }
 
+// The newest `failed` row newer than the newest `ok` row, and how many failed rows
+// that run holds. The worker marks a dead pass `failed` only as the next one starts, so
+// a failure is never the latest row while that next pass runs.
+export interface PassFailure { startedAt: string; errorCategory: string | null; since: number }
+
 export interface StageLine { stage: string; text: string; warn: boolean }
 
 export interface PassView {
@@ -45,7 +50,9 @@ function errors(t: Record<string, any>): string {
     return `${n(t.errors)} errors${by ? ` (${by})` : ''}`
 }
 
-export function describePass(pass: PassRecord | null, now: number): PassView {
+const failureText = (cat: string) => `${cat}${FAILURE_HINT[cat] ? ` (${FAILURE_HINT[cat]})` : ''}`
+
+export function describePass(pass: PassRecord | null, now: number, failure: PassFailure | null = null): PassView {
     if (!pass) {
         return { problem: 'No pass recorded yet: the worker has not run against this database.', state: 'never',
             ranWith: '', lines: [] }
@@ -59,7 +66,7 @@ export function describePass(pass: PassRecord | null, now: number): PassView {
     if (pass.status === 'failed') {
         const cat = pass.errorCategory ?? 'unknown'
         state = `failed: ${cat}`
-        problem = `Last pass failed: ${cat}${FAILURE_HINT[cat] ? ` (${FAILURE_HINT[cat]})` : ''}.`
+        problem = `Last pass failed: ${failureText(cat)}.`
     } else if (pass.status === 'running') {
         state = `running for ${duration(age)}`
         if (age > hours * HOUR) problem = `The last pass has been running for ${duration(age)}, longer than the ${hours}h pass interval: it may be hung.`
@@ -68,6 +75,13 @@ export function describePass(pass: PassRecord | null, now: number): PassView {
     }
     if (!problem && pass.status !== 'running' && age > hours * HOUR + SLACK_MS) {
         problem = `No pass started in ${duration(age)} (the pass interval is ${hours}h): the worker may be stopped.`
+    }
+    if (!problem && failure && pass.status !== 'failed') {
+        const when = `${duration(now - Date.parse(failure.startedAt))} ago`
+        const lead = failure.since > 1
+            ? `${failure.since} passes failed since the last finished one, the latest ${when}`
+            : `A pass failed since the last finished one, ${when}`
+        problem = `${lead}: ${failureText(failure.errorCategory ?? 'unknown')}.`
     }
 
     const ran: string[] = []

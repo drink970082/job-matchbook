@@ -117,9 +117,11 @@ test('overlapping inventory requests never show stale rows under newer filters',
 })
 
 test('the Activity view: status strip, one timeline marking only MCP, Load more', async () => {
-    const lastPass = { startedAt: new Date().toISOString(), finishedAt: null, status: 'failed', errorCategory: 'abandoned',
+    // The shape a dying pass leaves: it is marked abandoned as the next one starts running.
+    const lastPass = { startedAt: new Date().toISOString(), finishedAt: null, status: 'running', errorCategory: null,
         fetchOnly: true, jevEnabled: false, config: {}, counts: { fetch: { boards_attempted: 5, boards_failed: 1, inserted: 2 } } }
-    const status = { lastPass, new24h: 3, new7d: 40, assessed24h: 12, failures24h: 1, spend7dUsd: 0.0042,
+    const lastFailure = { startedAt: new Date(Date.now() - 86_400_000).toISOString(), errorCategory: 'abandoned', since: 1 }
+    const status = { lastPass, lastFailure, new24h: 3, new7d: 40, assessed24h: 12, failures24h: 1, spend7dUsd: 0.0042,
         agedOut7d: 2, agedOutTotal: 9 }
     const initial = { items: [
         { key: 'c9', at: '2026-11-19T00:00:00Z', actor: 'web', text: 'Updated the JEV profile' },
@@ -130,8 +132,8 @@ test('the Activity view: status strip, one timeline marking only MCP, Load more'
     render(<ActivityTab status={status} initial={initial} loadMore={loadMore} />)
     expect(screen.getByText('USD 0.0042')).toBeInTheDocument()
     expect(screen.getByText('2 in 7d, 9 total')).toBeInTheDocument()
-    expect(screen.getByText(/^Last pass failed: abandoned/)).toBeInTheDocument()
-    expect(screen.getByText('failed: abandoned')).toBeInTheDocument()
+    expect(screen.getByText(/^A pass failed since the last finished one, 24h 0m ago: abandoned/)).toBeInTheDocument()
+    expect(screen.getByText(/^running for/)).toBeInTheDocument()
     expect(screen.getByText('Fetch: 5 boards, 1 failed; 2 new postings')).toBeInTheDocument()
     expect(screen.getByText('Screen: not run (fetch only)')).toBeInTheDocument()
     expect(screen.getByText(/fetch only; every 24h/)).toBeInTheDocument()

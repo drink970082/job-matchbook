@@ -44,7 +44,7 @@ export function ActivityTab({ status, initial, loadMore }: Props) {
     // the merge, and the dedupe below would otherwise stall Load more on the same page.
     const [offset, setOffset] = useState(initial.nextOffset)
     const [loading, setLoading] = useState(false)
-    const pass = describePass(status.lastPass, Date.now())
+    const pass = describePass(status.lastPass, Date.now(), status.lastFailure)
 
     const more = async () => {
         setLoading(true)

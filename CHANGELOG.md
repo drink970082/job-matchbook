@@ -13,8 +13,9 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
   row (when it started, finished in how long or still running, what it ran with, one
   line per stage: fetch board failures, feeds, closures, aged out, screen errors and
   cap deferrals, triage errors, deferrals and spend) in place of "Last new posting"
-  (`MAX(created_at)`). A `failed` row (named by its error category), a `running` row
-  older than the pass interval, or no pass within the interval is shown as a problem.
+  (`MAX(created_at)`). A failed pass since the last `ok` one (named by its error
+  category, also while the next pass runs), a `running` row older than the pass
+  interval, or no pass within the interval is shown as a problem.
   The worker records `schedule_hours` in the pass config for this.
 - **Evaluate each posting once (#225)**: the screen and triage share one window
   (`posted_at`, else `created_at`, within 7 days) and run at most once per posting; each

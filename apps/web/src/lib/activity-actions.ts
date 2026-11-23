@@ -1,7 +1,7 @@
 'use server'
 
 import { prisma } from '@/lib/db'
-import type { PassRecord } from '@/lib/pass-record'
+import type { PassFailure, PassRecord } from '@/lib/pass-record'
 
 // The Activity tab (#210): a system status strip and one merged timeline of who wrote
 // what (actor web | mcp), newest first.
@@ -26,13 +26,24 @@ export async function getActivityStatus() {
         prisma.job_postings.count({ where: { verdict: 'not_evaluated' } }),
     ])
     const spend7d = spend.reduce((n, r) => n + (Number(r.cost_usd) || 0), 0)
+    // A dead pass is marked failed only as the next one starts running, so the latest
+    // row hides it: read the failures since the last ok pass separately.
+    const lastOk = await prisma.worker_runs.findFirst({ where: { status: 'ok' }, orderBy: [{ started_at: 'desc' }, { id: 'desc' }],
+        select: { started_at: true } })
+    const failedSince = { status: 'failed', ...(lastOk ? { started_at: { gt: lastOk.started_at } } : {}) }
+    const [failed, failedCount] = await Promise.all([
+        prisma.worker_runs.findFirst({ where: failedSince, orderBy: [{ started_at: 'desc' }, { id: 'desc' }] }),
+        prisma.worker_runs.count({ where: failedSince }),
+    ])
+    const lastFailure: PassFailure | null = failed
+        && { startedAt: failed.started_at, errorCategory: failed.error_category, since: failedCount }
     const lastPass: PassRecord | null = run && {
         startedAt: run.started_at, finishedAt: run.finished_at, status: run.status, errorCategory: run.error_category,
         fetchOnly: run.fetch_only, jevEnabled: run.jev_enabled, config: parseObject(run.config_json),
         counts: parseObject(run.counts_json),
     }
     return {
-        lastPass, new24h, new7d, assessed24h, failures24h,
+        lastPass, lastFailure, new24h, new7d, assessed24h, failures24h,
         spend7dUsd: Math.round(spend7d * 10_000) / 10_000, agedOut7d, agedOutTotal,
     }
 }

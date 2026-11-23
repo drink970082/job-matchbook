@@ -48,6 +48,19 @@ test('a failed pass is a problem that names its error category', () => {
         'Screen: not reached', 'Triage: not reached'])
 })
 
+test('a pass that keeps dying shows as a problem even while the next one runs', () => {
+    // Every slot: the dead pass is marked abandoned as the next one starts running.
+    const running = pass({ status: 'running', finishedAt: null, counts: {} })
+    const failure = { startedAt: '2026-11-21T18:00:00.000Z', errorCategory: 'abandoned', since: 3 }
+    const d = describePass(running, at(0.5), failure)
+    expect(d.state).toBe('running for 30m 0s')
+    expect(d.problem).toBe('3 passes failed since the last finished one, the latest 6h 30m ago: abandoned '
+        + '(it died before finishing and the next pass marked it).')
+    expect(describePass(running, at(0.5), { ...failure, since: 1 }).problem).toMatch(/^A pass failed since the last finished one, 6h 30m ago: abandoned/)
+    // A hung current pass is the more urgent notice.
+    expect(describePass(running, at(7), failure).problem).toMatch(/running for 7h 0m/)
+})
+
 test('a running pass is fine within the pass interval and a problem past it', () => {
     const running = pass({ status: 'running', finishedAt: null, counts: {} })
     expect(describePass(running, at(1))).toMatchObject({ problem: null, state: 'running for 1h 0m' })
