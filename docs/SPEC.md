@@ -591,7 +591,7 @@ worker modules are pure and dependency-injected; real services are wired only in
   detail; workable `apply.workable.com/api/v1/widget/accounts/{slug}?details=true`;
   oracle `{host}/hcmRestApi/resources/latest/recruitingCEJobRequisitionDetails/{reqId}`
   (slug packs `{host}/{site}`); jobvite `jobs.jobvite.com/{slug}/job/{id}` → schema.org
-  JobPosting JSON-LD; icims `{slug}.icims.com/jobs/search?in_iframe=1&pr={n}` → server-rendered
+  JobPosting JSON-LD (a closed id redirects to the careers page with `?error=404`, read as a 404); icims `{slug}.icims.com/jobs/search?in_iframe=1&pr={n}` → server-rendered
   HTML cards (bs4), paginate `pr` (plain HTTP, no browser); phenom
   `{host}/api/pcsx/search?domain={domain}&start={n}` (`data.positions[]`, `data.count`) + per-job
   `…/position_details?…&position_id={id}` for the description, slug packs `{host}/{domain}`.
@@ -641,7 +641,7 @@ worker modules are pure and dependency-injected; real services are wired only in
   `recipe` (a JSON object stored on the watchlist row) names the `url`, `method` (GET/POST),
   `mode` (`json`, or `next-data` = extract the `__NEXT_DATA__` blob then treat as JSON),
   `item_path`/`total_path` (`item_path` optional — omit it when the payload is already the job
-  array, i.e. a bare root-level JSON feed like Jane Street), `page` (`offset`/`page`/`none`), and a
+  array, i.e. a bare root-level JSON feed like Jane Street), `page` (`offset`/`page`/`none`, with an optional `start` for a 1-indexed board), and a
   `fields` map (dotted paths, `url` templates, list-concat descriptions) into the canonical dict via
   the shared `fetch/_recipe.py` helpers. One executor covers many boards (Amazon, ByteDance/TikTok,
   DE Shaw, Jane Street, …) with **no per-site code** — adding one stays a data row. Anything a recipe can't express is a

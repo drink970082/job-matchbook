@@ -37,13 +37,11 @@ data before selecting it.
 
 ## Fetch
 
-- **`run_expire` reads a non-404 closed answer as alive.** Every stored row of the four
-  detail sources yields a well-formed key, but only a 404/410 closes. smartrecruiters'
-  `fetch_one` returns `None` on `active: false`; jobvite returns `None` when the page has
-  no JobPosting JSON-LD (a closed job that redirects to the career home); oracle builds a
-  posting even from an empty requisition payload. All three count as alive. Whether each
-  board answers a really closed job with 404, 200-inactive or a redirect is unverified
-  live; workday answers a nonexistent `/job/` path with a JSON 404.
+- **`run_expire` reads smartrecruiters' `active: false` as alive.** Only a 404/410
+  closes; smartrecruiters' `fetch_one` returns `None` on an explicitly inactive detail,
+  which is recorded inconclusive. Oracle answers a closed or unknown requisition with a
+  real 404 and jobvite's closed-job redirect is read as a 404, both checked live
+  2026-11-23; workday answers a nonexistent `/job/` path with a JSON 404.
 - **Wasted re-fetch GETs.** Workday's `existing_external_ids` prune never matches (the
   feed carries `externalPath`, the DB stores the GUID), so every feed-surfaced Workday
   listing costs one CXS GET per pass; Microsoft files about 50 `empty_description` rows
@@ -56,11 +54,6 @@ data before selecting it.
 - **Rate limits:** bounded retry + salvage exists only in `phenom`; port it when a second
   board 429s. Whether it survives a live phenom WAF trip (a 403 deep in pagination) is
   unmeasured.
-- **`custom` offset paging with `body_param` sends the row offset as the page
-  number.** `_page_request` writes `n` into the body param, and `fetch` advances `n` by
-  `len(postings)` for `type: offset`, so a board that expects a page index (apple) skips
-  pages: 978 of 1,008 stored apple rows were not seen on the last pass. This is one of
-  the reasons `custom` is excluded from absence closure.
 - **A well-formed recipe can still miss the live payload:** the recipe schema rejects
   bad keys and values at write time, but an `item_path` or field path that matches
   nothing in the real response only shows at fetch time, as an empty board or
