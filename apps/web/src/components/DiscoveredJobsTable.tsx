@@ -11,11 +11,11 @@ import type { JobTriageSummary } from '@/lib/triage-summary'
 import type { SourceLifecycleSummary } from '@/lib/source-lifecycle'
 import { ExternalLink, FileText, CheckCircle2, EyeOff } from 'lucide-react'
 
+// The triage reasons and the operator's override; the posting's effective status is
+// JobPosting.status (the override if one exists, else the stored verdict).
 export interface JobJev {
-    status: string
-    model_status: string
     reasons: string[]
-    override: { decision: string; reason: string | null; actor: string | null; set_at: string | null; applies: boolean } | null
+    override: { decision: string; reason: string | null; actor: string | null; set_at: string | null } | null
 }
 
 export interface JobPosting {
@@ -32,6 +32,9 @@ export interface JobPosting {
     posted_at?: string | null
     created_at?: string | null
     stage?: JobStage
+    status?: string
+    verdict?: string
+    profile_version?: number | null
     jev?: JobJev
     screen_summary?: ScreenSummary
     legacy_screen_evidence?: LegacyScreenEvidence
@@ -139,6 +142,9 @@ export function DiscoveredJobsTable({
                                         <a href={job.job_url} target="_blank" rel="noopener noreferrer" className="font-medium hover:underline">
                                             {job.job_title}
                                         </a>
+                                    )}
+                                    {job.profile_version != null && (
+                                        <div className="text-xs text-muted-foreground">Judged under profile v{job.profile_version}</div>
                                     )}
                                 </TableCell>
                                 <TableCell className="whitespace-normal break-words">{job.company_name}</TableCell>

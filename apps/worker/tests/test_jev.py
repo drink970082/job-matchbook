@@ -251,7 +251,7 @@ def test_run_jev_persists_verdicts_and_leaves_lifecycle_alone(tmp_path):
     assert set(rows) == {"a", "b"} and tally["skip"] == 2
     assert rows["a"]["verdict"] == "skip" and json.loads(rows["a"]["reasons_json"]) == ["preference_weak"]
     assert rows["a"]["pipeline_status"] == "new" and rows["a"]["cost_usd"] == "0.0002"
-    assert rows["a"]["profile_version"] == 6 and rows["a"]["policy_sha256"] is None
+    assert rows["a"]["profile_version"] == 6
     # The triage verdict is the posting's final stored verdict.
     assert _verdicts(conn) == {"a": "skip", "b": "skip", "dq": "discarded"}
     # Evaluated once: neither a second pass nor a JD content change re-queues it.

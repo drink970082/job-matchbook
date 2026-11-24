@@ -5,7 +5,6 @@ from __future__ import annotations
 import base64
 import hashlib
 import json
-import math
 import os
 import re
 import sqlite3
@@ -97,18 +96,16 @@ SCREEN_OUTCOMES = (
     "not_screened", "provider_error", "disqualified", "no_disqualifier_found", "unknown",
 )
 _SCREEN_OUTCOME_SET = frozenset(SCREEN_OUTCOMES)
-TRIAGE_STATUSES = (
-    "rule_disqualified", "screen_disqualified", "candidate", "needs_review",
-)
-_TRIAGE_STATUS_SET = frozenset(TRIAGE_STATUSES)
-# JEV keep/skip filter status of a posting. Only `skip` is hidden by default; a posting
-# never assessed, whose assessment failed, or whose source changed since is shown.
-JEV_STATUSES = ("keep", "skip", "unassessed", "failed", "stale")
 # job_postings.verdict (#225), written once by the worker.
 VERDICTS = ("pending", "keep", "skip", "discarded", "not_evaluated")
-_JEV_FILTERS = frozenset({"keep", "skip", "all"})
+# The effective status of a posting takes the same values: the operator override decision
+# (keep | skip) if one exists, else the stored verdict.
+STATUSES = VERDICTS
+# list_jobs `status`: shown (default) hides a still-`new` posting whose effective status
+# is skip or discarded; all disables the filter; a status lists exactly that status.
+_STATUS_FILTERS = frozenset({"shown", "all", *STATUSES})
 # A posting closed at its source (source_state='closed') is hidden by default, as the
-# web files it only under its `closed` stage (tests/fixtures/closed-stage-cases.json).
+# web files it only under its `closed` stage (tests/fixtures/effective-status-cases.json).
 _CLOSED_FILTERS = {"exclude": "p.source_state<>'closed'", "only": "p.source_state='closed'", "all": None}
 _KNOWN_PIPELINE_STATUSES = frozenset(PIPELINE_STATUSES)
 _ACTIVE_CANDIDATE_STATUSES = frozenset({"new", "scored", "notified"})
@@ -216,125 +213,28 @@ def _screen_outcome_sql() -> str:
         END"""
 
 
-def _triage_check_shape_sql(result: str, supported_checks: frozenset[str]) -> str:
-    """Whether every stored check is a supported, typed `{pass, note?}` record."""
-    checks = ",".join(f"'{key}'" for key in sorted(supported_checks))
-    return f"""json_type({result}, '$.screen')='object'
-        AND NOT EXISTS (
-            SELECT screen_member.key FROM json_each({result}, '$.screen') AS screen_member
-            GROUP BY screen_member.key HAVING COUNT(*)>1
-        )
-        AND NOT EXISTS (
-            SELECT 1 FROM json_each({result}, '$.screen') AS triage_check
-            WHERE triage_check.type!='object'
-               OR triage_check.key NOT IN ({checks})
-               OR CASE WHEN triage_check.type='object'
-                       THEN COALESCE(json_type(triage_check.value, '$.pass'),'missing')
-                            NOT IN ('true','false') ELSE 0 END
-               OR CASE WHEN triage_check.type='object'
-                       THEN (json_type(triage_check.value, '$.note') IS NOT NULL
-                             AND json_type(triage_check.value, '$.note')!='text')
-                       ELSE 0 END
-               OR CASE WHEN triage_check.type='object' THEN EXISTS (
-                    SELECT 1 FROM json_each(triage_check.value) AS triage_field
-                    WHERE triage_field.key NOT IN ('pass','note')
-               ) ELSE 0 END
-               OR CASE WHEN triage_check.type='object' THEN EXISTS (
-                    SELECT triage_field.key FROM json_each(triage_check.value) AS triage_field
-                    GROUP BY triage_field.key HAVING COUNT(*)>1
-               ) ELSE 0 END
-        )"""
-
-
-def _triage_valid_result_sql(result: str, disqualified: bool) -> str:
-    """Validate current standalone evidence without changing screen_outcome semantics."""
-    check_shape = _triage_check_shape_sql(result, _SUPPORTED_SCREEN_CHECKS)
-    root_shape = f"""(json_type({result}, '$.disqualification_reason') IS NULL
-            OR json_type({result}, '$.disqualification_reason')='text')
-        AND NOT EXISTS (
-            SELECT triage_root_field.key FROM json_each({result}) AS triage_root_field
-            GROUP BY triage_root_field.key HAVING COUNT(*)>1
-        )
-        AND NOT EXISTS (SELECT 1 FROM json_each({result}) AS triage_root_field
-                        WHERE triage_root_field.key NOT IN
-                            ('screen','disqualified','disqualification_reason'))"""
-    if disqualified:
-        check = "json_type(triage_check.value, '$.pass')='false'"
-        flag = "'true'"
-        no_failure = "1=1"
-    else:
-        check = "json_type(triage_check.value, '$.pass')='true'"
-        flag = "'false'"
-        no_failure = (
-            f"NOT EXISTS (SELECT 1 FROM json_each({result}, '$.screen') AS triage_check "
-            "WHERE CASE WHEN triage_check.type='object' "
-            "THEN json_type(triage_check.value, '$.pass')='false' ELSE 0 END)"
-        )
-    return f"""s.state='complete' AND json_valid(s.result_json)=1
-        AND json_type({result}, '$')='object'
-        AND json_type({result}, '$.disqualified')={flag}
-        AND {root_shape}
-        AND {check_shape}
-        AND EXISTS (SELECT 1 FROM json_each({result}, '$.screen') AS triage_check
-                    WHERE CASE WHEN triage_check.type='object' THEN {check} ELSE 0 END)
-        AND {no_failure}"""
-
-
-def _triage_rule_only_sql(result: str) -> str:
-    rule_shape = _triage_check_shape_sql(result, _DETERMINISTIC_SCREEN_CHECKS)
-    return f"""{rule_shape}
-        AND json_type({result}, '$.disqualified')='true'
-        AND EXISTS (SELECT 1 FROM json_each({result}, '$.screen') AS triage_check
-                    WHERE CASE WHEN triage_check.type='object'
-                               THEN json_type(triage_check.value, '$.pass')='false' ELSE 0 END)"""
-
-
-def _jev_model_status_sql() -> str:
-    # Stale = the posting's source changed, or the verdict predates the policy of the
-    # latest JEV pass (app_settings, written by the worker); no recorded policy yet
-    # means no pass ever ran under a different one.
-    return ("CASE WHEN j.id IS NULL THEN 'unassessed' WHEN j.state<>'complete' THEN 'failed' "
-            "WHEN j.source_content_revision IS NOT p.source_content_revision THEN 'stale' "
-            "WHEN j.policy_sha256 IS NOT COALESCE((SELECT value FROM app_settings "
-            "WHERE key='jev_current_policy_sha256'), j.policy_sha256) THEN 'stale' "
-            "WHEN j.verdict IN ('keep','skip') THEN j.verdict ELSE 'failed' END")
-
-
-_OVERRIDE_APPLIES_SQL = ("(o.id IS NOT NULL AND o.decision IN ('keep','skip') "
-                         "AND COALESCE(o.source_content_revision,1)=COALESCE(p.source_content_revision,1))")
-# NULL counts as revision 1: the worker turns a legacy NULL into 1 on the next unchanged
-# fetch (db.upsert_postings), and that must not void an override set before it.
-
-
-def _jev_status_sql() -> str:
-    # The operator's override (job_triage_overrides, #155) wins while it was set on the
-    # posting's current content; otherwise the model status stands.
-    return f"CASE WHEN {_OVERRIDE_APPLIES_SQL} THEN o.decision ELSE {_jev_model_status_sql()} END"
-
-
-_OVERRIDE_COLUMNS = (f"{_jev_model_status_sql()} AS jev_model_status,{_OVERRIDE_APPLIES_SQL} "
-                     "AS override_applies,o.decision AS override_decision,o.reason AS override_reason,"
+# The effective status (#226), one CASE read by the web too (lib/job-actions.ts STATUS_SQL),
+# pinned by tests/fixtures/effective-status-cases.json. An override is not bound to the
+# posting's content revision: nothing else re-evaluates on a content change either.
+_STATUS_SQL = "CASE WHEN o.decision IN ('keep','skip') THEN o.decision ELSE p.verdict END"
+# The profile version the verdict was judged under: triage's when it completed, else
+# the requirements stage's (null on legacy rows and on a posting not yet evaluated).
+_PROFILE_VERSION_SQL = ("CASE WHEN j.state='complete' THEN j.profile_version "
+                        "ELSE s.profile_version END")
+# Hidden by the default list_jobs view: a still-`new` posting effectively skipped or
+# discarded. A posting that moved on (applied, expired) is never hidden.
+_HIDDEN_SQL = f"(p.pipeline_status='new' AND ({_STATUS_SQL}) IN ('skip','discarded'))"
+_OVERRIDE_COLUMNS = ("o.decision AS override_decision,o.reason AS override_reason,"
                      "o.actor AS override_actor,o.created_at AS override_set_at")
+_JOIN = (" LEFT JOIN job_screenings s ON s.job_posting_id=p.id"
+         " LEFT JOIN job_jev_assessments j ON j.job_posting_id=p.id"
+         " LEFT JOIN job_triage_overrides o ON o.job_posting_id=p.id")
 
 
 def _jev_override(row: dict[str, Any]) -> dict[str, Any] | None:
     """Pop the override_* columns off a row; None when no override is stored."""
-    fields = {key: row.pop(f"override_{key}") for key in
-              ("decision", "reason", "actor", "set_at", "applies")}
-    if fields["decision"] is None:
-        return None
-    fields["applies"] = bool(fields["applies"])
-    return fields
-
-
-def _jev_hidden_sql() -> str:
-    # Only a current skip on a still-`new` posting is hidden: once a posting is scored,
-    # applied to or otherwise moves on, JEV never revisits it and must never hide it.
-    return f"(p.pipeline_status='new' AND ({_jev_status_sql()})='skip')"
-
-
-_JEV_JOIN = (" LEFT JOIN job_jev_assessments j ON j.job_posting_id=p.id"
-             " LEFT JOIN job_triage_overrides o ON o.job_posting_id=p.id")
+    fields = {key: row.pop(f"override_{key}") for key in ("decision", "reason", "actor", "set_at")}
+    return None if fields["decision"] is None else fields
 
 
 def _jev_reasons(raw: Any) -> list[str]:
@@ -345,49 +245,6 @@ def _jev_reasons(raw: Any) -> list[str]:
         except ValueError:
             parsed = None
     return [r for r in parsed if isinstance(r, str)][:8] if isinstance(parsed, list) else []
-
-
-def _triage_status_sql() -> str:
-    """Status predicate shared by filters and overview counts; runs before paging."""
-    result = "CASE WHEN json_valid(s.result_json) THEN s.result_json ELSE '{}' END"
-    legacy = "CASE WHEN json_valid(p.score_detail) THEN p.score_detail ELSE '{}' END"
-    legacy_revision = f"json_extract({legacy}, '$.source_content_revision')"
-    valid_screen_disqualified = _triage_valid_result_sql(result, True)
-    valid_candidate = _triage_valid_result_sql(result, False)
-    standalone_rule = _triage_rule_only_sql(result)
-    legacy_rule = _triage_rule_only_sql(legacy)
-    known_statuses = ",".join(f"'{status}'" for status in sorted(_KNOWN_PIPELINE_STATUSES))
-    candidate_statuses = ",".join(f"'{status}'" for status in sorted(_ACTIVE_CANDIDATE_STATUSES))
-    legacy_root_shape = f"""json_type({legacy}, '$')='object'
-        AND json_type({legacy}, '$.disqualified')='true'
-        AND (json_type({legacy}, '$.disqualification_reason') IS NULL
-             OR json_type({legacy}, '$.disqualification_reason')='text')
-        AND (json_type({legacy}, '$.source_content_revision') IS NULL
-             OR json_type({legacy}, '$.source_content_revision')='null'
-             OR (json_type({legacy}, '$.source_content_revision') IN ('integer','real')
-                 AND {legacy_revision}>0
-                 AND {legacy_revision}<={MAX_SAFE_REVISION}
-                 AND {legacy_revision}=CAST({legacy_revision} AS INTEGER)))
-        AND NOT EXISTS (
-            SELECT legacy_field.key FROM json_each({legacy}) AS legacy_field
-            GROUP BY legacy_field.key HAVING COUNT(*)>1
-        )
-        AND NOT EXISTS (SELECT 1 FROM json_each({legacy}) AS legacy_field
-                        WHERE legacy_field.key NOT IN
-                            ('screen','disqualified','disqualification_reason','source_content_revision'))"""
-    return f"""CASE
-        WHEN p.pipeline_status IS NULL OR p.pipeline_status NOT IN ({known_statuses})
-            THEN 'needs_review'
-        WHEN s.id IS NOT NULL AND ({valid_screen_disqualified})
-             AND ({standalone_rule}) THEN 'rule_disqualified'
-        WHEN s.id IS NOT NULL AND ({valid_screen_disqualified}) THEN 'screen_disqualified'
-        WHEN s.id IS NOT NULL AND ({valid_candidate})
-             AND p.pipeline_status IN ({candidate_statuses}) THEN 'candidate'
-        WHEN s.id IS NULL AND p.pipeline_status='discarded'
-             AND json_valid(p.score_detail)=1 AND ({legacy_root_shape})
-             AND ({legacy_rule}) THEN 'rule_disqualified'
-        ELSE 'needs_review'
-    END"""
 
 
 def _parse_json_object(value: Any) -> dict[str, Any] | None:
@@ -453,47 +310,10 @@ def _standalone_triage_result(raw: Any) -> tuple[str, frozenset[str]]:
     return "unknown", frozenset()
 
 
-def _legacy_rule_disqualification(pipeline_status: Any, score_detail: Any) -> bool:
-    if pipeline_status != "discarded":
-        return False
-    detail = _parse_json_object(score_detail)
-    if detail is None or set(detail) - {
-        "screen", "disqualified", "disqualification_reason", "source_content_revision",
-    }:
-        return False
-    if detail.get("disqualified") is not True:
-        return False
-    reason = detail.get("disqualification_reason")
-    if "disqualification_reason" in detail and not isinstance(reason, str):
-        return False
-    revision = detail.get("source_content_revision")
-    if revision is not None and not _positive_safe_json_integer(revision):
-        return False
-    valid, has_failure, _ = _triage_checks(
-        detail.get("screen"), _DETERMINISTIC_SCREEN_CHECKS)
-    return valid and has_failure
-
-
-def _positive_safe_json_integer(value: Any) -> bool:
-    """Accept positive integral JSON numbers that JavaScript can represent safely."""
-    if type(value) is int:
-        return 0 < value <= MAX_SAFE_REVISION
-    if type(value) is float:
-        return math.isfinite(value) and value.is_integer() and 0 < value <= MAX_SAFE_REVISION
-    return False
-
-
-def job_triage_summary(pipeline_status: Any, score_detail: Any,
-                       screening: dict[str, Any] | None) -> dict[str, str]:
-    """Derive a bounded evidence-stage summary without changing stored screen outcomes."""
-    if screening is not None:
-        provenance = "job_screenings"
-    elif score_detail is not None:
-        provenance = "job_postings.score_detail"
-    elif pipeline_status == "discarded":
-        provenance = "pipeline_status"
-    else:
-        provenance = "none"
+def job_triage_summary(pipeline_status: Any, screening: dict[str, Any] | None) -> dict[str, str]:
+    """A bounded summary of the requirements result (job_screenings); display only, the
+    posting's status is its effective status (_STATUS_SQL)."""
+    provenance = "job_screenings" if screening is not None else "none"
 
     def summary(status: str, reason: str) -> dict[str, str]:
         return {"status": status, "reason": reason[:MAX_SCREEN_REASON_CHARS],
@@ -501,38 +321,21 @@ def job_triage_summary(pipeline_status: Any, score_detail: Any,
 
     if pipeline_status not in _KNOWN_PIPELINE_STATUSES:
         return summary("needs_review", "Stored lifecycle state is unrecognized.")
-
-    if screening is not None:
-        if screening.get("state") != "complete":
-            return summary("needs_review", "Standalone screening did not complete successfully.")
-        result_type, failing_checks = _standalone_triage_result(screening.get("result_json"))
-        if result_type in {"rule_disqualified", "disqualified"}:
-            if result_type == "rule_disqualified":
-                failed_labels = sorted(failing_checks)
-                names = " and ".join(failed_labels)
-                return summary("rule_disqualified", f"Deterministic {names} rule rejected this posting.")
-            return summary("screen_disqualified", "Standalone screening recorded a supported failing requirement.")
-        if result_type == "candidate":
-            if pipeline_status in _ACTIVE_CANDIDATE_STATUSES:
-                return summary("candidate", "Standalone screening found no disqualifier; retained for fit research, not qualified.")
-            return summary("needs_review", "A standalone pass conflicts with the stored lifecycle state.")
-        return summary("needs_review", "Stored standalone assessment is malformed, contradictory, or unsupported.")
-
-    if _legacy_rule_disqualification(pipeline_status, score_detail):
-        detail = _parse_json_object(score_detail) or {}
-        failed = sorted(key for key, check in detail["screen"].items() if check["pass"] is False)
-        return summary("rule_disqualified", f"Legacy deterministic {' and '.join(failed)} rule rejected this posting.")
-
-    detail = _parse_json_object(score_detail)
-    if pipeline_status == "discarded":
-        if detail is not None:
-            return summary("needs_review", "Legacy fit evidence does not meet the rule-rejection contract.")
-        return summary("needs_review", "Discarded lifecycle state alone does not establish a rule rejection.")
-    if detail is not None:
-        return summary("needs_review", "Legacy fit evidence does not establish current triage status.")
-    if score_detail is not None:
-        return summary("needs_review", "Stored legacy evidence is malformed or unsupported.")
-    return summary("needs_review", "No standalone record or supported legacy rule rejection is stored.")
+    if screening is None:
+        return summary("needs_review", "No requirements result is stored.")
+    if screening.get("state") != "complete":
+        return summary("needs_review", "Standalone screening did not complete successfully.")
+    result_type, failing_checks = _standalone_triage_result(screening.get("result_json"))
+    if result_type == "rule_disqualified":
+        names = " and ".join(sorted(failing_checks))
+        return summary("rule_disqualified", f"Deterministic {names} rule rejected this posting.")
+    if result_type == "disqualified":
+        return summary("screen_disqualified", "Standalone screening recorded a supported failing requirement.")
+    if result_type == "candidate":
+        if pipeline_status in _ACTIVE_CANDIDATE_STATUSES:
+            return summary("candidate", "Standalone screening found no disqualifier; retained for fit research, not qualified.")
+        return summary("needs_review", "A standalone pass conflicts with the stored lifecycle state.")
+    return summary("needs_review", "Stored standalone assessment is malformed, contradictory, or unsupported.")
 
 
 def _screen_summary(row: dict[str, Any]) -> dict[str, Any]:
@@ -1151,17 +954,10 @@ class ReadOnlyATSRepository:
             ).fetchall()
             outcome_count_map = {row["outcome"]: int(row["count"])
                                  for row in outcome_counts_rows}
-            triage_count_rows = conn.execute(
-                f"SELECT {_triage_status_sql()} AS status,COUNT(*) AS count "
-                "FROM job_postings p LEFT JOIN job_screenings s ON s.job_posting_id=p.id "
-                "GROUP BY status"
-            ).fetchall()
-            triage_count_map = {row["status"]: int(row["count"])
-                                for row in triage_count_rows}
-            jev_count_map = {row["status"]: int(row["count"]) for row in conn.execute(
-                f"SELECT {_jev_status_sql()} AS status,COUNT(*) AS count FROM job_postings p"
-                + _JEV_JOIN + " WHERE p.pipeline_status='new' AND p.source_state<>'closed' "
-                "AND p.verdict<>'discarded' GROUP BY status").fetchall()}
+            status_count_map = {row["status"]: int(row["count"]) for row in conn.execute(
+                f"SELECT {_STATUS_SQL} AS status,COUNT(*) AS count FROM job_postings p"
+                + _JOIN + " WHERE p.pipeline_status='new' AND p.source_state<>'closed' "
+                "GROUP BY status").fetchall()}
             verdict_count_map = {row["verdict"]: int(row["count"]) for row in conn.execute(
                 "SELECT verdict, COUNT(*) AS count FROM job_postings GROUP BY verdict")}
             screening_records = self._group_counts(conn, "job_screenings", "state")
@@ -1197,19 +993,13 @@ class ReadOnlyATSRepository:
                         for outcome in SCREEN_OUTCOMES
                     ],
                 },
-                "job_triage_counts": {
-                    "scope": "all job_postings",
-                    "counts": [
-                        {"status": status, "count": triage_count_map.get(status, 0)}
-                        for status in TRIAGE_STATUSES
-                    ],
-                },
-                "jev_filter_counts": {
-                    "scope": "pipeline_status=new, not source_state=closed, not verdict=discarded",
-                    "counts": [{"status": status, "count": jev_count_map.get(status, 0)}
-                               for status in JEV_STATUSES],
-                    "semantics": ("list_jobs hides skip (jev='keep') and closed "
-                                  "(closed='exclude') by default"),
+                "status_counts": {
+                    "scope": "pipeline_status=new, not source_state=closed",
+                    "counts": [{"status": status, "count": status_count_map.get(status, 0)}
+                               for status in STATUSES],
+                    "semantics": ("effective status: the operator override if one exists, else "
+                                  "the stored verdict; list_jobs hides skip and discarded "
+                                  "(status='shown') and closed (closed='exclude') by default"),
                 },
                 "verdict_counts": {
                     "scope": "all job_postings",
@@ -1236,18 +1026,19 @@ class ReadOnlyATSRepository:
 
     def list_jobs(self, *, search: str | None = None, source: str | None = None,
                   pipeline_status: str | None = None, screen_state: str | None = None,
-                  screen_outcome: str | None = None, triage_status: str | None = None,
+                  screen_outcome: str | None = None,
                   search_scope: str = "metadata",
                   created_from: str | None = None, created_to: str | None = None,
                   posted_from: str | None = None, posted_to: str | None = None,
                   screening_updated_from: str | None = None,
                   screening_updated_to: str | None = None,
-                  application_id: int | None = None, jev: str = "keep", closed: str = "exclude",
+                  application_id: int | None = None, status: str = "shown",
+                  closed: str = "exclude",
                   limit: int = DEFAULT_PAGE_SIZE,
                   cursor: str | None = None) -> dict[str, Any]:
         limit = _page_size(limit)
-        if jev not in _JEV_FILTERS:
-            raise QueryInputError("jev must be keep, skip or all")
+        if status not in _STATUS_FILTERS:
+            raise QueryInputError("status must be shown, all, or one of " + ", ".join(STATUSES))
         if closed not in _CLOSED_FILTERS:
             raise QueryInputError("closed must be exclude, only or all")
         search = _bounded_text(search, "search", MAX_SEARCH_CHARS)
@@ -1257,9 +1048,6 @@ class ReadOnlyATSRepository:
         screen_outcome = _bounded_text(screen_outcome, "screen_outcome", MAX_FILTER_CHARS)
         if screen_outcome is not None and screen_outcome not in _SCREEN_OUTCOME_SET:
             raise QueryInputError("screen_outcome must be one of the supported outcomes")
-        triage_status = _bounded_text(triage_status, "triage_status", MAX_FILTER_CHARS)
-        if triage_status is not None and triage_status not in _TRIAGE_STATUS_SET:
-            raise QueryInputError("triage_status must be one of the supported statuses")
         search_scope = _bounded_text(search_scope, "search_scope", MAX_FILTER_CHARS,
                                      allow_empty=False) or ""
         if search_scope not in {"metadata", "all_text"}:
@@ -1283,13 +1071,12 @@ class ReadOnlyATSRepository:
 
         filters = {"search": search, "source": source, "pipeline_status": pipeline_status,
                    "screen_state": screen_state, "screen_outcome": screen_outcome,
-                   "triage_status": triage_status,
                    "search_scope": search_scope,
                    "screening_updated_from": screening_updated_from,
                    "screening_updated_to": screening_updated_to,
                    "created_from": created_from,
                    "created_to": created_to, "posted_from": posted_from,
-                   "posted_to": posted_to, "application_id": application_id, "jev": jev,
+                   "posted_to": posted_to, "application_id": application_id, "status": status,
                    "closed": closed}
         scope = _filter_scope("jobs", filters)
         decoded = _cursor_decode(cursor, scope, "int", composite=True)
@@ -1314,9 +1101,6 @@ class ReadOnlyATSRepository:
         if screen_outcome is not None:
             clauses.append(f"({_screen_outcome_sql()}) = ?")
             params.append(screen_outcome)
-        if triage_status is not None:
-            clauses.append(f"({_triage_status_sql()}) = ?")
-            params.append(triage_status)
         if screening_updated_from is not None:
             clauses.append("ats_instant_cmp(s.updated_at, ?) >= 0")
             params.append(screening_updated_from)
@@ -1340,10 +1124,11 @@ class ReadOnlyATSRepository:
         if decoded and decoded.extra is not None and decoded.key > decoded.extra:
             raise QueryInputError("cursor is malformed")
         unfiltered_clauses, unfiltered_params = list(clauses), list(params)
-        if jev == "keep":
-            clauses.append(f"NOT {_jev_hidden_sql()}")
-        elif jev == "skip":
-            clauses.append(_jev_hidden_sql())
+        if status == "shown":
+            clauses.append(f"NOT {_HIDDEN_SQL}")
+        elif status != "all":
+            clauses.append(f"({_STATUS_SQL}) = ?")
+            params.append(status)
 
         with self._connection() as conn:
             # The first page fixes an insertion ceiling in the same read snapshot as
@@ -1354,13 +1139,11 @@ class ReadOnlyATSRepository:
             if ceiling:
                 clauses.append("p.id <= ?")
                 params.append(ceiling)
-            hidden_skip = None
-            if jev == "keep" and not decoded:
-                skip_where = " WHERE " + " AND ".join(
-                    [*unfiltered_clauses, _jev_hidden_sql()])
-                hidden_skip = int(conn.execute(
-                    "SELECT COUNT(*) FROM job_postings p LEFT JOIN job_screenings s "
-                    "ON s.job_posting_id=p.id" + _JEV_JOIN + skip_where,
+            hidden = None
+            if status == "shown" and not decoded:
+                hidden_where = " WHERE " + " AND ".join([*unfiltered_clauses, _HIDDEN_SQL])
+                hidden = int(conn.execute(
+                    "SELECT COUNT(*) FROM job_postings p" + _JOIN + hidden_where,
                     unfiltered_params).fetchone()[0])
             if decoded:
                 clauses.append("p.id < ?")
@@ -1368,7 +1151,7 @@ class ReadOnlyATSRepository:
             where = " WHERE " + " AND ".join(clauses) if clauses else ""
             sql = (
                 "SELECT p.id,p.source,p.external_id,p.company_slug,p.company_name,p.job_title,"
-                "p.location,p.job_url,p.pipeline_status,p.pipeline_error,"
+                "p.location,p.job_url,p.pipeline_status,p.pipeline_error,p.verdict,p.verdict_at,"
                 "p.application_id,p.created_at,p.updated_at,p.posted_at,"
                 "length(p.description) AS description_chars,"
                 "p.source_state,p.source_last_seen_at,p.source_last_check_attempted_at,"
@@ -1399,10 +1182,10 @@ class ReadOnlyATSRepository:
                 "CASE WHEN json_valid(p.score_detail) THEN CASE "
                 "WHEN json_type(p.score_detail,'$.screen')='object' THEN 1 ELSE 0 END "
                 "ELSE 0 END AS legacy_screen_evidence_available,"
-                f"{_jev_status_sql()} AS jev_status,j.reasons_json AS jev_reasons_json,"
+                f"{_STATUS_SQL} AS status,{_PROFILE_VERSION_SQL} AS profile_version,"
+                "j.state AS jev_state,j.reasons_json AS jev_reasons_json,"
                 f"{_OVERRIDE_COLUMNS} "
-                "FROM job_postings p LEFT JOIN job_screenings s ON s.job_posting_id=p.id"
-                + _JEV_JOIN + where +
+                "FROM job_postings p" + _JOIN + where +
                 " ORDER BY p.id DESC LIMIT ?"
             )
             params.append(limit + 1)
@@ -1416,8 +1199,7 @@ class ReadOnlyATSRepository:
                           "state": row.get("screening_state"),
                           "result_json": row.get("screening_result_json")}
                          if row.get("screening_id") is not None else None)
-            row["triage_summary"] = job_triage_summary(
-                row.get("pipeline_status"), row.get("score_detail"), screening)
+            row["triage_summary"] = job_triage_summary(row.get("pipeline_status"), screening)
             row["source_lifecycle"] = _source_lifecycle_summary(row)
             _strip_source_lifecycle_fields(row)
             legacy_available = bool(row.pop("legacy_screen_evidence_available"))
@@ -1435,20 +1217,18 @@ class ReadOnlyATSRepository:
             row.pop("fit_assessment_available", None)
             row.pop("fit_content_revision", None)
             row.pop("score_detail", None)
-            status = row.pop("jev_status")
-            model_status = row.pop("jev_model_status")
             reasons = _jev_reasons(row.pop("jev_reasons_json"))
-            row["jev"] = {"status": status, "model_status": model_status,
-                          "reasons": reasons if model_status in {"keep", "skip"} else [],
+            row["jev"] = {"reasons": reasons if row.pop("jev_state") == "complete" else [],
                           "override": _jev_override(row)}
         page = _page(rows, limit, scope, "id", descending=True, cursor_extra=ceiling)
-        page["jev_filter"] = {
-            "applied": jev,
-            "hidden_skip_count": hidden_skip,
-            "semantics": ("keep (default) hides only postings JEV marked skip; unassessed, "
-                          "failed and stale postings are shown. hidden_skip_count is "
-                          "reported on the first page of a keep listing only. A skip is "
-                          "advisory; read them with jev='skip'."),
+        page["status_filter"] = {
+            "applied": status,
+            "hidden_count": hidden,
+            "semantics": ("status is effective: the operator override (override_triage) if one "
+                          "exists, else the stored verdict. shown (default) hides `new` postings "
+                          "whose status is skip or discarded; hidden_count is reported on the "
+                          "first page of a shown listing only. A discard or skip overridden to "
+                          "keep is shown. all disables the filter; a status lists just that."),
         }
         page["closed_filter"] = {
             "applied": closed,
@@ -1503,8 +1283,7 @@ class ReadOnlyATSRepository:
                 result["screen_summary"] = _screen_summary({"screen_outcome": "not_screened"})
                 triage_screening = None
                 lifecycle_screen = None
-            result["triage_summary"] = job_triage_summary(
-                result.get("pipeline_status"), result.get("score_detail"), triage_screening)
+            result["triage_summary"] = job_triage_summary(result.get("pipeline_status"), triage_screening)
             legacy_available = isinstance(result.get("score_detail_parsed"), dict) and isinstance(
                 result["score_detail_parsed"].get("screen"), dict)
             result["legacy_screen_evidence"] = {
@@ -1514,27 +1293,25 @@ class ReadOnlyATSRepository:
             }
             result["source_lifecycle"] = _source_lifecycle_summary(result, lifecycle_screen)
             _strip_source_lifecycle_fields(result)
-            jev_row = conn.execute(
-                f"SELECT {_jev_status_sql()} AS status,j.reasons_json,j.model,j.policy_sha256,"
-                f"j.completed_at,j.last_attempted_at,j.error_category,j.cost_usd,{_OVERRIDE_COLUMNS} "
-                "FROM job_postings p" + _JEV_JOIN + " WHERE p.id=?", (job_id,)).fetchone()
-            jev_row = dict(jev_row)
-            status = jev_row["status"]
-            model_status = jev_row.pop("jev_model_status")
+            jev_row = dict(conn.execute(
+                f"SELECT {_STATUS_SQL} AS status,{_PROFILE_VERSION_SQL} AS profile_version,"
+                "j.state,j.reasons_json,j.model,j.completed_at,j.last_attempted_at,"
+                f"j.error_category,j.cost_usd,{_OVERRIDE_COLUMNS} "
+                "FROM job_postings p" + _JOIN + " WHERE p.id=?", (job_id,)).fetchone())
+            result["status"] = jev_row.pop("status")
+            result["profile_version"] = jev_row.pop("profile_version")
             result["jev"] = {
-                "status": status,
-                "model_status": model_status,
+                "state": jev_row["state"],
                 "override": _jev_override(jev_row),
-                "reasons": _jev_reasons(jev_row["reasons_json"]) if model_status in {"keep", "skip"} else [],
+                "reasons": _jev_reasons(jev_row["reasons_json"]) if jev_row["state"] == "complete" else [],
                 "model": jev_row["model"],
-                "policy_sha256": jev_row["policy_sha256"],
                 "completed_at": jev_row["completed_at"],
                 "last_attempted_at": jev_row["last_attempted_at"],
                 "error_category": jev_row["error_category"],
                 "cost_usd": jev_row["cost_usd"],
-                "semantics": ("advisory keep/skip filter; never a lifecycle or eligibility change. "
-                              "status is effective: an operator override that applies wins over "
-                              "model_status; an override set on older content does not apply."),
+                "semantics": ("the triage keep/skip assessment, advisory, never a lifecycle "
+                              "change. The posting's status is effective: the operator override "
+                              "if one exists, else the stored verdict."),
             }
             return result
 

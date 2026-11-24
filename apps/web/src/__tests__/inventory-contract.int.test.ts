@@ -148,7 +148,7 @@ test('web standalone summaries and filters match the shared worker contract fixt
     })
 })
 
-test('web triage summaries, SQL filters, counts, and detail match the shared worker fixture', async () => {
+test('web triage summaries match the shared worker fixture', async () => {
     const expectedIds = new Map<string, number>()
     for (const item of triageFixture.cases) {
         const posting = await createScreenedPosting(
@@ -157,7 +157,6 @@ test('web triage summaries, SQL filters, counts, and detail match the shared wor
             item.screening?.result_json_raw ?? null,
             {
                 pipeline_status: item.pipeline_status,
-                score_detail: item.score_detail_raw,
                 created_at: '2026-10-22T12:00:00.000Z',
             },
         )
@@ -180,22 +179,10 @@ test('web triage summaries, SQL filters, counts, and detail match the shared wor
     expect(byId.get(expectedIds.get('no_assessment_evidence')!)?.screen_summary.outcome)
         .toBe('not_screened')
 
-    // The funnel stage derives from triage first (no JEV rows exist here): rule and
-    // screen rejections are their own stages; a retained row is `unassessed` while still
-    // `new`, else `other`. Each stage filter returns exactly its rows.
-    const stageOf = (item: any) => item.expected_status === 'rule_disqualified' ? 'rule_rejected'
-        : item.expected_status === 'screen_disqualified' ? 'screen_rejected'
-            : item.expected_status === 'needs_review' && item.pipeline_status === 'discarded' ? 'screen_rejected'
-            : item.pipeline_status === 'new' ? 'unassessed' : 'other'
+    // The stage is the stored verdict's (all pending here), never the screen evidence.
     for (const item of triageFixture.cases) {
-        expect([item.name, byId.get(expectedIds.get(item.name)!)!.stage]).toEqual([item.name, stageOf(item)])
-    }
-    for (const stage of ['rule_rejected', 'screen_rejected', 'unassessed', 'other'] as const) {
-        const expected = triageFixture.cases.filter((item: any) => stageOf(item) === stage)
-            .map((item: any) => expectedIds.get(item.name)).sort((a: number, b: number) => a - b)
-        const filtered = await getJobPostings({ stage, size: 100 })
-        expect(filtered.data.map((row) => row.id).sort((a, b) => a - b)).toEqual(expected)
-        expect(filtered.total).toBe(expected.length)
+        expect([item.name, byId.get(expectedIds.get(item.name)!)!.stage])
+            .toEqual([item.name, item.pipeline_status === 'new' ? 'pending' : 'other'])
     }
 })
 

@@ -47,7 +47,7 @@ test('the status strip counts postings, JEV work, failures and spend', async () 
     const p1 = await prisma.job_postings.create({ data: makeJobPosting({ external_id: 'a', created_at: now }) })
     const p2 = await prisma.job_postings.create({ data: makeJobPosting({ external_id: 'b', created_at: '2026-01-01T00:00:00.000Z' }) })
     const jev = (id: number, state: string, cost: string | null) => prisma.job_jev_assessments.create({ data: {
-        job_posting_id: id, state, cost_usd: cost, policy_sha256: 'p', last_attempted_at: now, created_at: now } })
+        job_posting_id: id, state, cost_usd: cost, last_attempted_at: now, created_at: now } })
     await jev(p1.id, 'complete', '0.0003')
     await jev(p2.id, 'provider_error', '0.0001')
     expect(await getActivityStatus()).toEqual({ lastFetchedAt: now, new24h: 1, new7d: 1, assessed24h: 1, failures24h: 1,

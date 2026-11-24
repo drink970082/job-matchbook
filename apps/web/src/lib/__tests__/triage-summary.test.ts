@@ -16,11 +16,7 @@ describe('job triage contract fixture', () => {
             result_json: item.screening.result_json_raw,
             error_message: item.screening.error_message ?? null,
         }
-        const summary = jobTriageSummary(
-            item.pipeline_status,
-            item.score_detail_raw,
-            screening,
-        )
+        const summary = jobTriageSummary(item.pipeline_status, screening)
 
         expect(summary.status).toBe(item.expected_status)
         expect(summary.provenance).toBe(item.expected_provenance)
