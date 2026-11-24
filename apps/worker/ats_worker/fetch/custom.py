@@ -102,7 +102,8 @@ def fetch(slug: str, company_name: str, recipe: dict,
     out: list[dict] = []
     raws: list = []          # 1:1 with `out`; only used to interpolate a detail URL
     seen: set[str] = set()
-    n = 0  # offset (rows) for `offset`, page number for `page`
+    # Offset (rows) for `offset`, page number for `page`; `start` for a 1-indexed board.
+    n = page.get("start", 0)
     while True:
         params, body = _page_request(recipe, page, n)
         resp = _request(http, method, recipe["url"], params, body, headers, timeout)

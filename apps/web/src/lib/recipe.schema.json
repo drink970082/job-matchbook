@@ -26,7 +26,8 @@
             "param": { "type": "string", "description": "Query parameter carrying the offset/page number." },
             "body_param": { "type": "string", "description": "body key carrying the offset/page number (POST boards)." },
             "size_param": { "type": "string", "description": "Query parameter carrying the page size." },
-            "size": { "type": "integer", "minimum": 1, "description": "Page size sent in size_param." }
+            "size": { "type": "integer", "minimum": 1, "description": "Page size sent in size_param." },
+            "start": { "type": "integer", "minimum": 0, "description": "First offset/page number sent. Default 0; 1 for a 1-indexed board (apple)." }
           }
         },
         "fields": {

@@ -483,3 +483,22 @@ def test_a_recipe_user_agent_overrides_the_default():
     sess = FakeSession(responses=[FakeResponse(LIST_PAYLOAD)])
     custom.fetch("acme", "Acme", recipe, session=sess)
     assert sess.calls[0][2]["headers"]["User-Agent"] == "custom-agent/1.0"
+
+
+def test_page_paging_starts_at_the_recipes_start_index():
+    # Apple's search API is 1-indexed: page 0 and page 1 return the same rows, so a
+    # walk from 0 sees page 1 as all-repeats and stops after one page.
+    def page(ids):
+        return FakeResponse({"res": {"searchResults": [
+            {"id": i, "postingTitle": f"Engineer {i}"} for i in ids]}})
+    session = FakeSession(responses=[page(["a", "b"]), page(["c", "d"]), page([])])
+    recipe = {
+        "method": "POST", "url": "https://jobs.example.com/api/v1/search", "mode": "json",
+        "body": {"query": ""}, "item_path": "res.searchResults",
+        "page": {"type": "page", "body_param": "page", "start": 1},
+        "fields": {"title": "postingTitle", "url": "https://jobs.example.com/{id}",
+                   "external_id": "id"},
+    }
+    out = custom.fetch("example", "Example", recipe, session=session)
+    assert [p["external_id"] for p in out] == ["a", "b", "c", "d"]
+    assert [c[2]["json"]["page"] for c in session.calls] == [1, 2, 3]
