@@ -463,8 +463,8 @@ worker modules are pure and dependency-injected; real services are wired only in
   (§8). `db.start_pass` inserts it `running` with the mode flags and the effective
   runtime config (`_pass_config`: screen backend/model/effort/limit/workers,
   triage backend/limit/USD cap, enabled feeds, browser sources on/off, and the candidate
-  profile's `max_age_days` (the profile is read, or seeded, before the row is written);
-  an allowlist, so no env value or secret is ever recorded). Because the caller holds
+  profile's `max_age_days` (the profile is read, or seeded, before the row is written),
+  and `schedule_hours`; an allowlist, so no env value or secret is ever recorded). Because the caller holds
   `pass_lock`, any row still `running` at that point belongs to a dead pass and is
   marked `failed` / `abandoned` (`finished_at` stays null). Each stage's tally is
   written as it finishes (`counts_json` keys `fetch`, `feed` per feed name, `expire`,
@@ -1677,11 +1677,14 @@ worker modules are pure and dependency-injected; real services are wired only in
     `(source, slug)`; `worker/tests/fixtures/board-url-cases.json` runs in both suites, and
     the worker's `feed/resolve.py` must agree on its job-URL cases. `feed_unresolved` is
     read through MCP only.
-  - *Activity* (`lib/activity-actions.ts`, #210): `getActivityStatus` (newest
-    `job_postings.created_at`, new postings 24h / 7d, JEV assessments and
+  - *Activity* (`lib/activity-actions.ts`, #210): `getActivityStatus` (the latest
+    `worker_runs` row by `started_at`, its JSON columns parsed (unparseable reads as
+    `{}`), or null; the newest `failed` row newer than the newest `ok` row, with the
+    count of such rows, since `start_pass` marks a dead pass failed only as the next one
+    starts `running`; new postings 24h / 7d, JEV assessments and
     `provider_error` failures in the last 24h by `last_attempted_at`, JEV cost 7d as the
     sum of `cost_usd` (the latest assessment per posting: a re-assessment overwrites its
-    row, so this is not every dollar spent); no run table exists, so a failing pass shows only through these)
+    row, so this is not every dollar spent))
     and `getActivityTimeline(offset, limit=30)` — applications (by `date_applied`; they
     carry no creation stamp), `status_history` rows other than the initial `Applied`, and
     `audit_log` rows (minus application `add`/`status`, which the first two sources
@@ -1742,8 +1745,17 @@ worker modules are pure and dependency-injected; real services are wired only in
   hover; "Pending first fetch" and "No postings in 30 days" flags with an "Only boards with
   no postings" filter; add by pasting a careers URL — resolved as you type, name
   prefilled from the slug, unresolvable sites pointed at the onboard-board skill — and
-  per-row remove after a confirm, any source type), `ActivityTab` (a system status strip — last new
-  posting, amber after a day; new postings 24h / 7d; JEV assessed 24h, spend 7d and
+  per-row remove after a confirm, any source type), `ActivityTab` (a system status strip — the
+  last pass from `lib/pass-record.ts` `describePass`: when it started, its state
+  (finished in a duration, running for, failed with its `error_category`), what it ran
+  with (`config_json`: fetch only, screen backend/model/effort, triage backend and USD
+  cap, `schedule_hours`; Settings shows the configured values) and one line per stage
+  (fetch boards and failures, each feed, closures from `expire`, aged out, screen errors
+  by category and cap deferrals, triage keep/skip, errors by category, deferrals, spend
+  and stop reason, or why the stage did not run), amber on errors; a problem notice for a `failed`
+  row, a failed pass since the last `ok` one (named by category, while a newer pass
+  runs), a `running` row older than its `schedule_hours` (24 when the row lacks it), no pass
+  started within that interval plus an hour, or no row at all; new postings 24h / 7d; JEV assessed 24h, spend 7d and
   failures 24h; postings aged out of the evaluation window unevaluated, 7d and total
   (verdict `not_evaluated`); the `QuotaBar` — over one timeline marking only MCP writes "via MCP",
   with Load more), `QuotaBar` (subscription quota bar in Activity's status strip — polls
@@ -2361,7 +2373,12 @@ guarantee:
 run leaves exactly one row. A pass
 whose screen backend fails on every call still finishes `ok`, with the failures counted
 by closed category; a pass that raises stays `running` and the next pass marks it
-`failed` / `abandoned`. The recorded config never contains a secret.
+`failed` / `abandoned`. The recorded config never contains a secret. The Activity strip
+reads the pass record, not posting timestamps: a `failed` row newer than the last `ok`
+one (named by its `error_category`, even while a newer pass runs), a `running` row older
+than the pass interval, or no pass within the interval is shown as a problem. A pass
+that has just died still reads `running` until the next pass starts or the interval
+elapses.
 
 ### Invariant → test traceability
 
@@ -2375,6 +2392,7 @@ automated coverage — those rely on code review or the human in the loop, not a
 | Screen-only stores result/provenance separately, preserves posting/fit lifecycle fields, caches completed rows, retries provider errors oldest-first under the provider-call cap, and re-checks eligibility before commit | `test_screen_pipeline.py` (`test_screen_results_cache_and_leave_fit_lifecycle_unchanged`, `test_provider_cap_counts_failures_and_errors_retry_oldest_first`, `test_screen_result_is_not_saved_if_lifecycle_changes_during_provider_call`, `test_provider_exception_text_is_not_persisted`) |
 | A pass is fetch then screen; `--screen-only` is an accepted alias; invalid mode combinations are rejected; Codex defaults to Luna/medium when no overrides are set | `test_run.py` (`test_run_once_defaults_codex_to_luna_medium`, `test_screen_only_is_an_accepted_alias_for_the_default_pass`, `test_screen_only_invalid_combinations_fail_before_config_or_db`, `test_rescreen_screened_is_gone`), `test_backends_screen.py` |
 | Pass record: one `worker_runs` row per pass; a failing screen backend still records `ok` with errors by category; a raising pass stays `running` and the next marks it `failed`/`abandoned`; no secret in the recorded config; stage tallies | `test_worker_runs.py` |
+| Activity strip from the pass record: a `failed` row since the last `ok` one names its category, also behind a newer `running` row; an overlong `running` row and a missed pass are problems | `pass-record.test.ts`, `activity.int.test.ts`, `Views.test.tsx` |
 | Dedup `(source, external_id)` on ingest | `test_db.py`, `test_pipeline.py` |
 | WAL + `busy_timeout` pragmas on connect | `test_db.py` |
 | Web Prisma client's SQLite connection defaults `busy_timeout` ≥5000 ms (regression lock) | `db-pragma.int.test.ts` |

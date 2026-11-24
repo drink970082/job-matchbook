@@ -10,9 +10,10 @@ behavior. Completed work belongs in CHANGELOG, not this queue.
 
 - **One candidate profile; evaluate each posting once** `[WORKER+WEB+MCP · L]` (epic
   #223). [Spec](superpowers/specs/2026-11-20-candidate-profile-design.md). #224 (#270)
-  and #225 (#276) are merged and deployed. #226 (readers on the stored verdict, drops
-  `policy_sha256` and the `stale` rule) is in review as #281 on branch
-  `worktree-agent-a8bd4faba75206cda`; #227 remains.
+  and #225 (#276) are merged and deployed. #226 (#281) is merged, not deployed; #227
+  remains.
+- **Activity status strip reads the pass record** `[WEB · S]` (#249, branch
+  `feat/249-activity-pass-record`): in review as #279.
 
 These references reserve unfinished work; they do not claim the branches are currently
 executing or establish merge readiness. Inspect actual refs/worktrees and coordinate
@@ -20,9 +21,8 @@ before changing them. No older research authorization schedules new provider cal
 
 ## Do next — the pick order
 
-1. [#229 Sources tell the truth](https://github.com/drink970082/job-matchbook/issues/229): #231, with #249 (Activity strip
-   from the pass record, [#246 epic](https://github.com/drink970082/job-matchbook/issues/246))
-   alongside; #248 (intake funnel) after #225.
+1. [#229 Sources tell the truth](https://github.com/drink970082/job-matchbook/issues/229): #231; #248 (intake funnel,
+   [#246 epic](https://github.com/drink970082/job-matchbook/issues/246)) after #225.
 2. [#223 One candidate profile](https://github.com/drink970082/job-matchbook/issues/223): #224 -> #225 -> #226, with #227 after #224.
 3. [#251 Runtime settings in the web](https://github.com/drink970082/job-matchbook/issues/251), then [#256 MCP as the downstream contract](https://github.com/drink970082/job-matchbook/issues/256)
    (#209 decided: option A, [note](superpowers/specs/2026-11-20-mcp-read-path-research.md); next a hosted tunnel check, then #257).

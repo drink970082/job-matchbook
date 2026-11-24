@@ -9,6 +9,14 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 
 ### Added
 
+- **The Activity strip reads the pass record (#249)**: it shows the latest `worker_runs`
+  row (when it started, finished in how long or still running, what it ran with, one
+  line per stage: fetch board failures, feeds, closures, aged out, screen errors and
+  cap deferrals, triage errors, deferrals and spend) in place of "Last new posting"
+  (`MAX(created_at)`). A failed pass since the last `ok` one (named by its error
+  category, also while the next pass runs), a `running` row older than the pass
+  interval, or no pass within the interval is shown as a problem.
+  The worker records `schedule_hours` in the pass config for this.
 - **`custom` recipes page from a `start` index**: `page.start` (default 0) is the first
   offset/page number sent, for a 1-indexed board. Apple's search API is 1-indexed (page 0
   and page 1 return the same rows, checked live 2026-11-23), so its recipe must be
