@@ -76,4 +76,10 @@ def fetch_one(slug: str, external_id: str, company_name: str,
         return None
     resp = http.get(PAGE.format(slug=slug, id=external_id), timeout=timeout)
     resp.raise_for_status()
+    # A closed or unknown job id redirects to the careers page with ?error=404 (200,
+    # no JSON-LD). Surface it as the 404 it is, so run_expire closes the row.
+    if "error=404" in (getattr(resp, "url", "") or ""):
+        gone = requests.Response()
+        gone.status_code = 404
+        raise requests.HTTPError("jobvite job not found (careers ?error=404)", response=gone)
     return parse_page(resp.text, slug, external_id, company_name)

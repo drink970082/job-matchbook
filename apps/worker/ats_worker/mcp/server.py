@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import datetime
 import logging
+from collections.abc import Callable
 from typing import Annotated, Any, Literal
 
 from mcp.server import MCPServer
@@ -24,6 +25,7 @@ from ats_worker.mcp.read_repository import (
     RepositoryError,
 )
 from ats_worker.mcp.write_client import ATSWriteClient, WriteAPIError, write_client_from_env
+from ats_worker.source_lifecycle import verify_board
 
 
 EntityName = Literal[
@@ -129,11 +131,22 @@ def _update_from_email_prompt(since: str) -> str:
 5. Report what changed and what still needs the operator."""
 
 
+def fetch_board(source: str, slug: str, name: str, **kwargs: Any) -> bool:
+    """The real check add_source verifies with: whether the board lists a posting,
+    from its list alone through the worker's adapters (`fetch.board_has_listings`)."""
+    from ats_worker.fetch import board_has_listings  # imported on first add, not at startup
+
+    return board_has_listings(source, slug, name, **kwargs)
+
+
 def create_server(repository: ReadOnlyATSRepository | None = None,
-                  writer: ATSWriteClient | None = None) -> MCPServer:
+                  writer: ATSWriteClient | None = None,
+                  verify_fetch: Callable[..., bool] | None = None) -> MCPServer:
     """Build the protocol server, optionally against an isolated database in tests.
 
     Write tools exist only when a writer (the web write API client) is given.
+    `verify_fetch(source, slug, name) -> bool` is the board check add_source runs before
+    adding (`fetch_board` in production, a fake in tests); without one add_source refuses.
     """
     repo = repository or ReadOnlyATSRepository()
     name = "Job Matchbook ATS" if writer else "Job Matchbook ATS (read-only)"
@@ -320,7 +333,17 @@ def create_server(repository: ReadOnlyATSRepository | None = None,
     def list_sources() -> dict[str, Any]:
         """The watchlist: every company board the worker fetches each pass (id, source, slug,
         name, has_recipe), with postings_30d per board and unresolved_30d (feed listings no
-        board could be resolved for)."""
+        board could be resolved for). Each board carries its last pass: last_fetched_at,
+        last_fetch_status (ok, disabled, or an error category such as http_404),
+        last_fetched (listed), last_kept (stored with a description; gate discards and
+        bodyless excluded), last_new, last_bodyless, last_detail_failed (detail call
+        returned nothing), last_desc_median (of the kept; null when none), and `health`:
+        never_fetched, disabled (a browser board skipped while browser sources are off),
+        fetch_failed, empty (listed nothing), details_failed (none kept and details
+        failed, or failures are most of what reached hydration: throttled or down, not a
+        wrong slug), bodyless (likewise for postings with no description: a broken
+        scraper), kept_zero (the filters kept none), teaser (median under 1500 chars) or
+        ok."""
         return read(repo.list_sources)
 
     @server.tool(annotations=_READ_ONLY)
@@ -349,7 +372,7 @@ def create_server(repository: ReadOnlyATSRepository | None = None,
         return _DAILY_BRIEF
 
     if writer:
-        _add_write_tools(server, repo, writer, read)
+        _add_write_tools(server, repo, writer, read, verify_fetch)
 
         @server.prompt(title="Log an application",
                        description="Record an application the operator just made.")
@@ -364,7 +387,7 @@ def create_server(repository: ReadOnlyATSRepository | None = None,
 
 
 def _add_write_tools(server: MCPServer, repo: ReadOnlyATSRepository, writer: ATSWriteClient,
-                     read: Any) -> None:
+                     read: Any, verify_fetch: Callable[..., bool] | None) -> None:
     def write(method: str, path: str, body: dict[str, Any] | None = None) -> Any:
         try:
             return writer.call(method, path, body)
@@ -517,12 +540,22 @@ def _add_write_tools(server: MCPServer, repo: ReadOnlyATSRepository, writer: ATS
         Give the careers/job `url` (preferred: the web resolves it with the same resolver
         as the Sources tab) or `source` + `slug`, not both. Known-ATS boards only; a site
         that needs a custom recipe fails with that message (use the onboard-board skill).
-        Fails with the web UI's message on an unknown source, an invalid slug, or a duplicate."""
+        Fails with the web UI's message on an unknown source, an invalid slug, or a duplicate.
+        The board's list is read once before it is added: a 404, a board that lists no
+        postings, or a fetch error is rejected with the reason and nothing is added."""
         if url and (source or slug):
             raise ValueError("give url, or source and slug, not both")
         if not url and not (source and slug):
             raise ValueError("give url, or both source and slug")
+        if verify_fetch is None:
+            raise ToolError("add_source cannot verify boards on this server (no board fetcher)")
         body = {"url": url, "name": name} if url else {"source": source, "slug": slug, "name": name}
+        # The web resolves and validates first (slug guard, duplicate), so the fetch only
+        # ever runs on a board the web would accept.
+        board = write("POST", "/api/v1/watchlist", {**body, "dry_run": True})
+        reason = verify_board(verify_fetch, board["source"], board["slug"], board["name"])
+        if reason:
+            raise ToolError(f"{board['source']}/{board['slug']} not added: {reason}")
         return {"source": write("POST", "/api/v1/watchlist", body)}
 
     @server.tool(annotations=_REMOVE)
@@ -552,7 +585,7 @@ def _add_write_tools(server: MCPServer, repo: ReadOnlyATSRepository, writer: ATS
         return {"application_id": application_id, "notes_chars": len(notes)}
 
 
-mcp = create_server(writer=write_client_from_env())
+mcp = create_server(writer=write_client_from_env(), verify_fetch=fetch_board)
 
 
 def main() -> None:

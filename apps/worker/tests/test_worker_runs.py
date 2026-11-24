@@ -110,7 +110,7 @@ def test_the_recorded_config_is_the_effective_one_and_never_a_secret(
     env = {"SCREEN_API_KEY": "sk-SECRET-screen", "OPENROUTER_API_KEY": "or-SECRET-jev",
            "SCREEN_API_BASE_URL": "https://user:pw-SECRET@example.test/v1"}
     cfg = cfgmod.load_config(CFG + "max_age_days: 14\nenable_browser_sources: true\n"
-                             "feeds:\n  simplify:\n    enabled: false\n")
+                             "schedule_hours: 6\nfeeds:\n  simplify:\n    enabled: false\n")
     run.run_once(cfg, db_path=dbfile, env=env, screen_backend="api", screen_model="m-1",
                  screen_limit=7, screen_workers=2, jev_enabled=True, jev_limit=9,
                  jev_max_usd=Decimal("0.25"))
@@ -120,7 +120,7 @@ def test_the_recorded_config_is_the_effective_one_and_never_a_secret(
         "screen": {"backend": "api", "model": "m-1", "effort": None, "limit": 7,
                    "workers": 2},
         "triage": {"backend": "openrouter-native", "limit": 9, "max_usd": "0.25"},
-        "feeds": [], "browser_sources": True, "max_age_days": 14,
+        "feeds": [], "browser_sources": True, "max_age_days": 14, "schedule_hours": 6,
     }
     assert row["jev_enabled"] == 1 and row["counts"]["triage"] == {"skipped": "no_profile"}
 

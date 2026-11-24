@@ -5,6 +5,7 @@ import { type Actor, VALID_SOURCES, RECIPE_SOURCES } from '@/lib/constants'
 import { checkedActor } from '@/lib/action-helpers'
 import { resolveBoardUrl, SLUG_OK } from '@/lib/board-url'
 import { recipeErrors } from '@/lib/recipe-schema'
+import { boardHealth } from '@/lib/board-health'
 
 // --- Watchlist (DB-backed; the worker fetches these companies in full) ------
 // The watchlist moved out of the worker's config.yaml into the DB. The Sources tab and
@@ -21,31 +22,29 @@ function watchlistAudit(actor: Actor, action: 'add' | 'remove', row: WatchedRow)
 }
 
 // The watchlist with each board's postings fetched in the last 30 days (the MCP
-// list_sources figure: same source + company_slug, by created_at). A string compare
-// against toISOString(): it agrees with MCP's ats_instant_cmp because the worker writes
-// created_at as canonical UTC `...T..:..:..sssZ`; a hand-made non-UTC value could differ.
+// list_sources figure: same source + company_slug, by created_at) and its last-pass
+// record as one `health` state (lib/board-health.ts, the rule MCP applies too). A string
+// compare against toISOString(): it agrees with MCP's ats_instant_cmp because the worker
+// writes created_at as canonical UTC `...T..:..:..sssZ`; a hand-made non-UTC value could differ.
 export async function getWatchedCompanies() {
     const cutoff = new Date(Date.now() - 30 * 86_400_000).toISOString()
-    const [rows, total, counts, ever] = await Promise.all([
+    const [rows, total, counts] = await Promise.all([
         prisma.watched_companies.findMany({ orderBy: { name: 'asc' } }),
         prisma.watched_companies.count(),
         prisma.job_postings.groupBy({ by: ['source', 'company_slug'], where: { created_at: { gte: cutoff } }, _count: true }),
-        prisma.job_postings.groupBy({ by: ['source', 'company_slug'], _count: true }),
     ])
     const n = new Map(counts.map((c) => [`${c.source}/${c.company_slug}`, c._count]))
-    // ponytail: the worker records no per-board fetch, so "pending first fetch" is a board
-    // that never produced a posting and was added in the last 48h (a daily worker has had
-    // a pass by then); a per-board last-fetched stamp would make it exact.
-    const all = new Set(ever.map((c) => `${c.source}/${c.company_slug}`))
-    const recent = new Date(Date.now() - 2 * 86_400_000).toISOString()
     return { data: rows.map((r) => ({
-        ...r, postings_30d: n.get(`${r.source}/${r.slug}`) ?? 0,
-        pending: !all.has(`${r.source}/${r.slug}`) && r.created_at > recent,
+        ...r, postings_30d: n.get(`${r.source}/${r.slug}`) ?? 0, health: boardHealth(r),
     })), total }
 }
 
 // A watchlist add by careers/job URL (resolved by lib/board-url.ts, shared with MCP via
-// /api/v1/watchlist) or by explicit source + slug.
+// /api/v1/watchlist) or by explicit source + slug. The web cannot fetch a board, so a
+// web add is unverified: the row reads `never_fetched` until the next worker pass
+// records its health. `dryRun` runs every check and returns the resolved board without
+// adding it: MCP add_source calls it, fetches that board through the worker's adapter,
+// and adds only a board that lists postings (#231).
 const NEEDS_RECIPE = 'This site needs a custom recipe - set it up from your AI client with the onboard-board skill.'
 
 export async function addWatchedCompany(input: {
@@ -54,6 +53,7 @@ export async function addWatchedCompany(input: {
     slug?: string
     name: string
     recipe?: string
+    dryRun?: boolean
 }, actor: Actor = 'web') {
     checkedActor(actor)
     try {
@@ -107,6 +107,7 @@ export async function addWatchedCompany(input: {
         if (existing) {
             return { success: false, error: `${source}/${slug} is already on the watchlist` }
         }
+        if (input.dryRun) return { success: true, data: { source, slug, name, recipe } }
 
         const created = await prisma.$transaction(async (tx) => {
             const row = await tx.watched_companies.create({

@@ -227,6 +227,8 @@ def run_once(cfg, *, db_path, env,
                 names = ", ".join(f"{c['source']}/{c['slug']}" for c in skipped)
                 print(f"skipping {len(skipped)} browser-source row(s) "
                       f"(enable_browser_sources is off): {names}")
+            for c in skipped:  # health reads `disabled`, not a never-fetched mystery
+                pipeline.record_health(conn, c, now=now, status="disabled")
             companies = [c for c in companies if c["source"] != "browser"]
 
         fetch_counts: dict = {}
@@ -451,7 +453,9 @@ def _pass_config(cfg, scope, *, screen: dict | None, triage: dict | None) -> dic
     return {"screen": screen, "triage": triage,
             "feeds": [f.name for f in cfg.feeds if f.enabled],
             "browser_sources": bool(cfg.enable_browser_sources),
-            "max_age_days": scope.max_age_days}
+            "max_age_days": scope.max_age_days,
+            # The pass interval: the web judges an overlong `running` row against it.
+            "schedule_hours": cfg.schedule_hours}
 
 
 def _companies_as_dicts(cfg) -> list[dict]:

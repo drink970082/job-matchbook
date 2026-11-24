@@ -39,7 +39,20 @@ RECIPE_SOURCES = frozenset({"custom", "browser"})
 # honours ONLY the 'drop' verdict: its list stub carries no GUID, so a STORED stub
 # would key on jobReqId and could double-insert — but a dropped one is never
 # stored, so it has no id to reconcile (see the 2026-07-21 stub-gate design).
-STUB_GATE_SOURCES = frozenset({"phenom", "workday", "icims", "custom", "browser"})
+# `smartrecruiters` honours only 'drop' too: a stored stub would carry no description.
+# Being gated is also what lets run_fetch count its listed stubs and lost details.
+STUB_GATE_SOURCES = frozenset({"phenom", "workday", "smartrecruiters", "icims", "custom", "browser"})
+
+# Of those, the ones whose list stub proves the posting is live, so a stub the gate saw
+# (dropped or not) counts as observed on the board. Not smartrecruiters: its list keeps
+# postings whose detail says `active: false`, so only a posting that came back is seen
+# (else a pass would reopen a row closed by --refresh-source or run_expire). workday's
+# stub carries no id, so it observes nothing either way.
+STUB_OBSERVES_SOURCES = frozenset({"phenom", "workday", "icims", "custom", "browser"})
+
+# Sources whose fetch accepts `inactive`, a list it appends the external_id of each
+# listed posting whose detail explicitly reports it closed: not a failed detail.
+REPORTS_INACTIVE_SOURCES = frozenset({"smartrecruiters"})
 
 # Of those, the ones whose fetch also accepts `now`: workday's list stub dates
 # itself in relative prose ("Posted 30+ Days Ago"), so parse_stub needs the
@@ -174,6 +187,42 @@ def fetch_company(source: str, slug: str, company_name: str, *,
     return adapter.fetch(slug, company_name, **kwargs)
 
 
+class _Listed(BaseException):
+    """Raised by board_has_listings' stub gate at the first stub to stop the fetch.
+    A BaseException so an adapter's per-item `except Exception` cannot swallow it."""
+
+
+def board_has_listings(source: str, slug: str, company_name: str, **kwargs) -> bool:
+    """Whether a board lists at least one posting, read from its list alone: the
+    verify-on-add check (#231). Never makes a per-posting detail call.
+
+    An adapter whose fetch would make more than its first list request before a stub
+    could stop it answers itself (`has_listings(slug, **kwargs)`: smartrecruiters, which
+    hydrates every posting, and icims, which walks every search page first). The other
+    stub-gate boards (phenom, workday) call the gate per item of their first list page,
+    and stop at its first stub. Every other adapter's fetch is one list call. Recipe
+    boards (custom, browser) list every page before their gate and are not verified
+    here: they are added with the onboard-board skill. Raises what the fetch raises (a
+    404 for a wrong slug)."""
+    try:
+        adapter = ADAPTERS[source]
+    except KeyError:
+        raise ValueError(f"unknown source: {source!r}")
+    if source in RECIPE_SOURCES:
+        raise ValueError(f"{source} boards are verified by the onboard-board skill, not here")
+    own = getattr(adapter, "has_listings", None)
+    if own is not None:
+        return own(slug, **kwargs)
+    if source in STUB_GATE_SOURCES:
+        def keep(_stub):
+            raise _Listed
+        try:
+            return bool(fetch_company(source, slug, company_name, keep=keep, **kwargs))
+        except _Listed:
+            return True
+    return bool(fetch_company(source, slug, company_name, **kwargs))
+
+
 def fetch_one_company(source: str, slug: str, external_id: str,
                       company_name: str, **kwargs) -> dict | None:
     """Dispatch to the per-listing adapter for `source` (one job by id)."""
@@ -196,7 +245,8 @@ def recheck_id(row) -> str | None:
 
 
 __all__ = [
-    "ADAPTERS", "ABSENCE_CLOSURE_SOURCES", "DETAIL_SOURCES", "STUB_GATE_SOURCES", "STUB_GATE_NOW_SOURCES",
+    "ADAPTERS", "ABSENCE_CLOSURE_SOURCES", "DETAIL_SOURCES", "REPORTS_INACTIVE_SOURCES",
+    "STUB_GATE_SOURCES", "STUB_GATE_NOW_SOURCES", "STUB_OBSERVES_SOURCES",
     "filter_postings", "prefilter_postings",
     "fetch_company", "fetch_one_company", "recheck_id",
     "ashby", "greenhouse", "lever", "workday", "pinpoint", "smartrecruiters",

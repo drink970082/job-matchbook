@@ -9,7 +9,7 @@ import pytest
 import requests
 
 from ats_worker.fetch import ashby, greenhouse, lever, phenom, pinpoint
-from ats_worker.fetch import (STUB_GATE_SOURCES, fetch_company, filter_postings,
+from ats_worker.fetch import (STUB_GATE_SOURCES, board_has_listings, fetch_company, filter_postings,
                               prefilter_postings)
 from ats_worker.util import POSTING_FIELDS
 from tests._helpers import FakeSession
@@ -197,7 +197,7 @@ def test_stub_gate_sources_is_exactly_the_two_step_adapters():
     # one honours 'drop' only). `custom`/`browser` joined for the same reason once a
     # recipe could carry a `detail:` block — for a recipe with none, `keep` is inert.
     assert STUB_GATE_SOURCES == frozenset(
-        {"phenom", "workday", "icims", "custom", "browser"})
+        {"phenom", "workday", "smartrecruiters", "icims", "custom", "browser"})
 
 
 # --- fetch_one_company dispatcher (per-listing detail sources) -------------
@@ -336,3 +336,48 @@ def test_prefilter_composes_keep_then_exclude():
     kept = prefilter_postings(posts, title_filter=["engineer"],
                               title_exclude=["sales"], now="2026-06-04")
     assert [p["job_title"] for p in kept] == ["Senior Engineer"]
+
+
+# --- verify-on-add (#231): does the board list anything, without per-posting calls ---
+
+def test_board_has_listings_reads_a_smartrecruiters_list_page_alone():
+    """smartrecruiters' fetch makes one detail GET per posting; verifying must not."""
+    session = FakeSession(payload={"totalFound": 812, "content": [{"id": "1"}, {"id": "2"}]})
+    assert board_has_listings("smartrecruiters", "Acme", "Acme", session=session) is True
+    assert [(m, u) for m, u, _ in session.calls] == [
+        ("GET", "https://api.smartrecruiters.com/v1/companies/Acme/postings")]
+    empty = FakeSession(payload={"totalFound": 0, "content": []})
+    assert board_has_listings("smartrecruiters", "Gone", "Gone", session=empty) is False
+    missing = FakeSession(raise_exc=requests.HTTPError("404"))
+    with pytest.raises(requests.HTTPError):
+        board_has_listings("smartrecruiters", "Typo", "Typo", session=missing)
+
+
+def test_board_has_listings_reads_an_icims_board_from_its_first_search_page():
+    """icims walks every search page before its stub gate runs; verifying reads page 0."""
+    html = (FIXTURES / "icims.html").read_text()
+    session = FakeSession(text=html)
+    assert board_has_listings("icims", "careers-acme", "Acme", session=session) is True
+    assert len(session.calls) == 1 and session.calls[0][2]["params"]["pr"] == 0
+    assert board_has_listings("icims", "x", "X", session=FakeSession(text="<html></html>")) is False
+
+
+def test_board_has_listings_stops_a_stub_gate_board_at_its_first_stub():
+    """A two-step board answers from its first list page: no detail call, no page 2."""
+    session = FakeSession(payload=load("workday_list.json"))
+    assert board_has_listings("workday", "acme/wd1/External", "Acme", session=session) is True
+    assert [m for m, _, _ in session.calls] == ["POST"]
+
+
+def test_board_has_listings_refuses_a_recipe_board_before_any_request():
+    session = FakeSession(payload={})
+    with pytest.raises(ValueError, match="onboard-board"):
+        board_has_listings("custom", "acme", "Acme", session=session)
+    assert session.calls == []
+
+
+def test_board_has_listings_uses_a_one_call_boards_list():
+    session = FakeSession(payload=load("greenhouse.json"))
+    assert board_has_listings("greenhouse", "acme", "Acme", session=session) is True
+    assert len(session.calls) == 1
+    assert board_has_listings("greenhouse", "x", "X", session=FakeSession(payload={"jobs": []})) is False

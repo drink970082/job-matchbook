@@ -5,6 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { QuotaBar } from './QuotaBar'
 import type { ActivityItem, getActivityStatus } from '@/lib/activity-actions'
+import { describePass } from '@/lib/pass-record'
 
 export type ActivityStatus = Awaited<ReturnType<typeof getActivityStatus>>
 
@@ -43,7 +44,7 @@ export function ActivityTab({ status, initial, loadMore }: Props) {
     // the merge, and the dedupe below would otherwise stall Load more on the same page.
     const [offset, setOffset] = useState(initial.nextOffset)
     const [loading, setLoading] = useState(false)
-    const stale = !status.lastFetchedAt || Date.now() - Date.parse(status.lastFetchedAt) > 86_400_000
+    const pass = describePass(status.lastPass, Date.now(), status.lastFailure)
 
     const more = async () => {
         setLoading(true)
@@ -63,8 +64,28 @@ export function ActivityTab({ status, initial, loadMore }: Props) {
             <Card>
                 <CardHeader className="pb-2"><CardTitle className="text-base">System status</CardTitle></CardHeader>
                 <CardContent className="space-y-4">
-                    <div className="grid grid-cols-2 gap-3 md:grid-cols-7">
-                        <Stat label="Last new posting" value={status.lastFetchedAt ? ago(status.lastFetchedAt) : 'never'} warn={stale} />
+                    {/* The latest pass record (#249): what it did and what it ran with. Settings shows the configured values. */}
+                    <div className="space-y-1 text-sm">
+                        <div className="flex flex-wrap items-baseline gap-2">
+                            <span className="font-medium">Last pass</span>
+                            {status.lastPass && (
+                                <span className="text-muted-foreground" title={status.lastPass.startedAt} suppressHydrationWarning>
+                                    {ago(status.lastPass.startedAt)}
+                                </span>
+                            )}
+                            <span className={pass.problem ? 'text-amber-600' : ''} suppressHydrationWarning>{pass.state}</span>
+                        </div>
+                        {pass.problem && <p className="text-xs text-amber-600" suppressHydrationWarning>{pass.problem}</p>}
+                        {pass.ranWith && <p className="text-xs text-muted-foreground">Ran with: {pass.ranWith}</p>}
+                        {pass.lines.length > 0 && (
+                            <ul className="space-y-0.5 text-xs">
+                                {pass.lines.map((l) => (
+                                    <li key={l.text} className={l.warn ? 'text-amber-600' : ''}>{l.text}</li>
+                                ))}
+                            </ul>
+                        )}
+                    </div>
+                    <div className="grid grid-cols-2 gap-3 md:grid-cols-6">
                         <Stat label="New postings, 24h" value={String(status.new24h)} />
                         <Stat label="New postings, 7d" value={String(status.new7d)} />
                         <Stat label="Triage assessed, 24h" value={String(status.assessed24h)} />
@@ -72,9 +93,6 @@ export function ActivityTab({ status, initial, loadMore }: Props) {
                         <Stat label="Triage failures, 24h" value={String(status.failures24h)} warn={status.failures24h > 0} />
                         <Stat label="Aged out unevaluated" value={`${status.agedOut7d} in 7d, ${status.agedOutTotal} total`} />
                     </div>
-                    {stale && (
-                        <p className="text-xs text-amber-600">No new posting in over a day: the worker may be stopped.</p>
-                    )}
                     <QuotaBar />
                 </CardContent>
             </Card>

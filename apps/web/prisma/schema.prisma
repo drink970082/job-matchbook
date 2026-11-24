@@ -155,6 +155,19 @@ model watched_companies {
   recipe     String? // JSON recipe for source=custom|browser (declarative fetch); NULL for platform/known-ATS rows
   created_at String
 
+  // Last worker pass's result for this board (#231), written by pipeline.run_fetch. All
+  // NULL until the first pass fetches it ("never fetched"). On a failed fetch the status
+  // is the closed error category (source_lifecycle.observation_error_category) and the
+  // counts are NULL.
+  last_fetched_at   String?
+  last_fetch_status String? // ok | disabled (browser row skipped: enable_browser_sources off) | http_403 | http_404 | http_410 | http_429 | http_5xx | http_error | timeout | connection_error | malformed_response | refresh_error
+  last_fetched      Int? // postings the board listed
+  last_kept         Int? // stored with a description: passed the title/age filters, not a gate discard, not bodyless
+  last_new          Int? // of those, newly inserted
+  last_bodyless     Int? // dropped for an empty description
+  last_detail_failed Int? // passed the stub gate, but the detail call returned nothing (failed or throttled)
+  last_desc_median  Int? // median description chars of the hydrated kept postings (< 1500 = teaser); NULL if none
+
   @@unique([source, slug]) // dedup key
 }
 

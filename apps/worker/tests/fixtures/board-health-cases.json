@@ -1,0 +1,31 @@
+{
+  "_doc": "Per-board fetch health (#231). Each case is one watched_companies row's last-pass columns (written by pipeline.run_fetch through db.record_board_health) and the health state both readers derive from them: MCP list_sources (tests/test_mcp_write.py) and the web Sources page (apps/web/src/__tests__/watchlist.int.test.ts). Both return the eight columns as stored plus `health`; a change to either side's rule fails one of the two suites. `kept` is postings stored with a description (gate discards and bodyless excluded); `detail_failed` is stubs that passed the gate and came back as nothing; `reached` = kept + bodyless + detail_failed. Rule, first match: never_fetched, disabled, fetch_failed, empty (listed 0); with kept 0: details_failed if any failed, bodyless if any bodyless, else kept_zero; details_failed / bodyless when that cause is over half of reached; teaser when the kept median is under 1500 (NULL = nothing measured); ok.",
+  "cases": [
+    {"name": "never fetched", "health": "never_fetched",
+     "row": {"last_fetched_at": null, "last_fetch_status": null, "last_fetched": null, "last_kept": null, "last_new": null, "last_bodyless": null, "last_detail_failed": null, "last_desc_median": null}},
+    {"name": "browser sources off", "health": "disabled",
+     "row": {"last_fetched_at": "2026-11-21T08:00:00.000Z", "last_fetch_status": "disabled", "last_fetched": null, "last_kept": null, "last_new": null, "last_bodyless": null, "last_detail_failed": null, "last_desc_median": null}},
+    {"name": "fetch failed", "health": "fetch_failed",
+     "row": {"last_fetched_at": "2026-11-21T08:00:00.000Z", "last_fetch_status": "http_404", "last_fetched": null, "last_kept": null, "last_new": null, "last_bodyless": null, "last_detail_failed": null, "last_desc_median": null}},
+    {"name": "board listed nothing", "health": "empty",
+     "row": {"last_fetched_at": "2026-11-21T08:00:00.000Z", "last_fetch_status": "ok", "last_fetched": 0, "last_kept": 0, "last_new": 0, "last_bodyless": 0, "last_detail_failed": 0, "last_desc_median": null}},
+    {"name": "smartrecruiters lists 812, every detail fails", "health": "details_failed",
+     "row": {"last_fetched_at": "2026-11-21T08:00:00.000Z", "last_fetch_status": "ok", "last_fetched": 812, "last_kept": 0, "last_new": 0, "last_bodyless": 0, "last_detail_failed": 812, "last_desc_median": null}},
+    {"name": "workday, every detail GET throttled", "health": "details_failed",
+     "row": {"last_fetched_at": "2026-11-21T08:00:00.000Z", "last_fetch_status": "ok", "last_fetched": 5, "last_kept": 0, "last_new": 0, "last_bodyless": 0, "last_detail_failed": 5, "last_desc_median": null}},
+    {"name": "phenom 10 stubs, 4 gate-discarded, 6 hydrated all bodyless", "health": "bodyless",
+     "row": {"last_fetched_at": "2026-11-21T08:00:00.000Z", "last_fetch_status": "ok", "last_fetched": 10, "last_kept": 0, "last_new": 0, "last_bodyless": 6, "last_detail_failed": 0, "last_desc_median": null}},
+    {"name": "filters (title, age or requirements) kept none", "health": "kept_zero",
+     "row": {"last_fetched_at": "2026-11-21T08:00:00.000Z", "last_fetch_status": "ok", "last_fetched": 40, "last_kept": 0, "last_new": 0, "last_bodyless": 0, "last_detail_failed": 0, "last_desc_median": null}},
+    {"name": "most details failed, some kept", "health": "details_failed",
+     "row": {"last_fetched_at": "2026-11-21T08:00:00.000Z", "last_fetch_status": "ok", "last_fetched": 10, "last_kept": 4, "last_new": 4, "last_bodyless": 0, "last_detail_failed": 6, "last_desc_median": 2000}},
+    {"name": "most came back bodyless, some kept", "health": "bodyless",
+     "row": {"last_fetched_at": "2026-11-21T08:00:00.000Z", "last_fetch_status": "ok", "last_fetched": 10, "last_kept": 3, "last_new": 0, "last_bodyless": 5, "last_detail_failed": 0, "last_desc_median": 2000}},
+    {"name": "teaser descriptions", "health": "teaser",
+     "row": {"last_fetched_at": "2026-11-21T08:00:00.000Z", "last_fetch_status": "ok", "last_fetched": 12, "last_kept": 5, "last_new": 1, "last_bodyless": 0, "last_detail_failed": 0, "last_desc_median": 1499}},
+    {"name": "a few details failed, mostly kept", "health": "ok",
+     "row": {"last_fetched_at": "2026-11-21T08:00:00.000Z", "last_fetch_status": "ok", "last_fetched": 10, "last_kept": 8, "last_new": 2, "last_bodyless": 0, "last_detail_failed": 2, "last_desc_median": 2000}},
+    {"name": "healthy", "health": "ok",
+     "row": {"last_fetched_at": "2026-11-21T08:00:00.000Z", "last_fetch_status": "ok", "last_fetched": 30, "last_kept": 6, "last_new": 2, "last_bodyless": 1, "last_detail_failed": 0, "last_desc_median": 1500}}
+  ]
+}
