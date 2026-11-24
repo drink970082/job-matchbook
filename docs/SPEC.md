@@ -641,7 +641,7 @@ worker modules are pure and dependency-injected; real services are wired only in
   `recipe` (a JSON object stored on the watchlist row) names the `url`, `method` (GET/POST),
   `mode` (`json`, or `next-data` = extract the `__NEXT_DATA__` blob then treat as JSON),
   `item_path`/`total_path` (`item_path` optional — omit it when the payload is already the job
-  array, i.e. a bare root-level JSON feed like Jane Street), `page` (`offset`/`page`/`none`), and a
+  array, i.e. a bare root-level JSON feed like Jane Street), `page` (`offset`/`page`/`none`, with an optional `start` for a 1-indexed board), and a
   `fields` map (dotted paths, `url` templates, list-concat descriptions) into the canonical dict via
   the shared `fetch/_recipe.py` helpers. One executor covers many boards (Amazon, ByteDance/TikTok,
   DE Shaw, Jane Street, …) with **no per-site code** — adding one stays a data row. Anything a recipe can't express is a
