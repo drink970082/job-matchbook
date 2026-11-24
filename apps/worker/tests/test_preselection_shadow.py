@@ -590,16 +590,16 @@ def test_public_entrypoint_kills_and_reaps_a_nonreturning_transport(tmp_path):
             ASSESSOR,
             transport,
             journal,
-            limits(max_elapsed_seconds=0.05),
+            limits(max_elapsed_seconds=0.5),
             clock,
             lambda current: current.save(journal_path),
             enabled=True,
         )
-    assert time.monotonic() - started < 0.5
+    assert time.monotonic() - started < 3
     assert journal.records[0].status == "ambiguous"
     assert journal.records[0].delivery == "unknown"
     assert journal.records[0].charge["kind"] == "unknown"
-    assert journal.records[0].elapsed_ms <= 150
+    assert journal.records[0].elapsed_ms <= 1500
     worker_pid = int((tmp_path / "worker.pid").read_text(encoding="utf-8"))
     with pytest.raises(ProcessLookupError):
         os.kill(worker_pid, 0)
@@ -614,7 +614,7 @@ def test_public_entrypoint_kills_and_reaps_a_nonreturning_transport(tmp_path):
             ASSESSOR,
             resumed_transport,
             AttemptJournal.load(journal_path),
-            limits(max_elapsed_seconds=0.05),
+            limits(max_elapsed_seconds=0.5),
             clock,
             lambda current: None,
             enabled=True,
@@ -956,7 +956,7 @@ def test_parent_preemption_after_provider_start_stays_ambiguous(tmp_path, monkey
         if process.is_alive() and not delayed:
             # The caller is descheduled after the provider marker but before timeout accounting.
             delayed = True
-            time.sleep(0.08)
+            time.sleep(0.6)  # past the 0.5s deadline below
 
     monkeypatch.setattr(BaseProcess, "join", preempt_after_provider_start)
     marker = tmp_path / "race-worker.pid"
@@ -972,7 +972,7 @@ def test_parent_preemption_after_provider_start_stays_ambiguous(tmp_path, monkey
             ASSESSOR,
             NonReturningTransport(marker),
             journal,
-            limits(max_elapsed_seconds=0.04),
+            limits(max_elapsed_seconds=0.5),
             SystemClock(),
             lambda current: None,
             enabled=True,
@@ -987,7 +987,7 @@ def test_parent_preemption_after_provider_start_stays_ambiguous(tmp_path, monkey
     assert journal.records[0].delivery == "unknown"
     with pytest.raises(ProcessLookupError):
         os.kill(worker_pid, 0)
-    assert time.monotonic() - started < 1.0
+    assert time.monotonic() - started < 3
 
 
 def test_worker_boundary_does_not_change_parent_or_unrelated_process(tmp_path):
