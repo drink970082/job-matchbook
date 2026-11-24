@@ -248,15 +248,16 @@ model candidate_profile {
 }
 
 // One row per worker pass (#247), written only by the worker. Inserted `running` at
-// pass start, finalized `ok` at the end. A pass that dies stays `running` until the
-// next pass (which holds the pass lock, so no other pass is live) marks it `failed`
-// with error_category `abandoned`. Every row is kept.
+// pass start, finalized `ok` at the end. A pass that raises is marked `failed` with
+// error_category `crashed`. A killed pass stays `running` until the next pass (which
+// holds the pass lock, so no other pass is live) marks it `failed`/`abandoned`.
+// Every row is kept.
 model worker_runs {
   id             Int     @id @default(autoincrement())
   started_at     String
   finished_at    String? // null while running, and on an abandoned pass (death time unknown)
   status         String  // running | ok | failed
-  error_category String? // closed: abandoned
+  error_category String? // closed: abandoned | crashed
   fetch_only     Boolean @default(false)
   jev_enabled    Boolean @default(false)
   config_json    String  // JSON: effective runtime config; never secrets

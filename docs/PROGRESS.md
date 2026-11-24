@@ -14,8 +14,8 @@ behavior. Completed work belongs in CHANGELOG, not this queue.
   remains.
 
 - **Per-board fetch health persisted and shown** `[WORKER+WEB+MCP · M]` (#231, part of
-  #229). Branch `feat/231-board-health`, landed, unmerged: awaits review and the
-  operator's `make db-push` (eight nullable `watched_companies` columns) at deploy.
+  #229). Merged as #280, not deployed: the deploy needs `make db-push` (eight nullable
+  `watched_companies` columns).
 
 These references reserve unfinished work; they do not claim the branches are currently
 executing or establish merge readiness. Inspect actual refs/worktrees and coordinate

@@ -281,6 +281,10 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 
 ### Fixed
 
+- **A pass that raises is recorded at once.** `run_once` marks its `worker_runs` row
+  `failed` / `crashed` with `finished_at` (rolling back the failing stage's uncommitted
+  writes) instead of leaving it `running` until the next pass marked it `abandoned`;
+  `abandoned` now means a killed pass.
 - **Concurrent web integration runs no longer collide.** The integration DB URL went
   through one fixed `/tmp/ats-integration-db.json`, so two checkouts running
   `test:integration` at once pointed at each other's DB. globalSetup now hands the URL

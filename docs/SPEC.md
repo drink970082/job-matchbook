@@ -465,11 +465,14 @@ worker modules are pure and dependency-injected; real services are wired only in
   triage backend/limit/USD cap, enabled feeds, browser sources on/off, and the candidate
   profile's `max_age_days` (the profile is read, or seeded, before the row is written),
   and `schedule_hours`; an allowlist, so no env value or secret is ever recorded). Because the caller holds
-  `pass_lock`, any row still `running` at that point belongs to a dead pass and is
+  `pass_lock`, any row still `running` at that point belongs to a killed pass and is
   marked `failed` / `abandoned` (`finished_at` stays null). Each stage's tally is
   written as it finishes (`counts_json` keys `fetch`, `feed` per feed name, `expire`,
-  `verdict` (`aged_out`), `screen`, `triage`), so a pass that raises stays `running` with the stages it
-  finished; the end of the pass sets `ok` and `finished_at`. Stage failures that the
+  `verdict` (`aged_out`), `screen`, `triage`), so a dead pass keeps the stages it
+  finished. A pass that raises rolls back the failing stage's uncommitted writes and is
+  marked `failed` / `crashed` with `finished_at`, then re-raises (if that write itself
+  fails, the row stays `running` for the next pass to abandon); the end of the pass
+  sets `ok` and `finished_at`. Stage failures that the
   pass survives (a dead screen backend, a skipped triage) are counted, not a `failed`
   pass. Tallies: fetch `boards_attempted`/`boards_failed`, `listed` (for a stub-gate
   board, the number of stubs the gate judged, since workday stubs carry no id),
@@ -2013,9 +2016,9 @@ model candidate_profile {        // the one candidate input (§7.1 "Candidate pr
 model worker_runs {              // one row per worker pass (§7.1 run.py); worker-written, all kept
   id             Int     @id @default(autoincrement())
   started_at     String
-  finished_at    String?          // null while running and on an abandoned pass
+  finished_at    String?          // null while running and on an abandoned (killed) pass
   status         String           // running | ok | failed
-  error_category String?          // abandoned
+  error_category String?          // abandoned | crashed
   fetch_only     Boolean @default(false)
   jev_enabled    Boolean @default(false)
   config_json    String           // effective runtime config; never secrets
@@ -2434,13 +2437,12 @@ guarantee:
 **Pass record** (`worker_runs`, §7.1 run.py): every pass except a `--refresh-unscored`
 run leaves exactly one row. A pass
 whose screen backend fails on every call still finishes `ok`, with the failures counted
-by closed category; a pass that raises stays `running` and the next pass marks it
-`failed` / `abandoned`. The recorded config never contains a secret. The Activity strip
+by closed category; a pass that raises is marked `failed` / `crashed` at once; a killed
+pass stays `running` and the next pass marks it `failed` / `abandoned`. The recorded config never contains a secret. The Activity strip
 reads the pass record, not posting timestamps: a `failed` row newer than the last `ok`
 one (named by its `error_category`, even while a newer pass runs), a `running` row older
-than the pass interval, or no pass within the interval is shown as a problem. A pass
-that has just died still reads `running` until the next pass starts or the interval
-elapses.
+than the pass interval, or no pass within the interval is shown as a problem. A killed
+pass still reads `running` until the next pass starts or the interval elapses.
 
 ### Invariant → test traceability
 
@@ -2453,7 +2455,7 @@ automated coverage — those rely on code review or the human in the loop, not a
 | Pipeline stage gating + per-item failure isolation | `worker/tests/test_pipeline.py`, `integration/test_pipeline_e2e.py` |
 | Screen-only stores result/provenance separately, preserves posting/fit lifecycle fields, caches completed rows, retries provider errors oldest-first under the provider-call cap, and re-checks eligibility before commit | `test_screen_pipeline.py` (`test_screen_results_cache_and_leave_fit_lifecycle_unchanged`, `test_provider_cap_counts_failures_and_errors_retry_oldest_first`, `test_screen_result_is_not_saved_if_lifecycle_changes_during_provider_call`, `test_provider_exception_text_is_not_persisted`) |
 | A pass is fetch then screen; `--screen-only` is an accepted alias; invalid mode combinations are rejected; Codex defaults to Luna/medium when no overrides are set | `test_run.py` (`test_run_once_defaults_codex_to_luna_medium`, `test_screen_only_is_an_accepted_alias_for_the_default_pass`, `test_screen_only_invalid_combinations_fail_before_config_or_db`, `test_rescreen_screened_is_gone`), `test_backends_screen.py` |
-| Pass record: one `worker_runs` row per pass; a failing screen backend still records `ok` with errors by category; a raising pass stays `running` and the next marks it `failed`/`abandoned`; no secret in the recorded config; stage tallies | `test_worker_runs.py` |
+| Pass record: one `worker_runs` row per pass; a failing screen backend still records `ok` with errors by category; a raising pass is marked `failed`/`crashed`; a killed one stays `running` and the next marks it `failed`/`abandoned`; no secret in the recorded config; stage tallies | `test_worker_runs.py` |
 | Activity strip from the pass record: a `failed` row since the last `ok` one names its category, also behind a newer `running` row; an overlong `running` row and a missed pass are problems | `pass-record.test.ts`, `activity.int.test.ts`, `Views.test.tsx` |
 | Dedup `(source, external_id)` on ingest | `test_db.py`, `test_pipeline.py` |
 | WAL + `busy_timeout` pragmas on connect | `test_db.py` |

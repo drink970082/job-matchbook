@@ -62,7 +62,7 @@ def test_a_pass_with_a_failing_screen_backend_records_ok_with_errors_counted(
     assert screen["errors_by_category"] == {"provider_unreachable": 2}
 
 
-def test_a_pass_raising_midway_stays_running_and_the_next_pass_marks_it_failed(
+def test_a_pass_raising_midway_is_marked_failed_crashed_at_once(
         monkeypatch, tmp_path, offline):
     dbfile = bootstrap_db(tmp_path / "a.db")
     monkeypatch.setattr(run, "make_screener", _dead_backend)
@@ -70,20 +70,28 @@ def test_a_pass_raising_midway_stays_running_and_the_next_pass_marks_it_failed(
     def boom(*_a, **_k):
         raise RuntimeError("worker killed mid-pass")
 
-    real_expire = run.pipeline.run_expire
     monkeypatch.setattr(run.pipeline, "run_expire", boom)
-    with pytest.raises(RuntimeError):
+    with pytest.raises(RuntimeError, match="killed mid-pass"):
         run.run_once(cfgmod.load_config(CFG), db_path=dbfile, env={})
     [dead] = _runs(dbfile)
-    assert dead["status"] == "running" and dead["finished_at"] is None
+    assert (dead["status"], dead["error_category"]) == ("failed", "crashed")
+    assert dead["finished_at"] is not None
     assert dead["counts"]["fetch"]["inserted"] == 2   # stages before the crash are kept
 
-    monkeypatch.setattr(run.pipeline, "run_expire", real_expire)
-    run.run_once(cfgmod.load_config(CFG), db_path=dbfile, env={})
-    dead, live = _runs(dbfile)
-    assert (dead["status"], dead["error_category"], dead["finished_at"]) == \
-        ("failed", "abandoned", None)
-    assert live["status"] == "ok"
+
+def test_a_crash_that_cannot_mark_the_row_still_raises_the_original(
+        monkeypatch, tmp_path, offline):
+    dbfile = bootstrap_db(tmp_path / "a.db")
+
+    def boom(*_a, **_k):
+        raise RuntimeError("original")
+
+    monkeypatch.setattr(run.pipeline, "run_expire", boom)
+    monkeypatch.setattr(run.db, "fail_pass", lambda *_a, **_k: 1 / 0)
+    with pytest.raises(RuntimeError, match="original"):
+        run.run_once(cfgmod.load_config(CFG), db_path=dbfile, env={})
+    [dead] = _runs(dbfile)
+    assert dead["status"] == "running"   # the next pass marks it abandoned
 
 
 def test_a_fetch_only_pass_records_its_mode_and_no_screen(monkeypatch, tmp_path, offline):

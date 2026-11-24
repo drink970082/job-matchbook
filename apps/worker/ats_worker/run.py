@@ -168,6 +168,7 @@ def run_once(cfg, *, db_path, env,
     elif refresh_source is not None:
         raise ValueError("--refresh-source requires --refresh-unscored")
     conn = db.connect(db_path)
+    run_id = None
     try:
         now = _now()
         if refresh_unscored:
@@ -180,7 +181,7 @@ def run_once(cfg, *, db_path, env,
             )
             return
         # The pass record (#247). run_once runs under pass_lock, so start_pass may mark
-        # any row still `running` abandoned. A raise below leaves this row `running`.
+        # any row still `running` abandoned (a killed pass). A raise marks it crashed.
         provider = PROVIDERS[screen_backend]
         effective_model = screen_model_for(screen_backend, screen_model=screen_model,
                                            ollama_model=ollama_model)
@@ -336,6 +337,13 @@ def run_once(cfg, *, db_path, env,
             print("[triage] passing the requirements is the final keep this pass")
             record("triage", {"skipped": _triage_skip_reason(prof)})
         db.finish_pass(conn, run_id, now=_now(), counts=counts)
+    except BaseException:
+        if run_id is not None:
+            try:
+                db.fail_pass(conn, run_id, now=_now())
+            except Exception:  # noqa: BLE001 - the original error matters more
+                pass  # the row stays `running`; the next pass marks it abandoned
+        raise
     finally:
         conn.close()
 
