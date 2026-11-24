@@ -16,6 +16,10 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
   row offset as the page number and saw about 1 page in 20. **Operator step:** update
   the apple watchlist row's recipe `page` to that value.
 
+- **Jobvite closed jobs close**: a closed or unknown job id redirects to the careers
+  page with `?error=404` (checked live); `fetch_one` now raises it as a 404, so
+  `run_expire` closes the row instead of recording it inconclusive.
+
 - **Evaluate each posting once (#225)**: the screen and triage share one window
   (`posted_at`, else `created_at`, within 7 days) and run at most once per posting; each
   result records the `candidate_profile.version` it ran under. The worker writes the new

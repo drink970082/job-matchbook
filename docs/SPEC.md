@@ -591,7 +591,7 @@ worker modules are pure and dependency-injected; real services are wired only in
   detail; workable `apply.workable.com/api/v1/widget/accounts/{slug}?details=true`;
   oracle `{host}/hcmRestApi/resources/latest/recruitingCEJobRequisitionDetails/{reqId}`
   (slug packs `{host}/{site}`); jobvite `jobs.jobvite.com/{slug}/job/{id}` → schema.org
-  JobPosting JSON-LD; icims `{slug}.icims.com/jobs/search?in_iframe=1&pr={n}` → server-rendered
+  JobPosting JSON-LD (a closed id redirects to the careers page with `?error=404`, read as a 404); icims `{slug}.icims.com/jobs/search?in_iframe=1&pr={n}` → server-rendered
   HTML cards (bs4), paginate `pr` (plain HTTP, no browser); phenom
   `{host}/api/pcsx/search?domain={domain}&start={n}` (`data.positions[]`, `data.count`) + per-job
   `…/position_details?…&position_id={id}` for the description, slug packs `{host}/{domain}`.

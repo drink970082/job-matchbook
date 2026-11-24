@@ -61,3 +61,15 @@ def test_fetch_one_propagates_http_error():
     sess = FakeSession(text="", raise_exc=requests.HTTPError("404"))
     with pytest.raises(requests.HTTPError):
         jobvite.fetch_one("s", "1", "Co", session=sess)
+
+
+def test_fetch_one_reads_the_careers_page_404_redirect_as_gone():
+    # Live 2026-11-23: a closed (or unknown) job id answers 303 to
+    # /careers/<slug>/jobs?error=404, which then serves 200 with no JSON-LD.
+    from tests._helpers import FakeResponse
+    resp = FakeResponse(text="<html>careers home</html>")
+    resp.url = "https://jobs.jobvite.com/careers/s/jobs?error=404"
+    sess = FakeSession(responses=[resp])
+    with pytest.raises(requests.HTTPError) as exc:
+        jobvite.fetch_one("s", "oXnXAfwB", "Co", session=sess)
+    assert exc.value.response.status_code == 404
