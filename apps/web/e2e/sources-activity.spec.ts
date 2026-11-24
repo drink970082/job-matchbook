@@ -15,7 +15,7 @@ test('Sources adds a board from a careers URL and removes one after a confirm', 
     await page.getByLabel('Careers or job URL').fill('https://jobs.lever.co/hooli-labs')
     await expect(page.getByLabel('Company name')).toHaveValue('Hooli Labs')
     await page.getByRole('button', { name: 'Add board' }).click()
-    await expect(page.locator('tr', { hasText: 'Hooli Labs' })).toContainText('Pending first fetch')
+    await expect(page.locator('tr', { hasText: 'Hooli Labs' })).toContainText('Never fetched')
 
     page.once('dialog', (d) => d.accept())
     await page.getByRole('button', { name: 'Remove Hooli Labs' }).click()

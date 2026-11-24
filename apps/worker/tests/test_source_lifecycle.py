@@ -350,3 +350,13 @@ def test_error_categories_match_the_web_allow_list():
     block = re.search(r"const ERROR_CATEGORIES = new Set\(\[(.*?)\]\)", ts, re.S).group(1)
     assert set(re.findall(r"'([a-z0-9_]+)'", block)) == SOURCE_ERROR_CATEGORIES
     assert "no_recheck_key" in SOURCE_ERROR_CATEGORIES
+
+
+def test_verify_board_points_a_recipe_board_at_onboard_board_without_fetching():
+    from ats_worker.source_lifecycle import verify_board
+
+    def never(*_a):
+        raise AssertionError("a recipe board is not fetched")
+
+    reason = verify_board(never, "custom", "acme", "Acme")
+    assert "onboard-board" in reason and "try again" not in reason

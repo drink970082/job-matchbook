@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import errno
 import os
+import sqlite3
 
 import pytest
 
@@ -201,11 +202,36 @@ def test_run_once_gates_browser_sources(monkeypatch, tmp_path):
     run.run_once(cfgmod.load_config("companies: []\n"),
                  db_path=str(dbfile), env=_ENV)
     assert "browser" not in seen["sources"] and "greenhouse" in seen["sources"]
+    # The skipped row says why it has no fetch record, rather than reading never fetched.
+    row = dbmod.connect(str(dbfile)).execute(
+        "SELECT * FROM watched_companies WHERE source='browser'").fetchone()
+    assert (row["last_fetch_status"], dbmod.board_health(row)) == ("disabled", "disabled")
 
     # enable_browser_sources: they pass through
     run.run_once(cfgmod.load_config("companies: []\nenable_browser_sources: true\n"),
                  db_path=str(dbfile), env=_ENV)
     assert "browser" in seen["sources"]
+
+
+def test_a_failed_disabled_write_does_not_stop_the_pass(monkeypatch, tmp_path):
+    _stub_stages(monkeypatch)
+    seen: dict = {}
+    monkeypatch.setattr(run.pipeline, "run_fetch",
+                        lambda conn, companies, tf, *, now, **k: seen.setdefault("fetched", True) and 0)
+
+    def locked(*a, **kw):
+        raise sqlite3.OperationalError("database is locked")
+
+    monkeypatch.setattr(dbmod, "record_board_health", locked)
+    dbfile = tmp_path / "applications.db"
+    bootstrap_db(str(dbfile))
+    conn = dbmod.connect(str(dbfile))
+    dbmod.import_watchlist(conn, [
+        {"source": "browser", "slug": "cs", "name": "CS", "recipe": {"url": "x", "item": "a"}},
+    ], now="2026-01-01T00:00:00Z")
+    conn.close()
+    run.run_once(cfgmod.load_config("companies: []\n"), db_path=str(dbfile), env=_ENV)
+    assert seen == {"fetched": True}
 
 
 def test_run_once_runs_enabled_feed_and_skips_disabled(monkeypatch, tmp_path):

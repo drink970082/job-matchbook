@@ -347,7 +347,9 @@ def test_run_fetch_does_not_reopen_closed_smartrecruiters_row_from_inactive_deta
             })
 
     conn = db.connect(db_path)
-    db.upsert_postings(conn, [_posting("inactive-1", source="smartrecruiters")], now=NOW)
+    # company_slug matches the board, so the board-scoped listing UPDATE can reach it.
+    db.upsert_postings(conn, [_posting("inactive-1", source="smartrecruiters", company_slug="Acme")],
+                       now=NOW)
     conn.execute(
         "UPDATE job_postings SET source_state='closed', source_last_seen_at=? "
         "WHERE source='smartrecruiters' AND external_id='inactive-1'",

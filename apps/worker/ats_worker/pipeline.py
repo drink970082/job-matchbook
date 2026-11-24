@@ -30,8 +30,9 @@ from urllib.parse import urlparse
 from . import db, screening
 from .jev import JevError
 from .screening.errors import provider_failure_category
-from .fetch import (ABSENCE_CLOSURE_SOURCES, DETAIL_SOURCES, STUB_GATE_NOW_SOURCES,
-                    STUB_GATE_SOURCES, prefilter_postings, recheck_id)
+from .fetch import (ABSENCE_CLOSURE_SOURCES, DETAIL_SOURCES, REPORTS_INACTIVE_SOURCES,
+                    STUB_GATE_NOW_SOURCES, STUB_GATE_SOURCES, STUB_OBSERVES_SOURCES,
+                    prefilter_postings, recheck_id)
 from .feed import prefilter as _prefilter
 from .feed import resolve as _resolve
 from .source_lifecycle import (assessment_input_hash,
@@ -50,7 +51,9 @@ def run_fetch(conn, companies, title_filter, *, now, fetch_fn=None,
     then upsert. Returns rows inserted.
 
     A failing company is logged-and-skipped (no posting to mark failed yet —
-    nothing is in the db), so the remaining companies still ingest.
+    nothing is in the db), so the remaining companies still ingest. Each board's result
+    is written to its watchlist row (`db.record_board_health`): `ok` with the health-line
+    figures, or the failure's error category.
 
     Before any filter, every id the board listed — returned, or seen only by the stub
     gate — is recorded as observed (`db.record_board_listing`). For a source in
@@ -106,9 +109,14 @@ def run_fetch(conn, companies, title_filter, *, now, fetch_fn=None,
             # Stub-gate verdicts, counted per call rather than per id: a workday stub
             # carries no external_id, so `gated` cannot count what was listed.
             verdicts = {"calls": 0, "drop": 0}
+            inactive: list[str] = []  # listed ids whose detail says closed
+            if c["source"] in REPORTS_INACTIVE_SOURCES:
+                kw["inactive"] = inactive
             if c["source"] in STUB_GATE_SOURCES:
-                def _observed_keep(stub, _gated=gated, _v=verdicts):
-                    if stub.get("external_id"):
+                observes = c["source"] in STUB_OBSERVES_SOURCES
+
+                def _observed_keep(stub, _gated=gated, _v=verdicts, _obs=observes):
+                    if _obs and stub.get("external_id"):
                         _gated.add(str(stub["external_id"]))
                     verdict = _keep(stub)
                     _v["calls"] += 1
@@ -123,14 +131,18 @@ def run_fetch(conn, companies, title_filter, *, now, fetch_fn=None,
                     kw["now"] = now
             postings = fetch_fn(c["source"], c["slug"], c["name"], **kw)
             returned = {str(p.get("external_id") or "") for p in postings}
+            detail_failed = 0
             if verdicts["calls"]:
                 # Every stub the gate passed should come back; one that did not lost its
-                # detail call (workday returns None on a failed detail GET).
-                tally["listed"] += verdicts["calls"]
-                tally["detail_failed"] += max(
-                    0, verdicts["calls"] - verdicts["drop"] - len(postings))
+                # detail call (workday and smartrecruiters return None on a failed or
+                # throttled detail GET), unless its detail reported it closed.
+                listed = verdicts["calls"]
+                detail_failed = max(0, verdicts["calls"] - verdicts["drop"] - len(postings)
+                                    - len(inactive))
             else:
-                tally["listed"] += len(postings)
+                listed = len(postings)
+            tally["listed"] += listed
+            tally["detail_failed"] += detail_failed
             closed = db.record_board_listing(
                 conn, c["source"], c["slug"], gated | returned, now=now,
                 count_absence=c["source"] in ABSENCE_CLOSURE_SOURCES)
@@ -173,12 +185,20 @@ def run_fetch(conn, companies, title_filter, *, now, fetch_fn=None,
                         reason="empty_description", now=now)
                 drop_ids = {id(p) for p in bodyless}
                 kept = [p for p in kept if id(p) not in drop_ids]
-            added = db.upsert_postings(conn, kept, now=now)
+            # For health a gate discard is not "kept": it is stored, but as a
+            # requirements miss, and a stub-gate adapter returns it un-hydrated.
+            hydrated = [p for p in kept if not p.get("requirements")]
+            discards = [p for p in kept if p.get("requirements")]
+            new = db.upsert_postings(conn, hydrated, now=now)
+            added = new + db.upsert_postings(conn, discards, now=now)
             tally["inserted"] += added
-            _log_board_health(c, postings, kept, bodyless, added)
+            figures = _board_health(listed, hydrated, bodyless, new, detail_failed)
+            _log_board_health(c, figures)
+            record_health(conn, c, now=now, status="ok", figures=figures)
         except Exception as exc:  # noqa: BLE001 — one bad board must not abort the rest
             tally["boards_failed"] += 1
             print(f"[fetch] {c.get('source')}/{c.get('slug')}: skipped after error: {exc}")
+            record_health(conn, c, now=now, status=observation_error_category(exc))
             continue
     return tally["inserted"]
 
@@ -221,28 +241,46 @@ def _valid_posting(p: dict) -> bool:
     return all(str((p or {}).get(k) or "").strip() for k in _REQUIRED_FIELDS)
 
 
-# A description SHORTER than this is a teaser, not a job description. Not a gate —
-# nothing is dropped on it — purely the threshold at which the health line says so.
-# Healthy boards measure 1,900-2,200 median chars; the boards that turned out to be
-# serving a summary measured 250-850, and the gap between them is empty.
-_TEASER_MEDIAN_CHARS = 1500
+def record_health(conn, company, *, now, status: str, figures: dict | None = None) -> None:
+    """Write a board's last-pass record, logging instead of raising: a failed write (a
+    locked database) neither stops the pass nor turns a fetched board into a failure."""
+    try:
+        db.record_board_health(conn, company.get("source"), company.get("slug"), now=now,
+                               status=status, figures=figures)
+    except Exception as exc:  # noqa: BLE001 — the record is diagnostics; the pass goes on
+        print(f"[fetch] {company.get('source')}/{company.get('slug')}: "
+              f"health not recorded: {exc}")
 
 
-def _log_board_health(company, fetched, kept, bodyless, added) -> None:
+def _board_health(listed: int, hydrated, bodyless, new: int, detail_failed: int) -> dict:
+    """One board's figures for this pass (db.BOARD_HEALTH_FIGURES): what it listed, how
+    many postings were kept and stored with a description (gate discards and bodyless
+    excluded), how many of those were new, how many came back with no description, how
+    many lost their detail call, and the kept postings' median description length (None
+    when none was kept: nothing measured)."""
+    lengths = sorted(len(p.get("description") or "") for p in hydrated)
+    return {"fetched": listed, "kept": len(hydrated), "new": new, "bodyless": len(bodyless),
+            "detail_failed": detail_failed,
+            "desc_median": lengths[len(lengths) // 2] if lengths else None}
+
+
+def _log_board_health(company, h: dict) -> None:
     """One line per board per pass: what it returned and how much JD came with it.
 
     `_valid_posting` already catches a description that is EMPTY, which is how a moved
     selector announces itself. It cannot catch a board that serves a 250-character
     summary — that reads as a healthy fetch and silently starves the screen and JEV, which
     is why finding it took a manual query over the stored rows rather than a log. The
-    median is the cheapest thing that would have said so.
+    median is the cheapest thing that would have said so. The same figures are stored on
+    the watchlist row (db.record_board_health) for the Sources page and list_sources.
     """
-    lengths = sorted(len(p.get("description") or "") for p in kept)
-    median = lengths[len(lengths) // 2] if lengths else 0
-    note = " TEASER? (board may need a detail step)" if kept and median < _TEASER_MEDIAN_CHARS else ""
-    print(f"[fetch] {company['source']}/{company['slug']}: fetched={len(fetched)} "
-          f"kept={len(kept)} new={added} bodyless={len(bodyless)} "
-          f"desc_median={median}{note}")
+    median = h["desc_median"]
+    teaser = median is not None and median < db.TEASER_MEDIAN_CHARS
+    note = " TEASER? (board may need a detail step)" if teaser else ""
+    print(f"[fetch] {company['source']}/{company['slug']}: fetched={h['fetched']} "
+          f"kept={h['kept']} new={h['new']} bodyless={h['bodyless']} "
+          f"detail_failed={h['detail_failed']} "
+          f"desc_median={'-' if median is None else median}{note}")
 
 
 def _detail_fetch(detail_fetch_fn, source: str, slug: str, ids,

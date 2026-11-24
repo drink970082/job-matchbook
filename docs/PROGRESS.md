@@ -12,8 +12,10 @@ behavior. Completed work belongs in CHANGELOG, not this queue.
   #223). [Spec](superpowers/specs/2026-11-20-candidate-profile-design.md). #224 (#270)
   and #225 (#276) are merged and deployed. #226 (#281) is merged, not deployed; #227
   remains.
-- **Activity status strip reads the pass record** `[WEB · S]` (#249, branch
-  `feat/249-activity-pass-record`): in review as #279.
+
+- **Per-board fetch health persisted and shown** `[WORKER+WEB+MCP · M]` (#231, part of
+  #229). Branch `feat/231-board-health`, landed, unmerged: awaits review and the
+  operator's `make db-push` (eight nullable `watched_companies` columns) at deploy.
 
 These references reserve unfinished work; they do not claim the branches are currently
 executing or establish merge readiness. Inspect actual refs/worktrees and coordinate

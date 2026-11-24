@@ -527,5 +527,286 @@ def test_run_fetch_health_line_on_an_empty_board(db_path, capsys):
     pipeline.run_fetch(conn, [{"source": "lever", "slug": "gone", "name": "Gone"}],
                        None, now=NOW, fetch_fn=lambda *a, **kw: [])
     line = [l for l in capsys.readouterr().out.splitlines() if "lever/gone" in l][0]
-    assert "fetched=0" in line and "desc_median=0" in line
+    assert "fetched=0" in line and "desc_median=-" in line  # nothing measured
     assert "TEASER" not in line, "an empty board is not a teaser board"
+
+
+# --- per-board health record (#231): the health line, persisted on the watchlist row ---
+
+_HEALTH_COLS = ("last_fetched_at", "last_fetch_status", "last_fetched", "last_kept",
+                "last_new", "last_bodyless", "last_detail_failed", "last_desc_median")
+
+
+def _watch(conn, *boards):
+    for source, slug in boards:
+        conn.execute("INSERT INTO watched_companies (source, slug, name, created_at) "
+                     "VALUES (?, ?, ?, ?)", (source, slug, slug.title(), NOW))
+    conn.commit()
+
+
+def _health(conn, source, slug):
+    row = conn.execute(f"SELECT {', '.join(_HEALTH_COLS)} FROM watched_companies "
+                       "WHERE source=? AND slug=?", (source, slug)).fetchone()
+    return dict(zip(_HEALTH_COLS, row))
+
+
+def test_run_fetch_records_each_boards_health_on_its_watchlist_row(db_path):
+    conn = db.connect(db_path)
+    _watch(conn, ("greenhouse", "acme"))
+
+    def fetch_fn(source, slug, name, **kw):
+        return [_posting("a", job_title="Engineer", description="x" * 2000),
+                _posting("b", job_title="Engineer", description="y" * 2200),
+                _posting("c", job_title="Engineer", description=""),
+                _posting("d", job_title="Sales Rep")]
+
+    pipeline.run_fetch(conn, [{"source": "greenhouse", "slug": "acme", "name": "Acme"}],
+                       ["engineer"], now=NOW, fetch_fn=fetch_fn)
+    assert _health(conn, "greenhouse", "acme") == {
+        "last_fetched_at": NOW, "last_fetch_status": "ok", "last_fetched": 4,
+        "last_kept": 2, "last_new": 2, "last_bodyless": 1, "last_detail_failed": 0, "last_desc_median": 2200}
+
+    # A second pass: the same postings are already stored, so nothing is new.
+    pipeline.run_fetch(conn, [{"source": "greenhouse", "slug": "acme", "name": "Acme"}],
+                       ["engineer"], now=LATER, fetch_fn=fetch_fn)
+    h = _health(conn, "greenhouse", "acme")
+    assert (h["last_fetched_at"], h["last_new"], h["last_kept"]) == (LATER, 0, 2)
+
+
+def test_a_failing_board_records_its_error_category_and_the_pass_goes_on(db_path):
+    conn = db.connect(db_path)
+    _watch(conn, ("greenhouse", "moved"), ("lever", "fine"))
+    pipeline.run_fetch(conn, [{"source": "lever", "slug": "fine", "name": "Fine"}],
+                       None, now=NOW, fetch_fn=lambda *a, **kw: [_posting("1", source="lever")])
+
+    def fetch_fn(source, slug, name, **kw):
+        if slug == "moved":
+            raise _HTTPError(404)
+        return []
+
+    pipeline.run_fetch(conn, [{"source": "greenhouse", "slug": "moved", "name": "Moved"},
+                              {"source": "lever", "slug": "fine", "name": "Fine"}],
+                       None, now=LATER, fetch_fn=fetch_fn)
+    assert _health(conn, "greenhouse", "moved") == {
+        "last_fetched_at": LATER, "last_fetch_status": "http_404", "last_fetched": None,
+        "last_kept": None, "last_new": None, "last_bodyless": None, "last_detail_failed": None, "last_desc_median": None}
+    # The board after it was still fetched, and its record is this pass's (empty), not
+    # the previous one's.
+    assert _health(conn, "lever", "fine") == {
+        "last_fetched_at": LATER, "last_fetch_status": "ok", "last_fetched": 0,
+        "last_kept": 0, "last_new": 0, "last_bodyless": 0, "last_detail_failed": 0, "last_desc_median": None}
+
+
+def _state(conn, slug):
+    return db.board_health(conn.execute(
+        "SELECT * FROM watched_companies WHERE slug=?", (slug,)).fetchone())
+
+
+_REMOTE_ONLY = {"locations": ["remote", "USA"]}
+
+
+def test_a_gate_discard_is_not_kept_and_not_measured(db_path):
+    """A stub the location gate discards is stored as a requirements miss, returned
+    un-hydrated: it is neither a kept posting nor a teaser description."""
+    conn = db.connect(db_path)
+    _watch(conn, ("phenom", "far"), ("phenom", "allfar"))
+
+    def fetch_fn(source, slug, name, **kw):
+        far = [_posting(f"{slug}{i}", source="phenom", location="Shanghai, China", description="")
+               for i in range(5)]
+        return far if slug == "allfar" else far + [_posting("ok", source="phenom", description="x" * 2000)]
+
+    pipeline.run_fetch(conn, [{"source": "phenom", "slug": s, "name": s} for s in ("far", "allfar")],
+                       None, now=NOW, fetch_fn=fetch_fn, candidate=_REMOTE_ONLY)
+    far, allfar = _health(conn, "phenom", "far"), _health(conn, "phenom", "allfar")
+    assert (far["last_kept"], far["last_new"], far["last_desc_median"]) == (1, 1, 2000)
+    assert (allfar["last_kept"], allfar["last_desc_median"]) == (0, None)
+    assert [_state(conn, "far"), _state(conn, "allfar")] == ["ok", "kept_zero"]
+    assert conn.execute("SELECT COUNT(*) FROM job_postings").fetchone()[0] == 11, "discards still stored"
+
+
+def test_phenom_whose_hydrated_postings_all_came_back_bodyless_is_not_ok(db_path):
+    """10 stubs: 4 discarded by the location gate, 6 hydrated, every one without a
+    description (a failed detail or a moved selector)."""
+    conn = db.connect(db_path)
+    _watch(conn, ("phenom", "big"))
+
+    def fetch_fn(source, slug, name, *, keep, **kw):
+        out = []
+        for i in range(10):
+            stub = _posting(str(i), source="phenom", description="",
+                            location="Shanghai, China" if i < 4 else "Remote")
+            verdict = keep(stub)
+            if verdict != "drop":
+                out.append(stub)   # a discard un-hydrated; a hydrate whose detail gave nothing
+        return out
+
+    pipeline.run_fetch(conn, [{"source": "phenom", "slug": "big", "name": "Big"}], None,
+                       now=NOW, fetch_fn=fetch_fn, candidate=_REMOTE_ONLY)
+    h = _health(conn, "phenom", "big")
+    assert (h["last_fetched"], h["last_kept"], h["last_bodyless"], h["last_detail_failed"]) == (10, 0, 6, 0)
+    assert _state(conn, "big") == "bodyless"
+
+
+def test_workday_whose_every_detail_get_was_throttled_reads_details_failed(db_path):
+    conn = db.connect(db_path)
+    _watch(conn, ("workday", "t/wd1/site"))
+
+    def fetch_fn(source, slug, name, *, keep, now, **kw):
+        for i in range(5):        # every stub passes the gate; every detail GET 429s
+            keep({"external_id": None, "job_title": "Engineer", "location": "Remote"})
+        return []                 # workday's _row returns None on a failed detail
+
+    pipeline.run_fetch(conn, [{"source": "workday", "slug": "t/wd1/site", "name": "T"}], None,
+                       now=NOW, fetch_fn=fetch_fn)
+    h = _health(conn, "workday", "t/wd1/site")
+    assert (h["last_fetched"], h["last_kept"], h["last_detail_failed"]) == (5, 0, 5)
+    assert _state(conn, "t/wd1/site") == "details_failed"
+
+
+class _SmartRecruitersOutage:
+    """812 listed over 9 pages; every detail GET fails."""
+    LIST = "https://api.smartrecruiters.com/v1/companies/Big/postings"
+
+    def __init__(self):
+        self.detail_gets = 0
+
+    def get(self, url, params=None, timeout=None):
+        from tests._helpers import FakeResponse
+        if url == self.LIST:
+            off = params["offset"]
+            content = [{"id": f"p{i}", "name": "Engineer", "location": {"city": "Remote"}}
+                       for i in range(off, min(off + 100, 812))]
+            return FakeResponse({"totalFound": 812, "content": content})
+        self.detail_gets += 1
+        return FakeResponse(None, raise_exc=_HTTPError(503))
+
+
+def test_smartrecruiters_listing_812_with_every_detail_failing_reads_details_failed(db_path):
+    """Through the real adapter: listed is the list count, not what came back."""
+    from ats_worker.fetch import fetch_company
+    conn = db.connect(db_path)
+    _watch(conn, ("smartrecruiters", "Big"))
+    http = _SmartRecruitersOutage()
+    pipeline.run_fetch(conn, [{"source": "smartrecruiters", "slug": "Big", "name": "Big"}], None,
+                       now=NOW, fetch_fn=lambda s, sl, n, **kw: fetch_company(s, sl, n, session=http, **kw))
+    h = _health(conn, "smartrecruiters", "Big")
+    assert (h["last_fetched"], h["last_kept"], h["last_detail_failed"]) == (812, 0, 812)
+    assert http.detail_gets == 812
+    assert _state(conn, "Big") == "details_failed", "not `empty`: the board listed 812"
+
+
+class _SmartRecruitersClosed(_SmartRecruitersOutage):
+    """812 listed; every detail answers `active: false` (the list keeps closed postings)."""
+
+    def get(self, url, params=None, timeout=None):
+        from tests._helpers import FakeResponse
+        if url == self.LIST:
+            return super().get(url, params, timeout)
+        self.detail_gets += 1
+        return FakeResponse({"id": url.rsplit("/", 1)[1], "active": False})
+
+
+def test_smartrecruiters_details_reporting_closed_are_not_details_failed(db_path):
+    from ats_worker.fetch import fetch_company
+    conn = db.connect(db_path)
+    _watch(conn, ("smartrecruiters", "Big"))
+    http = _SmartRecruitersClosed()
+    pipeline.run_fetch(conn, [{"source": "smartrecruiters", "slug": "Big", "name": "Big"}], None,
+                       now=NOW, fetch_fn=lambda s, sl, n, **kw: fetch_company(s, sl, n, session=http, **kw))
+    h = _health(conn, "smartrecruiters", "Big")
+    assert (h["last_fetched"], h["last_kept"], h["last_detail_failed"]) == (812, 0, 0)
+    assert _state(conn, "Big") == "kept_zero"
+
+
+@pytest.mark.parametrize("failed, state", [(6, "details_failed"), (2, "ok")])
+def test_a_board_mostly_losing_its_details_is_not_healthy(db_path, failed, state):
+    """10 stubs reach hydration: `failed` lose their detail, the rest are full JDs."""
+    conn = db.connect(db_path)
+    _watch(conn, ("workday", "t/wd1/site"))
+
+    def fetch_fn(source, slug, name, *, keep, now, **kw):
+        for i in range(10):
+            keep({"external_id": None, "job_title": "Engineer", "location": "Remote"})
+        return [_posting(str(i), source="workday", description="x" * 2000) for i in range(10 - failed)]
+
+    pipeline.run_fetch(conn, [{"source": "workday", "slug": "t/wd1/site", "name": "T"}], None,
+                       now=NOW, fetch_fn=fetch_fn)
+    assert _health(conn, "workday", "t/wd1/site")["last_detail_failed"] == failed
+    assert _state(conn, "t/wd1/site") == state
+
+
+def test_a_board_whose_every_posting_came_back_bodyless_is_not_kept_zero(db_path):
+    """A broken description selector is not the operator's filters keeping nothing."""
+    conn = db.connect(db_path)
+    _watch(conn, ("greenhouse", "broken"))
+    pipeline.run_fetch(conn, [{"source": "greenhouse", "slug": "broken", "name": "Broken"}], None,
+                       now=NOW, fetch_fn=lambda *a, **kw: [_posting(str(i), description="") for i in range(4)])
+    row = conn.execute("SELECT * FROM watched_companies WHERE slug='broken'").fetchone()
+    assert (row["last_fetched"], row["last_kept"], row["last_bodyless"]) == (4, 0, 4)
+    assert db.board_health(row) == "bodyless"
+
+
+def test_a_failed_health_write_after_a_good_fetch_keeps_the_board_ok(db_path, monkeypatch, capsys):
+    """The postings were stored: the board is not counted failed nor recorded as an error."""
+    conn = db.connect(db_path)
+    _watch(conn, ("lever", "fine"))
+    calls = []
+
+    def flaky(conn, source, slug, **kw):
+        calls.append(kw["status"])
+        raise sqlite3.OperationalError("database is locked")
+
+    monkeypatch.setattr(db, "record_board_health", flaky)
+    counts: dict = {}
+    inserted = pipeline.run_fetch(conn, [{"source": "lever", "slug": "fine", "name": "Fine"}], None,
+                                  now=NOW, fetch_fn=lambda *a, **kw: [_posting("1", source="lever")],
+                                  counts=counts)
+    assert (inserted, counts["boards_failed"], calls) == (1, 0, ["ok"])
+    assert "lever/fine: health not recorded" in capsys.readouterr().out
+
+
+def test_a_health_write_that_fails_does_not_stop_the_pass(db_path, monkeypatch, capsys):
+    """A locked database while recording one board's failure is logged; the next board
+    is still fetched and stored (PRINCIPLES 6)."""
+    conn = db.connect(db_path)
+    _watch(conn, ("greenhouse", "moved"), ("lever", "fine"))
+    real = db.record_board_health
+
+    def flaky(conn, source, slug, **kw):
+        if slug == "moved":
+            raise sqlite3.OperationalError("database is locked")
+        return real(conn, source, slug, **kw)
+
+    monkeypatch.setattr(db, "record_board_health", flaky)
+
+    def fetch_fn(source, slug, name, **kw):
+        if slug == "moved":
+            raise _HTTPError(404)
+        return [_posting("1", source="lever")]
+
+    inserted = pipeline.run_fetch(conn, [{"source": "greenhouse", "slug": "moved", "name": "Moved"},
+                                         {"source": "lever", "slug": "fine", "name": "Fine"}],
+                                  None, now=NOW, fetch_fn=fetch_fn)
+    assert inserted == 1
+    assert _health(conn, "lever", "fine")["last_fetch_status"] == "ok"
+    assert "greenhouse/moved: health not recorded" in capsys.readouterr().out
+
+
+def test_a_stub_gate_board_counts_what_it_listed_not_what_it_returned(db_path):
+    """A two-step board drops off-title stubs before their detail call, so what comes
+    back understates the board. `fetched` is what it listed: 3 stubs, 2 dropped."""
+    conn = db.connect(db_path)
+    _watch(conn, ("phenom", "big"))
+
+    def fetch_fn(source, slug, name, *, keep, **kw):
+        stubs = [{"external_id": "1", "job_title": "Engineer"},
+                 {"external_id": "2", "job_title": "Sales"},
+                 {"external_id": "3", "job_title": "Chef"}]
+        return [_posting(s["external_id"], source="phenom", job_title=s["job_title"])
+                for s in stubs if keep(s) != "drop"]
+
+    pipeline.run_fetch(conn, [{"source": "phenom", "slug": "big", "name": "Big"}],
+                       ["engineer"], now=NOW, fetch_fn=fetch_fn)
+    h = _health(conn, "phenom", "big")
+    assert (h["last_fetched"], h["last_kept"], h["last_new"]) == (3, 1, 1)

@@ -113,7 +113,15 @@ CREATE TABLE "watched_companies" (
     "slug" TEXT NOT NULL,
     "name" TEXT NOT NULL,
     "recipe" TEXT,
-    "created_at" TEXT NOT NULL
+    "created_at" TEXT NOT NULL,
+    "last_fetched_at" TEXT,
+    "last_fetch_status" TEXT,
+    "last_fetched" INTEGER,
+    "last_kept" INTEGER,
+    "last_new" INTEGER,
+    "last_bodyless" INTEGER,
+    "last_detail_failed" INTEGER,
+    "last_desc_median" INTEGER
 );
 
 CREATE TABLE "audit_log" (

@@ -78,6 +78,16 @@ def _location(card) -> str | None:
     return None
 
 
+def has_listings(slug: str, session: requests.Session | None = None,
+                 timeout: int = 20) -> bool:
+    """Whether the board lists any posting, from its first search page (verify-on-add,
+    #231): `fetch` walks every page before its stub gate runs."""
+    resp = (session or requests).get(SEARCH.format(slug=slug), params={"in_iframe": 1, "pr": 0},
+                                     timeout=timeout)
+    resp.raise_for_status()
+    return bool(parse_jobs(resp.text, ""))
+
+
 def fetch(slug: str, company_name: str, session: requests.Session | None = None,
           timeout: int = 20, keep=None) -> list[dict]:
     """List an iCIMS board and hydrate each posting from its detail page.
