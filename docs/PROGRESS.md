@@ -10,12 +10,7 @@ behavior. Completed work belongs in CHANGELOG, not this queue.
 
 - **One candidate profile; evaluate each posting once** `[WORKER+WEB+MCP · L]` (epic
   #223). [Spec](superpowers/specs/2026-11-20-candidate-profile-design.md). #224 (#270)
-  and #225 (#276) are merged and deployed. #226 (#281) is merged, not deployed; #227
-  remains.
-
-- **Per-board fetch health persisted and shown** `[WORKER+WEB+MCP · M]` (#231, part of
-  #229). Merged as #280, not deployed: the deploy needs `make db-push` (eight nullable
-  `watched_companies` columns).
+  and #225 (#276) are merged and deployed, and so is #226 (#281); #227 remains.
 
 These references reserve unfinished work; they do not claim the branches are currently
 executing or establish merge readiness. Inspect actual refs/worktrees and coordinate
