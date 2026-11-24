@@ -45,7 +45,7 @@ def _add(conn, ext, *, at=OLD, status="new", detail=None, screen=None, jev=None)
     if jev is not None:
         state, verdict = jev
         conn.execute("INSERT INTO job_jev_assessments (job_posting_id, state, verdict, model, "
-                     "policy_sha256, last_attempted_at, created_at) VALUES (?, ?, ?, 'm', 'sha', ?, ?)",
+                     "last_attempted_at, created_at) VALUES (?, ?, ?, 'm', ?, ?)",
                      (pid, state, verdict, at, at))
     conn.commit()
     return pid

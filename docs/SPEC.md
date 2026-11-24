@@ -887,7 +887,7 @@ worker modules are pure and dependency-injected; real services are wired only in
   requirements shape (`pipeline_status` back to `new`, `score_detail` cleared, verdict
   `discarded` at its `created_at`), backfills every verdict once from today's status
   rules (disqualifying screen `discarded`; completed triage keep/skip stands, stale or
-  not; a passing screen `keep` unless the readers' triage mode is on — a target role or
+  not; a passing screen `keep` unless triage was in use — a target role or
   custom context and at least one triage row — including one a premature no-triage pass
   already aged to `not_evaluated`; unfinished work `pending` in the window, else
   `not_evaluated`), and deletes the retired `jev_current_policy_sha256` setting, all in
@@ -945,8 +945,9 @@ worker modules are pure and dependency-injected; real services are wired only in
   posting lives in `job_jev_assessments` with the `profile_version` it ran under; a
   completed keep/skip is the posting's final verdict; `pipeline_status` and screen state
   are never touched. An operator override (`job_triage_overrides`, set through MCP
-  `override_triage`) is read-side only: JEV still assesses the posting and never reads or
-  writes the override. A completed verdict is never re-queued; provider errors retry
+  `override_triage` or web "Not interested") is read-side only: JEV never reads or
+  writes it, and the readers' effective status is the override if one exists, else the
+  stored verdict. A completed verdict is never re-queued; provider errors retry
   oldest-first after fresh work, inside the shared window only. A pass is
   sequential with no in-pass retries, capped by `--jev-limit` (default 300) and
   `--jev-max-usd` (default 0.10, settled charges including partial failures, checked
@@ -955,8 +956,7 @@ worker modules are pure and dependency-injected; real services are wired only in
   connect timeout) stops the
   pass; a dead backend trips the shared breaker. A request over 32,768 bytes is never
   sent, is stored as `request_too_large`, and is never retried (it ages out). No
-  policy hash is stored or compared (`policy_sha256` is a dead nullable column until
-  #226 drops it with the reader rules). Without
+  policy hash is stored or compared. Without
   `OPENROUTER_API_KEY` or model metadata the stage is skipped with a log line; fetch and
   screen have already run. The four inputs (`profile_text`, both packs, `yoe_context`)
   come from the candidate profile (`triage_texts()` above); `--jev` needs no other
@@ -1465,24 +1465,26 @@ worker modules are pure and dependency-injected; real services are wired only in
   withheld because they cannot be safely parsed. Tool errors contain actionable
   repository messages but never a database path or driver text. Server instructions
   mark job descriptions, application notes, recipes and scraped text as untrusted data.
-  `list_jobs` takes `jev` (`keep` default, `skip`, `all`): `keep` hides only `new`
-  postings whose current JEV verdict is `skip` and reports `jev_filter.hidden_skip_count`
-  on the first page; unassessed, failed, non-`new` and stale (source revision changed;
-  the worker no longer records a policy, so a policy never marks one stale) postings are
-  shown.
-  It also takes `closed` (`exclude` default, `only`, `all`): `exclude` hides every
-  `source_state='closed'` posting, as the web files it only under its `closed` stage, and
-  `hidden_skip_count` and the overview's `jev_filter_counts` leave closed rows out;
-  `only` lists just those (pinned with the web by `worker/tests/fixtures/closed-stage-cases.json`).
-  `jev.status` is the **effective** status: an operator override
-  (`job_triage_overrides`) wins when its recorded `source_content_revision` equals the
-  posting's (NULL counts as 1, as the worker's refresh backfills it), so it survives worker passes and
-  lapses when the content changes. Each row carries `jev.status`, `model_status`,
-  `reasons` (the model's) and `override` (`decision, reason, actor, set_at, applies`, or
-  null); the keep/skip filter and counts use the effective status. `get_job` adds model, the legacy policy hash
-  (null on new rows) and attempt times; `get_ats_overview` adds `jev_filter_counts` over
-  `pipeline_status=new`, not `source_state=closed`, not verdict `discarded`, and `verdict_counts`, the stored verdict
-  over every posting (`not_evaluated` = aged out of the window unfinished).
+  Each posting has one **effective status**: the operator override decision
+  (`job_triage_overrides`, `keep | skip`) if one exists, else the stored
+  `job_postings.verdict` (`pending | keep | skip | discarded | not_evaluated`), one `CASE`
+  shared with the web and pinned on both sides by
+  `worker/tests/fixtures/effective-status-cases.json`. An override is not bound to the
+  posting's content revision and holds until cleared; `keep` also rescues a requirements
+  discard. `list_jobs` takes `status` (`shown` default, `all`, or one status): `shown`
+  hides `new` postings whose status is `skip` or `discarded` and reports
+  `status_filter.hidden_count` on the first page; a discard or skip overridden to `keep`
+  is shown, and a posting that left `new` is never hidden. It also takes `closed`
+  (`exclude` default, `only`, `all`): `exclude` hides every `source_state='closed'`
+  posting, as the web files it only under its `closed` stage, and `hidden_count` leaves
+  closed rows out; `only` lists just those. Each row carries `status`, `verdict`,
+  `profile_version` (the candidate profile version the verdict was judged under:
+  triage's when it completed, else the requirements stage's; null before a stage ran)
+  and `jev {reasons, override}` (`override` = `decision, reason, actor, set_at`, or
+  null; `reasons` only from a completed triage). `get_job` adds the triage state, model,
+  cost and attempt times; `get_ats_overview` adds `status_counts` over
+  `pipeline_status=new`, not `source_state=closed`, and `verdict_counts`, the stored
+  verdict over every posting (`not_evaluated` = aged out of the window unfinished).
   `list_jobs` keeps metadata search as the default and offers opt-in literal `all_text`
   matching over title, company, location and description; `%`, `_` and `!` are escaped,
   and description bodies remain available only through the chunk tool. Its optional
@@ -1511,15 +1513,12 @@ worker modules are pure and dependency-injected; real services are wired only in
   and independent fit/screen freshness (`not_assessed`, `current`, `stale`, `unknown`, or
   `provider_error`). A failed newer attempt does not replace the last conclusive check.
   `get_job` and `get_ats_record` return no fit-scorer columns (#174), and
-  `promotion_dismissed` is not an entity. `list_jobs` rows also expose a derived `triage_summary` with one of `rule_disqualified`,
-  `screen_disqualified`, `candidate`, or `needs_review`, plus bounded reason and
-  provenance. `list_jobs` accepts an optional `triage_status` filter, evaluated before
-  pagination and included in cursor scope. `get_ats_overview.job_triage_counts` partitions
-  all `job_postings`. Unknown lifecycle state always needs review; only narrow typed
-  deterministic evidence is called rule-based, including a rule-only standalone result
-  that does not establish whether a model ran. A candidate is retained for fit research,
-  not qualified. Missing standalone evidence alone does not establish processing state.
-  These derived fields leave the existing `screen_outcome` and stored row values intact.
+  `promotion_dismissed` is not an entity. `list_jobs` and `get_job` rows also expose a
+  display-only `triage_summary` of the requirements result (`job_screenings`): one of
+  `rule_disqualified`, `screen_disqualified`, `candidate`, or `needs_review`, plus bounded
+  reason and provenance (`job_screenings` or `none`). Unknown lifecycle state always needs
+  review; only narrow typed deterministic evidence is called rule-based. A candidate is
+  retained for fit research, not qualified. It never decides the posting's status.
   **Write tools** (`write_client.py`) exist only when `ATS_API_KEY` is set (a web
   `read_write` key, §7.2); without it the tool list is the read tools above and the
   instructions say the server cannot change state. They call web's `/api/v1` over
@@ -1877,13 +1876,13 @@ model job_screenings {
   @@index([state, last_attempted_at])
 }
 
-model job_triage_overrides {     // operator keep/skip over JEV; JEV never writes it
+model job_triage_overrides {     // operator keep/skip over the stored verdict; the worker never reads or writes it
   id                      Int          @id @default(autoincrement())
   job_posting_id          Int          @unique
   decision                String       // keep | skip
   reason                  String?
   actor                   String       // web | mcp
-  source_content_revision Int?         // posting revision when set; applies only while equal
+  source_content_revision Int?         // posting revision when set (provenance; never compared)
   created_at              String
   job_posting             job_postings @relation(fields: [job_posting_id], references: [id], onDelete: Cascade)
 }
@@ -1899,7 +1898,6 @@ model job_jev_assessments {
   result_json             String?      // native answers of both questions
   error_category          String?
   model                   String?
-  policy_sha256           String?      // legacy; no longer written or compared, dropped in #226
   source_content_revision Int?
   profile_version         Int?         // candidate_profile.version it ran under (display only)
   cost_usd                String?
@@ -2098,18 +2096,18 @@ the adapter boundary; it does not close the row or advance its source-seen time.
 missing `active` value remains compatible with normal ingestion. This does not extend
 to other adapters.
 
-- **Postings for you** (`stage` `for_you`, the default; #207). Not applied (`new`),
-  not `source_state` `closed`, no applying `skip` override; then funnel stage `keep` when
-  triage is configured (a target role or a custom triage context) and at least one assessment exists, else triage
-  `candidate` (passed the hard requirements), so an install without JEV does not see an
-  empty list. `getJobsMode` reports which; the Jobs nav badge counts this view's rows
-  first fetched in the last 24h. `postedSince` (a `YYYY-MM-DD` cutoff the UI computes in the viewer's local days for 1 / 7 / 30, matching the row's "3d ago") bounds `posted_at`; the only
+- **Postings for you** (`stage` `for_you`, the default; #207) is the funnel stage
+  `keep`: still `new`, not closed at its source, effective status `keep`. Without triage
+  the worker stores `keep` once the hard requirements pass, so one rule serves both
+  modes; `getJobsMode` (triage configured in the profile: a target role or a custom
+  triage context) only picks the line above the list. The Jobs nav badge counts this
+  view's rows first fetched in the last 24h. `postedSince` (a `YYYY-MM-DD` cutoff the UI computes in the viewer's local days for 1 / 7 / 30, matching the row's "3d ago") bounds `posted_at`; the only
   sort is newest posted. The web never lists filtered-out postings; MCP keeps the full
   picture.
 
-- **Discovered Jobs funnel.** Every posting except terminal `removed` is in exactly one stage, evaluated in SQL before paging and count (`lib/job-stages.ts`): `closed` first, for any `source_state='closed'` posting whatever its lifecycle, screen or verdict (#265; MCP `list_jobs` `closed`, pinned by `worker/tests/fixtures/closed-stage-cases.json`), else `rule_rejected` / `screen_rejected` (triage `rule_disqualified` / `screen_disqualified`; a `discarded` row whose triage is `needs_review`, a legacy fit-pipeline screen discard, is `screen_rejected` too), else `other` when no longer `new`, else `keep` / `jev_skip` by the effective JEV status, else `unassessed` (no, failed or stale verdict). The effective JEV status is the MCP rule — an override on the posting's current revision wins, else the model status `unassessed`/`failed`/`stale`/`keep`/`skip` — pinned for both sides by `worker/tests/fixtures/jev-status-cases.json`. `all` lists every stage; the stages back the parity tests and the MCP routes' `{stage: 'all'}` scope. Against MCP `get_ats_overview`: `rule_rejected` equals triage `rule_disqualified` less `removed` and closed rows; `keep`/`jev_skip` equal the overview's `new` keep/skip except for a rejected `new` posting carrying a verdict or override, which the funnel files under its rejection; the overview's `unassessed` also counts rejected `new` postings, so it is larger. Unknown lifecycle statuses, including names inherited from JavaScript Object prototypes, are shown as stored. Its list and count query `job_postings` directly and do not run fit-derived membership scans. Order is `posted_at desc, id desc`. Metadata search is default, and `all_text` adds description search with literal escaped `%`, `_` and `!`. Standalone outcome filters and summaries use only `job_screenings`: no row is `not_screened`; persisted provider failure is `provider_error`; a complete `disqualified=true` result requires typed failing-check evidence; `disqualified=false` with a typed passing check and no typed failing check is `no_disqualifier_found`; malformed, incomplete, contradictory or unrecognized data is `unknown`. Every outcome is advisory. Legacy `score_detail.screen` remains separately labeled evidence and never fabricates a standalone result. Derived triage status is `rule_disqualified`, `screen_disqualified`, `candidate`, or `needs_review`. It uses the same typed evidence rules in Web and MCP; unknown lifecycle states, unsuccessful or malformed assessments, conflicting pass/lifecycle state, unsupported legacy data, and absent evidence remain `needs_review`. A narrow deterministic rejection can be supported by a rule-only `job_screenings` result or by a legacy discarded record with no fit evidence; a standalone row does not establish that a provider was invoked. Candidate requires a valid standalone pass on `new`, `scored`, or `notified`, and means retained for fit research, not qualified. No standalone record alone does not mean unprocessed. The MCP overview counts partition all postings. The table labels each triage category and the detail modal shows bounded reason/provenance. Raw standalone outcome semantics are unchanged. The table and detail modal show source state/check timing and screen freshness; a failed latest attempt does not overwrite the last confirmed state/time. Standalone screening result JSON is projected into the bounded summary; full JD text is not rendered in the table and remains available to the detail modal through the stored description, without a provider call. `created_at` describes discovery time; screen assessment time is never presented as source freshness. Invalid calendar dates and times have a null assessment time, matching the MCP summary contract. Source lifecycle timestamps use the same strict calendar/offset-aware validation and invalid values are null; non-positive, non-integer, boolean, or JavaScript-unsafe assessment revisions are unknown in Web and MCP. The view is read-only except Mark Applied and Not interested; Mark Applied revalidates the exact current view/filter scope at the server boundary and keeps duplicate protection and transaction behavior; no component of the view imports a server action (`readonly-dashboard.test.ts`). Pending or failed list requests do not display a previous page as though it matched the current filters.
+- **Discovered Jobs funnel.** Every posting except terminal `removed` is in exactly one stage, evaluated in SQL before paging and count (`lib/job-stages.ts`): `closed` first, for any `source_state='closed'` posting whatever its lifecycle or status (#265; MCP `list_jobs` `closed`), else `other` when no longer `new`, else its effective status: `keep`, `skip`, `discarded`, `pending` or `not_evaluated`. The effective status (#226) is the operator override decision if one exists, else the stored `job_postings.verdict` — one `CASE`, the MCP's too, pinned for both sides by `worker/tests/fixtures/effective-status-cases.json`. The override is not bound to the content revision, and `keep` rescues a requirements discard into "for you". `all` lists every stage; the stages back the parity tests and the MCP routes' `{stage: 'all'}` scope. Each row shows the candidate profile version its verdict was judged under (triage's when it completed, else the requirements stage's). Unknown lifecycle statuses, including names inherited from JavaScript Object prototypes, are shown as stored. Its list and count query `job_postings` directly and do not run fit-derived membership scans. Order is `posted_at desc, id desc`. Metadata search is default, and `all_text` adds description search with literal escaped `%`, `_` and `!`. Standalone outcome filters and summaries use only `job_screenings`: no row is `not_screened`; persisted provider failure is `provider_error`; a complete `disqualified=true` result requires typed failing-check evidence; `disqualified=false` with a typed passing check and no typed failing check is `no_disqualifier_found`; malformed, incomplete, contradictory or unrecognized data is `unknown`. Every outcome is advisory. Legacy `score_detail.screen` remains separately labeled evidence and never fabricates a standalone result. The display-only triage summary of the requirements result is `rule_disqualified`, `screen_disqualified`, `candidate`, or `needs_review`, with the same typed evidence rules in Web and MCP (`worker/tests/fixtures/job_triage_contract.json`); unknown lifecycle states, unsuccessful or malformed assessments, conflicting pass/lifecycle state and no requirements result are `needs_review`. Candidate requires a valid standalone pass on `new`, `scored`, or `notified`, and means retained for fit research, not qualified. The detail modal shows the summary's reason/provenance. Raw standalone outcome semantics are unchanged. The table and detail modal show source state/check timing and screen freshness; a failed latest attempt does not overwrite the last confirmed state/time. Standalone screening result JSON is projected into the bounded summary; full JD text is not rendered in the table and remains available to the detail modal through the stored description, without a provider call. `created_at` describes discovery time; screen assessment time is never presented as source freshness. Invalid calendar dates and times have a null assessment time, matching the MCP summary contract. Source lifecycle timestamps use the same strict calendar/offset-aware validation and invalid values are null; non-positive, non-integer, boolean, or JavaScript-unsafe assessment revisions are unknown in Web and MCP. The view is read-only except Mark Applied and Not interested; Mark Applied revalidates the exact current view/filter scope at the server boundary and keeps duplicate protection and transaction behavior; no component of the view imports a server action (`readonly-dashboard.test.ts`). Pending or failed list requests do not display a previous page as though it matched the current filters.
 
-Triage evidence with duplicate object members at its root, screen map, or check object is ambiguous and maps to `needs_review`. Legacy `source_content_revision` may be absent or null; when non-null, it must be a mathematically integral JSON number from 1 through JavaScript’s maximum safe integer. Decimal/exponent forms such as `3.0` and `3e0` are accepted when they represent an integer; booleans, fractions, non-positive, and unsafe values remain unresolved.
+Triage evidence with duplicate object members at its root, screen map, or check object is ambiguous and maps to `needs_review`.
 
 - **`removed` is a terminal legacy status.** The retired bulk Remove wrote it; nothing writes it now, the worker never transitions away from it, and the Discovered Jobs view hides it from every stage.
 
@@ -2222,8 +2220,8 @@ Triage evidence with duplicate object members at its root, screen map, or check 
 - **Discovered-jobs views** (`getJobPostings`, `stage` ∈ `for_you` (default), the funnel
   stages or `all`; `getJobsMode`). The retired fit score and verdicts
   gate nothing and are not shown; `bucket`, `minScore`, `cause`, `triageStatus` and the
-  `score` sort are rejected filter keys. Every row carries `stage` and
-  `jev {status, model_status, reasons, override}`.
+  `score` sort are rejected filter keys. Every row carries `stage`, `status` (effective),
+  `verdict` (stored), `profile_version` and `jev {reasons, override}`.
 - **`markJobApplied(id, category?)`** runs in a `$transaction`: it refuses if an
   application with the same `(company_name, job_title)` exists, else creates the
   application (`status='Applied'`, `category` chosen by the user at apply time from the
@@ -2414,12 +2412,12 @@ automated coverage — those rely on code review or the human in the loop, not a
 | **Zero false discards** over every distinct location string in the live DB, gated in CI against a committed corpus labeled by an INDEPENDENT oracle (not by the code under test); the residual leak set is pinned EXACTLY, in both directions, so the accepted trade cannot drift silently | `test_location.py` (`test_no_us_eligible_string_is_ever_discarded`, `test_the_leak_set_is_pinned_exactly`, `test_the_corpus_is_labeled_the_way_the_gate_assumes`, `test_a_discard_always_names_a_country_the_string_actually_mentions`), `tests/fixtures/location_corpus.jsonl` |
 | Fetch-time max-age + title_exclude drop | `test_fetch.py::test_prefilter_*` |
 | Deterministic gate hoisted to fetch (requirements result + verdict `discarded`, no Ollama); a watchlist and a feed miss are stored identically | `test_pipeline.py::test_run_fetch_stores_a_location_miss_as_a_requirements_discard`, `test_feed_pipeline.py::test_a_watchlist_and_a_feed_location_miss_are_stored_identically` |
-| Evaluate once (#225): both stages run only on pending in-window postings and record the profile version; the finishing stage writes the verdict (keep without triage); a profile edit or content change re-queues nothing; aged-out postings are `not_evaluated` and counted; a pass refuses (before seeding the profile) while legacy discards or unsettled screen/triage verdicts remain; the migration backs up, moves legacy discards, backfills verdicts in one transaction, refuses unexpected rows and is idempotent | `test_evaluate_once.py`, `test_screen_pipeline.py` (`test_a_finished_screen_writes_the_verdict_and_its_profile_version`, `test_the_screen_runs_only_inside_the_window_and_only_on_pending_rows`), `test_jev.py::test_run_jev_persists_verdicts_and_leaves_lifecycle_alone`, `test_migrate_evaluate_once.py`, `test_mcp_repository.py::test_overview_counts_stored_verdicts_including_aged_out_postings`, `test_mcp_repository.py::test_jev_filter_counts_leave_out_discarded_postings`, `web/src/__tests__/activity.int.test.ts` |
+| Evaluate once (#225): both stages run only on pending in-window postings and record the profile version; the finishing stage writes the verdict (keep without triage); a profile edit or content change re-queues nothing; aged-out postings are `not_evaluated` and counted; a pass refuses (before seeding the profile) while legacy discards or unsettled screen/triage verdicts remain; the migration backs up, moves legacy discards, backfills verdicts in one transaction, refuses unexpected rows and is idempotent | `test_evaluate_once.py`, `test_screen_pipeline.py` (`test_a_finished_screen_writes_the_verdict_and_its_profile_version`, `test_the_screen_runs_only_inside_the_window_and_only_on_pending_rows`), `test_jev.py::test_run_jev_persists_verdicts_and_leaves_lifecycle_alone`, `test_migrate_evaluate_once.py`, `test_mcp_repository.py::test_overview_counts_stored_verdicts_including_aged_out_postings`, `web/src/__tests__/activity.int.test.ts` |
 | The code-side gates (intern title, location string) run BEFORE the model call and short-circuit it: a row they disqualify makes no backend call, carries no `provider_error`, and its reason is the deterministic one alone | `test_screen.py` (`test_a_deterministically_disqualified_row_never_reaches_the_provider`, `test_a_deterministic_gate_short_circuits_the_model_reason`, `test_multiple_failing_gates_join_reasons`), `test_pipeline.py`  |
 | A provider error never disqualifies on the sponsorship **phrase floor** — the deterministic gates still stand, but the blunt whole-description scan is skipped and `authorization` is left absent; `SCREEN_BACKEND=none`, which has no provider to fail, still records that floor verdict | `test_screen.py` (`test_a_provider_error_never_disqualifies_on_the_sponsorship_phrase_floor`, `test_screen_backend_none_still_records_the_authorization_floor_verdict`) |
 | A **blind** live backend (nothing usable: not a dict, or neither a `screen` object nor any requirement key) is a `provider_error`, not a verdict; the FLAT shape the 4B emits ~1 call in 100 is a real verdict and is honoured, byte-identical to the nested shape — so it cannot discard on the phrase floor and cannot record breaker successes; the narrow scope is pinned on the other side, where an empty `screen` dict is an answer and keeps the floor | `test_screen.py` (`test_a_blind_response_is_a_provider_error_not_a_verdict`, `test_an_empty_screen_object_is_a_verdict_and_keeps_the_floor`, `test_the_flat_shape_is_a_verdict_and_is_honoured`, `test_the_flat_shape_and_the_schema_shape_agree`, `test_the_observed_flat_response_is_kept_not_discarded`) |
 | `mark_failed` → terminal `failed` + `attempts+1` (fetch/score paths) | `test_db.py` |
-| Discovered Jobs: "for you" in both modes (closed, applied, rejected and not-interested rows excluded; badge on the same predicate); each posting in exactly one funnel stage, a closed one only in `closed` and hidden by default from MCP `list_jobs` (shared `closed-stage-cases.json`), effective JEV status identical in Web and MCP, Mark Applied scoped to its view, retired filter keys rejected | `web/src/__tests__/jev-status-parity.int.test.ts`, `worker/tests/test_jev_status_parity.py` (shared `jev-status-cases.json`), `web/src/__tests__/inventory-contract.int.test.ts` |
+| Effective status (#226) = override decision, else the stored verdict, identical in Web and MCP for every shared case; an override survives a content change and `keep` rescues a requirements discard into "for you" and the MCP default view; each posting in exactly one funnel stage, a closed one only in `closed` and hidden by default from MCP `list_jobs`; each row shows its profile version; Mark Applied scoped to its view; retired stages and filter keys rejected | `web/src/__tests__/effective-status-parity.int.test.ts`, `worker/tests/test_effective_status_parity.py` (shared `effective-status-cases.json`), `test_mcp_repository.py::test_override_holds_across_reassessment_and_content_change`, `web/src/__tests__/inventory-contract.int.test.ts` |
 | Discovered Jobs and Activity are read-only except Mark Applied and Not interested, Sources writes only board add/remove (no server-action import in their display components; `JobsView` wires only reads plus `markJobApplied` and the triage override set/clear; no discard/reopen/bulk export); Sources `postings_30d`; Activity's status strip and merged plain-English timeline with paging | `web/src/__tests__/readonly-dashboard.test.ts`, `watchlist.int.test.ts`, `activity.int.test.ts`, `web/e2e/discovered.spec.ts`, `web/e2e/sources-activity.spec.ts` |
 | `markJobApplied` atomic create + back-link + dedup | `actions.test.ts`, `actions.int.test.ts` (real-Prisma tx) |
 | `updateApplicationStatus` validates `STATUSES`, appends history | `actions.test.ts`, `actions.int.test.ts` |
@@ -2490,7 +2488,7 @@ automated coverage — those rely on code review or the human in the loop, not a
 | MCP protocol without a write key advertises only the fourteen read-only/closed-world tools, exposes research filters, returns structured data and safe errors, leaves application rows unchanged, and serves list → next page → get_job → all chunks through local stdio | `tests/test_mcp_protocol.py` (`test_in_memory_protocol_lists_read_only_tools_and_returns_structured_data`, `test_protocol_errors_are_actionable_without_exposing_database_paths`, `test_stdio_subprocess_uses_protocol_and_only_reads_its_configured_database`, `test_stdio_research_path_pages_gets_chunks_and_reports_safe_error`); CI installs `requirements-mcp.txt` so these cannot skip there |
 | Standalone screen assessment times are sampled after each provider result on the DB thread and passed from `run.py` | `tests/test_screen_pipeline.py::test_screen_saves_sample_clock_after_each_result_on_the_db_thread`, `tests/test_run.py::test_run_once_defaults_codex_to_luna_medium` |
 | Worker SQL fixture ↔ `schema.prisma`, including `job_screenings`, in sync | `test_schema_sync.py` + `tools/check_schema_drift.mjs` (CI) |
-| JEV: skip only on weak preference or a YOE skip key (`three_plus` / `above_candidate`); caps, no re-queue, unknown charge stops the pass; MCP default hides only current skips | `test_jev.py`, `test_mcp_repository.py::test_jev_filter_*` |
+| JEV: skip only on weak preference or a YOE skip key (`three_plus` / `above_candidate`); caps, no re-queue, unknown charge stops the pass; MCP default hides `new` skips and discards | `test_jev.py`, `test_mcp_repository.py::test_hidden_count_composes_with_filters_and_the_cursor_is_bound_to_the_status` |
 | Candidate profile (#224): one row drives the fetch scope, the screen and triage; config.yaml seeds it once, then set keys are ignored and logged; a fresh install is configured by the row alone; highest degree and total years derive from the background rows identically on web and worker (one fixture); a malformed row fails the pass; the migration keeps the screen decision and the JEV policy hash, touches no stored verdict, is idempotent and never overwrites an edited row; the form, the route and MCP share one validation | `test_profile.py`, `test_migrate_profile.py`, `test_run.py` (`test_run_once_seeds_the_profile_once_then_reads_the_db`, `test_fresh_install_without_config_is_configured_by_the_row_alone`, `test_run_once_rejects_an_off_vocabulary_stored_value`), `test_jev.py` (`test_triage_reads_the_structured_profile_with_the_default_packs`, `test_jev_dir_seeds_the_profile_and_keeps_the_policy_hash_of_the_files`), `test_mcp_repository.py::test_get_candidate_profile_*`, `test_mcp_write.py::test_set_candidate_profile_*`, `web/src/lib/__tests__/candidate-profile.test.ts`, `web/src/__tests__/api-v1.int.test.ts`, `web/src/components/__tests__/SettingsPanel.test.tsx` |
 | No private file (`.env` / résumé / db / `config.yaml`) tracked by git | `tools/check_privacy.mjs` (+ `--self-test`; CI) |
 

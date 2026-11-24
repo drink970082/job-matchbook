@@ -176,13 +176,14 @@ describe('JobDetailModal score_detail rendering', () => {
 })
 
 describe('JobDetailModal JEV and actions', () => {
-    it('shows the JEV verdict, reasons and a lapsed override', () => {
-        render(<JobDetailModal {...props} job={{ ...workerShapedJob, jev: { status: 'skip', model_status: 'skip',
-            reasons: ['preference_weak'], override: { decision: 'keep', reason: 'liked it', actor: 'mcp', set_at: 'x', applies: false } } } as any} />)
-        expect(screen.getByText('Triage keep/skip (JEV)')).toBeInTheDocument()
-        expect(screen.getByText('skip')).toBeInTheDocument()
+    it('shows the effective status, its profile version, reasons and the override', () => {
+        render(<JobDetailModal {...props} job={{ ...workerShapedJob, status: 'keep', verdict: 'discarded', profile_version: 4,
+            jev: { reasons: ['preference_weak'], override: { decision: 'keep', reason: 'liked it', actor: 'mcp', set_at: 'x' } } } as any} />)
+        expect(screen.getByText('Status')).toBeInTheDocument()
+        expect(screen.getByText('keep')).toBeInTheDocument()
+        expect(screen.getByText('judged under profile v4')).toBeInTheDocument()
         expect(screen.getByText('preference_weak')).toBeInTheDocument()
-        expect(screen.getByText(/Override keep lapsed: the posting changed since it was set - liked it/)).toBeInTheDocument()
+        expect(screen.getByText(/Override keep \(stored verdict: discarded\) - liked it/)).toBeInTheDocument()
     })
 
     it('calls onMarkApplied with the job id when Mark Applied is clicked', async () => {

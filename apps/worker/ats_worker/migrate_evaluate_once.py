@@ -90,8 +90,8 @@ def _legacy_discards(conn) -> list[tuple[int, str, dict]]:
 
 
 def _triage_in_use(conn) -> bool:
-    """The readers' "for you" mode rule (web JEV_MODE_SQL): triage is configured in the
-    profile and has produced at least one verdict."""
+    """The "for you" mode rule the readers applied before the stored verdict: triage is
+    configured in the profile and has produced at least one verdict."""
     return bool(conn.execute(
         "SELECT EXISTS (SELECT 1 FROM candidate_profile WHERE id=1 "
         "AND (json_array_length(target_roles) > 0 OR custom_triage_context IS NOT NULL)) "

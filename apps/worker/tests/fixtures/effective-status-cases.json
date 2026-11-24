@@ -1,0 +1,22 @@
+{
+  "_doc": "The effective status of a posting: the operator override decision (job_triage_overrides, keep|skip) if one exists, else the stored job_postings.verdict. Shared by the web (lib/job-actions.ts, src/__tests__/effective-status-parity.int.test.ts) and the MCP read side (read_repository, tests/test_effective_status_parity.py). Each case is one posting at source_content_revision 2; an override is recorded on revision 1, because an override is not bound to the content revision. status = the effective status both sides report; stage = the web Discovered Jobs stage (closed first, then `other` for a posting no longer `new`, else the status); listed = in MCP list_jobs's default view (status='shown', closed='exclude'). 'Postings for you' is exactly the stage `keep`.",
+  "cases": [
+    {"name": "pending", "pipeline_status": "new", "source_state": "available", "verdict": "pending", "override": null, "status": "pending", "stage": "pending", "listed": true},
+    {"name": "keep", "pipeline_status": "new", "source_state": "unknown", "verdict": "keep", "override": null, "status": "keep", "stage": "keep", "listed": true},
+    {"name": "skip", "pipeline_status": "new", "source_state": "available", "verdict": "skip", "override": null, "status": "skip", "stage": "skip", "listed": false},
+    {"name": "discarded", "pipeline_status": "new", "source_state": "available", "verdict": "discarded", "override": null, "status": "discarded", "stage": "discarded", "listed": false},
+    {"name": "not evaluated", "pipeline_status": "new", "source_state": "available", "verdict": "not_evaluated", "override": null, "status": "not_evaluated", "stage": "not_evaluated", "listed": true},
+    {"name": "skip overridden to keep", "pipeline_status": "new", "source_state": "available", "verdict": "skip", "override": "keep", "status": "keep", "stage": "keep", "listed": true},
+    {"name": "keep marked not interested", "pipeline_status": "new", "source_state": "available", "verdict": "keep", "override": "skip", "status": "skip", "stage": "skip", "listed": false},
+    {"name": "discarded rescued by keep", "pipeline_status": "new", "source_state": "available", "verdict": "discarded", "override": "keep", "status": "keep", "stage": "keep", "listed": true},
+    {"name": "discarded overridden to skip", "pipeline_status": "new", "source_state": "available", "verdict": "discarded", "override": "skip", "status": "skip", "stage": "skip", "listed": false},
+    {"name": "pending overridden to keep", "pipeline_status": "new", "source_state": "available", "verdict": "pending", "override": "keep", "status": "keep", "stage": "keep", "listed": true},
+    {"name": "not evaluated overridden to skip", "pipeline_status": "new", "source_state": "available", "verdict": "not_evaluated", "override": "skip", "status": "skip", "stage": "skip", "listed": false},
+    {"name": "unknown override decision is ignored", "pipeline_status": "new", "source_state": "available", "verdict": "skip", "override": "maybe", "status": "skip", "stage": "skip", "listed": false},
+    {"name": "applied keep", "pipeline_status": "applied", "source_state": "available", "verdict": "keep", "override": null, "status": "keep", "stage": "other", "listed": true},
+    {"name": "applied discarded", "pipeline_status": "applied", "source_state": "available", "verdict": "discarded", "override": null, "status": "discarded", "stage": "other", "listed": true},
+    {"name": "expired closed skip", "pipeline_status": "expired", "source_state": "closed", "verdict": "skip", "override": null, "status": "skip", "stage": "closed", "listed": false},
+    {"name": "closed keep", "pipeline_status": "new", "source_state": "closed", "verdict": "keep", "override": null, "status": "keep", "stage": "closed", "listed": false},
+    {"name": "closed discarded rescued", "pipeline_status": "new", "source_state": "closed", "verdict": "discarded", "override": "keep", "status": "keep", "stage": "closed", "listed": false}
+  ]
+}

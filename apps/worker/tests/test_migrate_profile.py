@@ -61,8 +61,8 @@ def _live(tmp_path):
                  "evaluator_version, last_attempted_at, completed_at, created_at) VALUES "
                  "(?, 'complete', '{\"disqualified\":false}', 'ollama', 'v', ?, ?, ?)", (pid, NOW, NOW, NOW))
     conn.execute("INSERT INTO job_jev_assessments (job_posting_id, state, verdict, model, "
-                 "policy_sha256, last_attempted_at, created_at, updated_at) VALUES "
-                 "(?, 'complete', 'keep', 'm', 'sha', ?, ?, ?)", (pid, NOW, NOW, NOW))
+                 "last_attempted_at, created_at, updated_at) VALUES "
+                 "(?, 'complete', 'keep', 'm', ?, ?, ?)", (pid, NOW, NOW, NOW))
     conn.commit()
     conn.close()
     return path

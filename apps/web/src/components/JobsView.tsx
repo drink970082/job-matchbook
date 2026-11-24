@@ -116,7 +116,7 @@ export function JobsView({ initialJobPostings, totalJobPostings, categoryOptions
     }
 
     // Not interested (#207): a triage skip override, actor web, with Undo.
-    // Undo restores an override that applied before (e.g. an MCP keep), else clears it.
+    // Undo restores the override that was there before (e.g. an MCP keep), else clears it.
     const hiding = useRef(new Set<number>())
     const handleNotInterested = async (id: number) => {
         if (hiding.current.has(id)) return
@@ -131,7 +131,7 @@ export function JobsView({ initialJobPostings, totalJobPostings, categoryOptions
         }
         toast.success('Hidden: not interested', {
             action: { label: 'Undo', onClick: async () => {
-                const undo = before?.applies
+                const undo = before
                     ? await setTriageOverride(id, before.decision, before.reason ?? undefined)
                     : await clearTriageOverride(id)
                 if (!undo.success) return toast.error(undo.error)

@@ -10,10 +10,10 @@ behavior. Completed work belongs in CHANGELOG, not this queue.
 
 - **One candidate profile; evaluate each posting once** `[WORKER+WEB+MCP · L]` (epic
   #223). [Spec](superpowers/specs/2026-11-20-candidate-profile-design.md). #224 (#270)
-  and #225 (#276) are merged and deployed. #226 (readers on the stored verdict, drops
-  `policy_sha256` and the `stale` rule) and #227 remain.
+  and #225 (#276) are merged and deployed. #226 (#281) is merged, not deployed; #227
+  remains.
 - **Activity status strip reads the pass record** `[WEB · S]` (#249, branch
-  `feat/249-activity-pass-record`): landed, unmerged (#279); awaiting review.
+  `feat/249-activity-pass-record`): in review as #279.
 
 These references reserve unfinished work; they do not claim the branches are currently
 executing or establish merge readiness. Inspect actual refs/worktrees and coordinate

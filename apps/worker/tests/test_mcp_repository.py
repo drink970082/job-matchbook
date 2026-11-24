@@ -30,24 +30,20 @@ def test_job_triage_contract_fixture():
                 "result_json": screening["result_json_raw"],
                 "error_message": screening.get("error_message"),
             }
-        summary = job_triage_summary(
-            case["pipeline_status"], case["score_detail_raw"], screening)
+        summary = job_triage_summary(case["pipeline_status"], screening)
         assert summary["status"] == case["expected_status"], case["name"]
         assert summary["provenance"] == case["expected_provenance"], case["name"]
         assert isinstance(summary["reason"], str) and len(summary["reason"]) <= 300
         assert "Synthetic private error text" not in summary["reason"]
 
 
-def test_job_triage_filter_summary_and_overview_share_one_partition(db_path):
+def test_job_triage_summary_is_the_same_in_list_and_get(db_path):
     fixture = json.loads((FIXTURES / "job_triage_contract.json").read_text())
     job_ids = {}
     with sqlite3.connect(db_path) as conn:
         for case in fixture["cases"]:
             job_id = _job(conn, title=case["name"], status=case["pipeline_status"])
             job_ids[case["name"]] = job_id
-            if case["score_detail_raw"] is not None:
-                conn.execute("UPDATE job_postings SET score_detail=? WHERE id=?",
-                             (case["score_detail_raw"], job_id))
             screening = case["screening"]
             if screening is not None:
                 _insert_screen(
@@ -72,33 +68,6 @@ def test_job_triage_filter_summary_and_overview_share_one_partition(db_path):
     # Triage rejects ambiguous duplicate members while the established raw screen outcome
     # retains its existing SQLite JSON-path interpretation.
     assert by_id[job_ids["standalone_duplicate_root_member"]]["screen_summary"]["outcome"] == "no_disqualifier_found"
-
-    for status in {case["expected_status"] for case in fixture["cases"]}:
-        expected_ids = {
-            job_ids[case["name"]] for case in fixture["cases"]
-            if case["expected_status"] == status
-        }
-        filtered = repo.list_jobs(triage_status=status, limit=100)
-        assert {row["id"] for row in filtered["items"]} == expected_ids
-
-    # Later needs-review rows exist above candidate rows in the normal DESC order.
-    # This proves the SQL triage predicate runs before keyset LIMIT.
-    candidate_page = repo.list_jobs(triage_status="candidate", limit=1)
-    assert candidate_page["items"][0]["id"] == job_ids["standalone_candidate_notified"]
-    assert candidate_page["has_more"] is True
-    assert len(repo.list_jobs(triage_status="candidate", limit=100)["items"]) == 3
-
-    overview = repo.get_ats_overview()["job_triage_counts"]
-    counts = {row["status"]: row["count"] for row in overview["counts"]}
-    assert overview["scope"] == "all job_postings"
-    assert sum(counts.values()) == len(fixture["cases"])
-    assert counts == {
-        status: sum(case["expected_status"] == status for case in fixture["cases"])
-        for status in ("rule_disqualified", "screen_disqualified", "candidate", "needs_review")
-    }
-
-    with pytest.raises(QueryInputError, match="triage_status"):
-        repo.list_jobs(triage_status="not_screened")
 
 
 def _job(conn, *, title="Engineer", company="Acme", status="new", description="JD",
@@ -929,90 +898,6 @@ def test_large_generated_all_text_search_filters_before_limit_and_bounds_payload
     assert "description" not in result["items"][0]
 
 
-def _insert_jev(conn, job_id, *, state="complete", verdict="keep", reasons=(), revision=None):
-    conn.execute(
-        "INSERT INTO job_jev_assessments(job_posting_id,state,verdict,reasons_json,model,"
-        "policy_sha256,source_content_revision,cost_usd,last_attempted_at,completed_at,created_at) "
-        "VALUES(?,?,?,?,'fake-jev','p',?,'0.0002','2026-10-22T10:00:00Z',?,'2026-10-22T10:00:00Z')",
-        (job_id, state, verdict if state == "complete" else None, json.dumps(list(reasons)),
-         revision, "2026-10-22T10:00:00Z" if state == "complete" else None))
-
-
-def test_jev_filter_hides_only_current_skips_by_default(db_path):
-    with sqlite3.connect(db_path) as conn:
-        keep = _job(conn, title="keep")
-        skip = _job(conn, title="skip")
-        stale = _job(conn, title="stale")
-        failed = _job(conn, title="failed")
-        unassessed = _job(conn, title="unassessed")
-        _insert_jev(conn, keep)
-        _insert_jev(conn, skip, verdict="skip", reasons=["preference_weak"])
-        _insert_jev(conn, stale, verdict="skip", revision=3)  # posting revision is NULL now
-        _insert_jev(conn, failed, state="provider_error")
-    repo = ReadOnlyATSRepository(db_path)
-
-    default = repo.list_jobs(limit=100)
-    assert {r["id"] for r in default["items"]} == {keep, stale, failed, unassessed}
-    assert default["jev_filter"]["applied"] == "keep"
-    assert default["jev_filter"]["hidden_skip_count"] == 1
-    status = {r["id"]: r["jev"]["status"] for r in default["items"]}
-    assert status == {keep: "keep", stale: "stale", failed: "failed", unassessed: "unassessed"}
-
-    skipped = repo.list_jobs(jev="skip")
-    assert [r["id"] for r in skipped["items"]] == [skip]
-    assert skipped["items"][0]["jev"]["reasons"] == ["preference_weak"]
-    assert skipped["jev_filter"]["hidden_skip_count"] is None
-    assert len(repo.list_jobs(jev="all", limit=100)["items"]) == 5
-    # Filters still compose with the JEV hide-count.
-    assert repo.list_jobs(search="skip")["jev_filter"]["hidden_skip_count"] == 1
-    assert repo.list_jobs(search="keep")["jev_filter"]["hidden_skip_count"] == 0
-    with pytest.raises(QueryInputError, match="jev"):
-        repo.list_jobs(jev="maybe")
-
-    # A skip never hides a posting that has left `new` (JEV does not revisit those).
-    with sqlite3.connect(db_path) as conn:
-        conn.execute("UPDATE job_postings SET pipeline_status='applied' WHERE id=?", (skip,))
-    assert skip in {r["id"] for r in repo.list_jobs(limit=100)["items"]}
-    assert repo.list_jobs(jev="skip")["items"] == []
-    with sqlite3.connect(db_path) as conn:
-        conn.execute("UPDATE job_postings SET pipeline_status='new' WHERE id=?", (skip,))
-
-    detail = repo.get_job(skip)["jev"]
-    assert detail["status"] == "skip" and detail["model"] == "fake-jev"
-    assert detail["reasons"] == ["preference_weak"]
-    assert repo.get_job(unassessed)["jev"]["status"] == "unassessed"
-
-    counts = {row["status"]: row["count"]
-              for row in repo.get_ats_overview()["jev_filter_counts"]["counts"]}
-    assert counts == {"keep": 1, "skip": 1, "unassessed": 1, "failed": 1, "stale": 1}
-
-
-def test_jev_filter_cursor_is_bound_to_the_filter(db_path):
-    with sqlite3.connect(db_path) as conn:
-        for i in range(3):
-            _job(conn, title=f"job{i}")
-    repo = ReadOnlyATSRepository(db_path)
-    first = repo.list_jobs(limit=1)
-    assert first["has_more"] is True
-    second = repo.list_jobs(limit=1, cursor=first["next_cursor"])
-    assert second["jev_filter"]["hidden_skip_count"] is None
-    with pytest.raises(QueryInputError):
-        repo.list_jobs(limit=1, jev="all", cursor=first["next_cursor"])
-
-
-def test_jev_skip_from_an_older_policy_is_stale_and_shown(db_path):
-    with sqlite3.connect(db_path) as conn:
-        old = _job(conn, title="old-policy skip")
-        _insert_jev(conn, old, verdict="skip")  # policy_sha256 'p'
-        conn.execute("INSERT INTO app_settings(key,value) VALUES('jev_current_policy_sha256','p')")
-    repo = ReadOnlyATSRepository(db_path)
-    assert repo.list_jobs()["items"] == []
-    with sqlite3.connect(db_path) as conn:
-        conn.execute("UPDATE app_settings SET value='p2' WHERE key='jev_current_policy_sha256'")
-    items = repo.list_jobs()["items"]
-    assert [r["id"] for r in items] == [old] and items[0]["jev"]["status"] == "stale"
-
-
 def _insert_override(conn, job_id, decision, *, revision=None, reason="operator call"):
     conn.execute(
         "INSERT INTO job_triage_overrides(job_posting_id,decision,reason,actor,"
@@ -1020,73 +905,54 @@ def _insert_override(conn, job_id, decision, *, revision=None, reason="operator 
         (job_id, decision, reason, revision))
 
 
-def test_triage_override_wins_survives_reassessment_and_lapses_on_new_content(db_path):
+def test_hidden_count_composes_with_filters_and_the_cursor_is_bound_to_the_status(db_path):
+    with sqlite3.connect(db_path) as conn:
+        for title, verdict in (("keep", "keep"), ("skip", "skip"), ("gone", "discarded"),
+                               ("waiting", "pending")):
+            job = _job(conn, title=title)
+            conn.execute("UPDATE job_postings SET verdict=? WHERE id=?", (verdict, job))
+    repo = ReadOnlyATSRepository(db_path)
+    default = repo.list_jobs(limit=100)
+    assert {r["job_title"] for r in default["items"]} == {"keep", "waiting"}
+    assert default["status_filter"] == {**default["status_filter"], "applied": "shown", "hidden_count": 2}
+    assert repo.list_jobs(search="skip")["status_filter"]["hidden_count"] == 1
+    assert repo.list_jobs(search="keep")["status_filter"]["hidden_count"] == 0
+    assert repo.list_jobs(status="skip")["status_filter"]["hidden_count"] is None
+    first = repo.list_jobs(limit=1)
+    assert first["has_more"] is True
+    assert repo.list_jobs(limit=1, cursor=first["next_cursor"])["status_filter"]["hidden_count"] is None
+    with pytest.raises(QueryInputError):
+        repo.list_jobs(limit=1, status="all", cursor=first["next_cursor"])
+
+
+def test_override_holds_across_reassessment_and_content_change(db_path):
     from ats_worker import db as worker_db
     with sqlite3.connect(db_path) as conn:
         restored = _job(conn, title="restored")
-        hidden = _job(conn, title="hidden")
-        _insert_jev(conn, restored, verdict="skip", reasons=["preference_weak"])
-        _insert_jev(conn, hidden, verdict="keep")
-        _insert_override(conn, restored, "keep")
-        _insert_override(conn, hidden, "skip")
+        conn.execute("UPDATE job_postings SET verdict='discarded', source_content_revision=1 WHERE id=?",
+                     (restored,))
+        _insert_override(conn, restored, "keep", revision=1)
     repo = ReadOnlyATSRepository(db_path)
+    row = repo.list_jobs(limit=100)["items"][0]
+    assert (row["id"], row["status"], row["verdict"]) == (restored, "keep", "discarded")
+    assert row["jev"]["override"] == {"decision": "keep", "reason": "operator call", "actor": "mcp",
+                                      "set_at": "2026-11-18T10:00:00Z"}
 
-    listed = {r["id"]: r["jev"] for r in repo.list_jobs(limit=100)["items"]}
-    assert set(listed) == {restored}
-    assert listed[restored]["status"] == "keep" and listed[restored]["model_status"] == "skip"
-    assert listed[restored]["reasons"] == ["preference_weak"]
-    assert listed[restored]["override"] == {
-        "decision": "keep", "reason": "operator call", "actor": "mcp",
-        "set_at": "2026-11-18T10:00:00Z", "applies": True}
-    assert [r["id"] for r in repo.list_jobs(jev="skip")["items"]] == [hidden]
-    counts = {row["status"]: row["count"]
-              for row in repo.get_ats_overview()["jev_filter_counts"]["counts"]}
-    assert counts["keep"] == 1 and counts["skip"] == 1
-    assert repo.get_job(restored)["jev"]["override"]["applies"] is True
-
-    # A JEV re-assessment of the same content keeps the override in force.
+    # The worker never re-evaluates a settled posting, and new content does not void the
+    # override either.
     with sqlite3.connect(db_path) as conn:
         conn.row_factory = sqlite3.Row
-        assert worker_db.save_jev(conn, restored, state="complete", verdict="skip",
-                                  reasons=["preference_weak"], result={}, error_category=None,
-                                  model="fake-jev", cost_usd="0", now="2026-11-19T00:00:00Z")
-    assert repo.get_job(restored)["jev"]["status"] == "keep"
-
-    # New posting content: the override no longer applies and the model verdict is back.
-    with sqlite3.connect(db_path) as conn:
+        assert not worker_db.save_jev(conn, restored, state="complete", verdict="skip",
+                                      reasons=["preference_weak"], result={}, error_category=None,
+                                      model="fake-jev", cost_usd="0", now="2026-11-19T00:00:00Z")
         conn.execute("UPDATE job_postings SET source_content_revision=2 WHERE id=?", (restored,))
-    detail = repo.get_job(restored)["jev"]
-    assert detail["override"]["applies"] is False and detail["status"] == "stale"
+    assert repo.get_job(restored)["status"] == "keep"
 
-    # Clearing an override restores the model verdict.
+    # Clearing the override returns the stored verdict.
     with sqlite3.connect(db_path) as conn:
-        conn.execute("DELETE FROM job_triage_overrides WHERE job_posting_id=?", (hidden,))
-    detail = repo.get_job(hidden)["jev"]
-    assert detail["status"] == "keep" and detail["override"] is None
-
-
-def test_override_on_a_legacy_null_revision_survives_an_unchanged_refresh(db_path):
-    from ats_worker import db as worker_db
-    from tests._helpers import LATER, NOW, make_posting
-    with sqlite3.connect(db_path) as conn:
-        conn.row_factory = sqlite3.Row
-        worker_db.upsert_postings(conn, [make_posting("legacy")], now=NOW)
-        job = conn.execute("SELECT id FROM job_postings").fetchone()[0]
-        # A pre-revision row: what 4.5k production postings still look like.
-        conn.execute("UPDATE job_postings SET source_content_revision=NULL WHERE id=?", (job,))
-        _insert_jev(conn, job, verdict="skip")
-        _insert_override(conn, job, "keep")  # recorded with the NULL revision
-    repo = ReadOnlyATSRepository(db_path)
-    assert repo.get_job(job)["jev"]["status"] == "keep"
-    with sqlite3.connect(db_path) as conn:
-        conn.row_factory = sqlite3.Row
-        # The detail refresh re-observes unchanged content and backfills NULL -> 1.
-        assert worker_db.save_source_observation(
-            conn, job, expected_source="greenhouse", expected_external_id="legacy",
-            observation={"state": "available", "posting": make_posting("legacy")}, now=LATER)
-        assert conn.execute("SELECT source_content_revision FROM job_postings").fetchone()[0] == 1
-    assert repo.get_job(job)["jev"]["override"]["applies"] is True
-    assert repo.get_job(job)["jev"]["status"] == "keep"
+        conn.execute("DELETE FROM job_triage_overrides WHERE job_posting_id=?", (restored,))
+    detail = repo.get_job(restored)
+    assert detail["status"] == "discarded" and detail["jev"]["override"] is None
 
 
 # --- candidate profile and setup status (#224) ---------------------------------------
@@ -1177,18 +1043,3 @@ def test_overview_counts_stored_verdicts_including_aged_out_postings(tmp_path):
         {"verdict": "skip", "count": 0}, {"verdict": "discarded", "count": 0},
         {"verdict": "not_evaluated", "count": 2}]
     assert "window" in counts["semantics"]
-
-
-def test_jev_filter_counts_leave_out_discarded_postings(tmp_path):
-    """A discard is pipeline_status='new' with verdict='discarded' now (#225); it is not
-    awaiting triage, so it is no `unassessed` row."""
-    path = bootstrap_db(tmp_path / "v.db")
-    conn = sqlite3.connect(path)
-    for pid, verdict in ((1, "pending"), (2, "discarded"), (3, "discarded")):
-        conn.execute("INSERT INTO job_postings (id, source, external_id, company_name, job_title, "
-                     "job_url, description, created_at, verdict) VALUES (?, 'greenhouse', ?, 'A', "
-                     "'Eng', 'https://x', 'jd', '2026-11-01T00:00:00Z', ?)", (pid, str(pid), verdict))
-    conn.commit()
-    jev = ReadOnlyATSRepository(path).get_ats_overview()["jev_filter_counts"]
-    assert {r["status"]: r["count"] for r in jev["counts"]}["unassessed"] == 1
-    assert "verdict" in jev["scope"]

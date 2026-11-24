@@ -5,9 +5,10 @@
 import { PrismaClient } from '@prisma/client'
 import { DATABASE_URL } from './db-path.mjs'
 
-// A candidate profile exists, so Discovered Jobs is in JEV mode (#207): only Acme (passed the
-// screen, JEV keep) is "for you". Globex (JEV skip), Recent Synthetic (never screened
-// or assessed), Initech (failed the screen) and the 30 legacy `scored` rows are not. `screening` and `jev` are created as related rows in seed().
+// A candidate profile with a target role exists, so Discovered Jobs states the triage line
+// (#207): only Acme (stored verdict keep) is "for you". Globex (skip), Recent Synthetic
+// (pending), Initech (discarded by the screen) and the 30 legacy `scored` rows are not.
+// `screening` and `jev` are created as related rows in seed().
 export const POSTINGS = [
     {
         source: 'synthetic', external_id: 'e2e-inventory-new', company_slug: 'inventory-new', company_name: 'Recent Synthetic Systems',
@@ -32,7 +33,7 @@ export const POSTINGS = [
             "systems using Python and AWS. You'll partner with the platform team to scale " +
             'services, write tests, and ship production code that supports our core product.',
         score_detail: null, source_content_revision: 1,
-        pipeline_status: 'new', created_at: '2026-01-02T00:00:00.000Z',
+        pipeline_status: 'new', verdict: 'keep', created_at: '2026-01-02T00:00:00.000Z',
         screening: '{"disqualified":false,"screen":{"location":{"pass":true}}}',
         jev: { verdict: 'keep', reasons_json: '[]' },
     },
@@ -45,7 +46,7 @@ export const POSTINGS = [
             'across the full lifecycle from data pipelines to monitoring. You will ' +
             'collaborate with backend and data teams to ship reliable, well-tested models at scale.',
         score_detail: null, source_content_revision: 1,
-        pipeline_status: 'new', created_at: '2026-01-01T00:00:00.000Z',
+        pipeline_status: 'new', verdict: 'skip', created_at: '2026-01-01T00:00:00.000Z',
         screening: '{"disqualified":false,"screen":{"location":{"pass":true}}}',
         jev: { verdict: 'skip', reasons_json: '["preference_weak"]' },
     },
