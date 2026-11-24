@@ -794,3 +794,12 @@ def finish_pass(conn: sqlite3.Connection, run_id: int, *, now: str, counts: dict
     conn.commit()
 
 
+def fail_pass(conn: sqlite3.Connection, run_id: int, *, now: str) -> None:
+    """Mark a pass that raised `failed`/`crashed`. The stage's uncommitted writes are
+    rolled back first; the tallies already stored stay."""
+    conn.rollback()
+    conn.execute("UPDATE worker_runs SET status='failed', error_category='crashed', "
+                 "finished_at=? WHERE id=? AND status='running'", (now, run_id))
+    conn.commit()
+
+
