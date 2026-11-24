@@ -445,7 +445,9 @@ def _pass_config(cfg, scope, *, screen: dict | None, triage: dict | None) -> dic
     return {"screen": screen, "triage": triage,
             "feeds": [f.name for f in cfg.feeds if f.enabled],
             "browser_sources": bool(cfg.enable_browser_sources),
-            "max_age_days": scope.max_age_days}
+            "max_age_days": scope.max_age_days,
+            # The pass interval: the web judges an overlong `running` row against it.
+            "schedule_hours": cfg.schedule_hours}
 
 
 def _companies_as_dicts(cfg) -> list[dict]:

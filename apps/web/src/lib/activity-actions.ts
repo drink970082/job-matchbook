@@ -1,6 +1,7 @@
 'use server'
 
 import { prisma } from '@/lib/db'
+import type { PassFailure, PassRecord } from '@/lib/pass-record'
 
 // The Activity tab (#210): a system status strip and one merged timeline of who wrote
 // what (actor web | mcp), newest first.
@@ -8,11 +9,12 @@ import { prisma } from '@/lib/db'
 const DAY = 86_400_000
 const iso = (msAgo: number) => new Date(Date.now() - msAgo).toISOString()
 
-// "Is it running, what did it cost": all from existing columns (no run table exists, so
-// a failing pass shows only through these numbers).
+// "Is it running, what did it cost": the latest pass record (`worker_runs`, #249) plus
+// posting and JEV counts from their own columns. `lib/pass-record.ts` turns the pass
+// into the strip's lines.
 export async function getActivityStatus() {
-    const [latest, new24h, new7d, assessed24h, failures24h, spend, agedOut7d, agedOutTotal] = await Promise.all([
-        prisma.job_postings.aggregate({ _max: { created_at: true } }),
+    const [run, new24h, new7d, assessed24h, failures24h, spend, agedOut7d, agedOutTotal] = await Promise.all([
+        prisma.worker_runs.findFirst({ orderBy: [{ started_at: 'desc' }, { id: 'desc' }] }),
         prisma.job_postings.count({ where: { created_at: { gte: iso(DAY) } } }),
         prisma.job_postings.count({ where: { created_at: { gte: iso(7 * DAY) } } }),
         prisma.job_jev_assessments.count({ where: { state: 'complete', last_attempted_at: { gte: iso(DAY) } } }),
@@ -24,9 +26,35 @@ export async function getActivityStatus() {
         prisma.job_postings.count({ where: { verdict: 'not_evaluated' } }),
     ])
     const spend7d = spend.reduce((n, r) => n + (Number(r.cost_usd) || 0), 0)
+    // A dead pass is marked failed only as the next one starts running, so the latest
+    // row hides it: read the failures since the last ok pass separately.
+    const lastOk = await prisma.worker_runs.findFirst({ where: { status: 'ok' }, orderBy: [{ started_at: 'desc' }, { id: 'desc' }],
+        select: { started_at: true } })
+    const failedSince = { status: 'failed', ...(lastOk ? { started_at: { gt: lastOk.started_at } } : {}) }
+    const [failed, failedCount] = await Promise.all([
+        prisma.worker_runs.findFirst({ where: failedSince, orderBy: [{ started_at: 'desc' }, { id: 'desc' }] }),
+        prisma.worker_runs.count({ where: failedSince }),
+    ])
+    const lastFailure: PassFailure | null = failed
+        && { startedAt: failed.started_at, errorCategory: failed.error_category, since: failedCount }
+    const lastPass: PassRecord | null = run && {
+        startedAt: run.started_at, finishedAt: run.finished_at, status: run.status, errorCategory: run.error_category,
+        fetchOnly: run.fetch_only, jevEnabled: run.jev_enabled, config: parseObject(run.config_json),
+        counts: parseObject(run.counts_json),
+    }
     return {
-        lastFetchedAt: latest._max.created_at, new24h, new7d, assessed24h, failures24h,
+        lastPass, lastFailure, new24h, new7d, assessed24h, failures24h,
         spend7dUsd: Math.round(spend7d * 10_000) / 10_000, agedOut7d, agedOutTotal,
+    }
+}
+
+// The worker writes both JSON columns; a value it could not have written reads as empty.
+function parseObject(raw: string): Record<string, any> {
+    try {
+        const v = JSON.parse(raw)
+        return v && typeof v === 'object' && !Array.isArray(v) ? v : {}
+    } catch {
+        return {}
     }
 }
 

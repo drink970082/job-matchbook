@@ -50,7 +50,7 @@ test('the status strip counts postings, JEV work, failures and spend', async () 
         job_posting_id: id, state, cost_usd: cost, last_attempted_at: now, created_at: now } })
     await jev(p1.id, 'complete', '0.0003')
     await jev(p2.id, 'provider_error', '0.0001')
-    expect(await getActivityStatus()).toEqual({ lastFetchedAt: now, new24h: 1, new7d: 1, assessed24h: 1, failures24h: 1,
+    expect(await getActivityStatus()).toEqual({ lastPass: null, lastFailure: null, new24h: 1, new7d: 1, assessed24h: 1, failures24h: 1,
         spend7dUsd: 0.0004, agedOut7d: 0, agedOutTotal: 0 })
 })
 
@@ -62,4 +62,33 @@ test('the status strip counts postings that left the window unevaluated (PRINCIP
     await aged('older', '2026-01-09T00:00:00.000Z')
     await prisma.job_postings.create({ data: makeJobPosting({ external_id: 'kept', verdict: 'keep', verdict_at: now }) })
     expect(await getActivityStatus()).toMatchObject({ agedOut7d: 1, agedOutTotal: 2 })
+})
+
+test('the status strip reads the latest pass record, not the newest posting', async () => {
+    await prisma.job_postings.create({ data: makeJobPosting({ external_id: 'a', created_at: new Date().toISOString() }) })
+    const run = (started_at: string, status: string, extra: object = {}) => prisma.worker_runs.create({ data: {
+        started_at, status, config_json: '{"schedule_hours":6}', counts_json: '{"fetch":{"boards_failed":3}}', ...extra } })
+    await run('2026-11-21T00:00:00.000Z', 'ok', { finished_at: '2026-11-21T00:05:00.000Z' })
+    await run('2026-11-22T00:00:00.000Z', 'failed', { error_category: 'abandoned', fetch_only: true, counts_json: 'not json' })
+    expect((await getActivityStatus()).lastPass).toEqual({
+        startedAt: '2026-11-22T00:00:00.000Z', finishedAt: null, status: 'failed', errorCategory: 'abandoned',
+        fetchOnly: true, jevEnabled: false, config: { schedule_hours: 6 }, counts: {} })
+})
+
+// start_pass marks the dead row abandoned and inserts the new running row in one
+// transaction, so a failure is never the newest row while the next pass runs.
+test('a failed pass newer than the last ok pass is reported while a newer pass runs', async () => {
+    const run = (started_at: string, status: string, error_category: string | null = null) => prisma.worker_runs.create({ data: {
+        started_at, status, error_category, config_json: '{}', counts_json: '{}' } })
+    await run('2026-11-20T00:00:00.000Z', 'ok')
+    expect((await getActivityStatus()).lastFailure).toBeNull()
+    await run('2026-11-21T00:00:00.000Z', 'failed', 'abandoned')
+    await run('2026-11-21T06:00:00.000Z', 'failed', 'abandoned')
+    await run('2026-11-21T12:00:00.000Z', 'running')
+    const status = await getActivityStatus()
+    expect(status.lastPass?.status).toBe('running')
+    expect(status.lastFailure).toEqual({ startedAt: '2026-11-21T06:00:00.000Z', errorCategory: 'abandoned', since: 2 })
+    // A later ok pass clears it.
+    await prisma.worker_runs.updateMany({ where: { status: 'running' }, data: { status: 'ok' } })
+    expect((await getActivityStatus()).lastFailure).toBeNull()
 })
