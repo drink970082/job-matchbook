@@ -77,7 +77,6 @@ CREATE TABLE "job_jev_assessments" (
     "result_json" TEXT,
     "error_category" TEXT,
     "model" TEXT,
-    "policy_sha256" TEXT,
     "source_content_revision" INTEGER,
     "profile_version" INTEGER,
     "cost_usd" TEXT,

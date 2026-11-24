@@ -127,6 +127,7 @@ async def test_stdio_research_path_pages_gets_chunks_and_reports_safe_error(tmp_
                  "2026-10-22T10:00:00Z", "2010-01-01"),
             )
             job_ids.append(cursor.lastrowid)
+        conn.execute("UPDATE job_postings SET verdict='keep' WHERE id=?", (job_ids[0],))
         conn.execute(
             "INSERT INTO job_screenings(job_posting_id,state,result_json,backend,model,effort,"
             "evaluator_version,last_attempted_at,completed_at,created_at,updated_at) "
@@ -157,15 +158,15 @@ async def test_stdio_research_path_pages_gets_chunks_and_reports_safe_error(tmp_
         assert outcomes.structured_content["items"][0]["screen_summary"]["is_advisory"] is True
 
         candidates = await client.call_tool("list_jobs", {
-            "triage_status": "candidate", "limit": 10,
+            "status": "keep", "limit": 10,
         })
         assert [row["id"] for row in candidates.structured_content["items"]] == [job_ids[0]]
         assert candidates.structured_content["items"][0]["triage_summary"]["status"] == "candidate"
         assert candidates.structured_content["items"][0]["screen_summary"]["outcome"] == "no_disqualifier_found"
         overview = await client.call_tool("get_ats_overview", {})
-        triage_counts = overview.structured_content["job_triage_counts"]
-        assert triage_counts["scope"] == "all job_postings"
-        assert sum(row["count"] for row in triage_counts["counts"]) == len(job_ids)
+        status_counts = {row["status"]: row["count"]
+                         for row in overview.structured_content["status_counts"]["counts"]}
+        assert (status_counts["keep"], status_counts["pending"]) == (1, len(job_ids) - 1)
 
         first = await client.call_tool("list_jobs", {"limit": 1})
         first_page = first.structured_content

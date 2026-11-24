@@ -93,6 +93,24 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 
 ### Changed
 
+- **One effective status, read from the stored verdict (#226)**: web and MCP read a
+  posting's status as the operator override decision if one exists, else
+  `job_postings.verdict`, one `CASE` on each side pinned by the shared
+  `effective-status-cases.json`. The ported triage/JEV status SQL, the `stale` status and
+  the legacy discard branches are gone, and the triage summary reads only
+  `job_screenings`. An override is no longer bound to the content revision, and `keep`
+  rescues a requirements discard into "Postings for you" and the MCP default view. Web
+  funnel stages are `keep | skip | discarded | pending | not_evaluated | other |
+  closed`; "for you" is the `keep` stage. MCP `list_jobs` replaces `jev` and
+  `triage_status` with `status` (`shown` default hides `new` skips and discards;
+  `status_filter.hidden_count`), rows carry `status`, `verdict`, `profile_version` and
+  `jev {reasons, override}` (no `model_status`, no `applies`), and `get_ats_overview`
+  replaces `jev_filter_counts`/`job_triage_counts` with `status_counts`. Each row shows
+  the profile version its verdict was judged under. `job_jev_assessments.policy_sha256`
+  is dropped. **Operator step:** after the new web, worker and MCP are running (they no
+  longer read the column; the old ones do), back up `db/`, then `cd apps/web && npx
+  prisma db push --accept-data-loss` (`make db-push` refuses: legacy rows still hold
+  values in the dropped column).
 - **Workday pacing (#273)**: Workday requests are spaced per tenant host (0.5s) and a
   429 is retried after `Retry-After`, else 2s/4s/8s backoff; a host still throttled after
   that answers 429 locally for 120s, and a `Retry-After` above 30s cools it at once for that

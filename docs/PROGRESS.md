@@ -11,7 +11,8 @@ behavior. Completed work belongs in CHANGELOG, not this queue.
 - **One candidate profile; evaluate each posting once** `[WORKER+WEB+MCP · L]` (epic
   #223). [Spec](superpowers/specs/2026-11-20-candidate-profile-design.md). #224 (#270)
   and #225 (#276) are merged and deployed. #226 (readers on the stored verdict, drops
-  `policy_sha256` and the `stale` rule) and #227 remain.
+  `policy_sha256` and the `stale` rule) is in review as #281 on branch
+  `worktree-agent-a8bd4faba75206cda`; #227 remains.
 
 - **Per-board fetch health persisted and shown** `[WORKER+WEB+MCP · M]` (#231, part of
   #229). Branch `feat/231-board-health`, landed, unmerged: awaits review and the

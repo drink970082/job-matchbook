@@ -108,13 +108,16 @@ export function JobDetailModal({ isOpen, onClose, job, onMarkApplied }: JobDetai
                         </div>
                     )}
 
-                    {job.jev && (
+                    {job.jev && job.status && (
                         <div className="rounded-md border p-3 space-y-1.5">
-                            <div className="text-xs font-semibold text-muted-foreground">Triage keep/skip (JEV)</div>
+                            <div className="text-xs font-semibold text-muted-foreground">Status</div>
                             <div className="flex flex-wrap items-center gap-2">
-                                <Badge variant={job.jev.status === 'keep' ? 'default' : job.jev.status === 'skip' ? 'destructive' : 'outline'}>
-                                    {job.jev.status}
+                                <Badge variant={job.status === 'keep' ? 'default' : job.status === 'skip' || job.status === 'discarded' ? 'destructive' : 'outline'}>
+                                    {job.status}
                                 </Badge>
+                                {job.profile_version != null && (
+                                    <span className="text-xs text-muted-foreground">judged under profile v{job.profile_version}</span>
+                                )}
                                 {job.jev.reasons.length > 0 && (
                                     <span className="text-sm text-muted-foreground">{job.jev.reasons.join(', ')}</span>
                                 )}
@@ -122,7 +125,7 @@ export function JobDetailModal({ isOpen, onClose, job, onMarkApplied }: JobDetai
                             {job.jev.override && (
                                 <p className="text-xs text-muted-foreground">
                                     Override {job.jev.override.decision}
-                                    {job.jev.override.applies ? ` (model: ${job.jev.model_status})` : ' lapsed: the posting changed since it was set'}
+                                    {` (stored verdict: ${job.verdict})`}
                                     {job.jev.override.reason ? ` - ${job.jev.override.reason}` : ''}
                                 </p>
                             )}

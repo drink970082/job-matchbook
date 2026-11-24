@@ -7,7 +7,8 @@ const mockJobs: any[] = [
     id: 1, source: 'greenhouse', company_name: 'Acme', job_title: 'Backend Engineer', location: 'Remote',
     job_url: 'https://acme.example/jobs/1', description: 'x'.repeat(600), pipeline_status: 'new',
     posted_at: '2026-06-01', created_at: '2026-06-03T00:00:00.000Z', stage: 'keep',
-    jev: { status: 'keep', model_status: 'keep', reasons: [], override: null },
+    status: 'keep', verdict: 'keep', profile_version: 2,
+    jev: { reasons: [], override: null },
   },
   {
     id: 2, source: 'lever', company_name: 'Globex', job_title: 'ML Engineer', location: 'NYC',
@@ -80,4 +81,10 @@ test('filters: search, Search in JD, posted within', () => {
 test('empty states distinguish filtered from no postings', () => {
   renderTable({ data: [], total: 0 })
   expect(screen.getByText('No postings for you yet.')).toBeInTheDocument()
+})
+
+test('each row shows the profile version its verdict was judged under', () => {
+  renderTable()
+  expect(screen.getByText('Judged under profile v2')).toBeInTheDocument()
+  expect(screen.getAllByText(/Judged under profile/)).toHaveLength(1)
 })

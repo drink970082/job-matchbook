@@ -106,7 +106,6 @@ model job_jev_assessments {
   result_json             String?      // native answers of both questions
   error_category          String?
   model                   String?
-  policy_sha256           String?      // legacy binding hash; no longer written or compared (#225), dropped with the reader rules in #226
   source_content_revision Int?
   profile_version         Int?         // candidate_profile.version this verdict ran under (display only); null on legacy rows
   cost_usd                String?
@@ -119,8 +118,8 @@ model job_jev_assessments {
   @@index([state, last_attempted_at])
 }
 
-// The operator's keep/skip over JEV's verdict (#155). Applies only while the posting's
-// source_content_revision equals the one recorded here; JEV never writes this table.
+// The operator's keep/skip over the stored verdict (#155, #226): the readers' effective
+// status is this decision if a row exists, else job_postings.verdict. The worker never reads or writes it.
 // Set/clear are audited in audit_log (entity job_triage_overrides).
 model job_triage_overrides {
   id                      Int          @id @default(autoincrement())
@@ -128,7 +127,7 @@ model job_triage_overrides {
   decision                String       // keep | skip
   reason                  String?
   actor                   String       // web | mcp
-  source_content_revision Int?         // posting revision when set
+  source_content_revision Int?         // posting revision when set (provenance; never compared)
   created_at              String
   job_posting             job_postings @relation(fields: [job_posting_id], references: [id], onDelete: Cascade)
 }

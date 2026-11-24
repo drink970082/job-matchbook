@@ -20,7 +20,7 @@ describe('Discovered Jobs query', () => {
 
         await getJobPostings({})
 
-        expect((mockPrisma.$queryRaw.mock.calls[0][0] as any).sql).toContain('FROM candidate_profile') // "for you" by default
+        expect((mockPrisma.$queryRaw.mock.calls[0][0] as any).sql).toContain("='keep'") // "for you" by default: the keep stage
         expect(mockPrisma.$queryRaw).toHaveBeenCalledTimes(2)
         expect(mockPrisma.job_postings.findMany).not.toHaveBeenCalled()
         expect(mockPrisma.job_postings.count).not.toHaveBeenCalled()
@@ -63,29 +63,25 @@ describe('Discovered Jobs query', () => {
         expect(calls[0][0]).toMatchObject({ values: expect.arrayContaining([20, 10]) })
     })
 
-    it('filters the funnel stage in SQL before pagination and count, joining JEV and overrides', async () => {
+    it('filters the funnel stage in SQL before pagination and count, on the stored verdict', async () => {
         mockPrisma.$queryRaw
             .mockResolvedValueOnce([] as any)
             .mockResolvedValueOnce([{ total: 0 }] as any)
 
-        await getJobPostings({ stage: 'rule_rejected', page: 1, size: 10 })
+        await getJobPostings({ stage: 'discarded', page: 1, size: 10 })
 
         const calls = mockPrisma.$queryRaw.mock.calls
         expect(calls).toHaveLength(2)
         for (const [query] of calls) {
             const sql = (query as any).sql as string
             const values = (query as any).values as unknown[]
-            expect(sql).toContain("p.pipeline_status NOT IN")
-            expect(sql).toContain('json_each')
-            expect(sql).toContain('p.score_detail')
-            expect(sql).toContain('s.result_json')
-            expect(sql).toContain("'screen_disqualified'")
-            expect(sql).toContain("'candidate'")
-            expect(sql).toContain("'needs_review'")
+            expect(sql).toContain("CASE WHEN o.decision IN ('keep','skip') THEN o.decision ELSE p.verdict END")
+            expect(sql).not.toContain('p.score_detail')
+            expect(sql).not.toContain('app_settings')
             expect(sql).toContain('LEFT JOIN job_jev_assessments j')
             expect(sql).toContain('LEFT JOIN job_triage_overrides o')
             expect(sql).not.toContain('id IN (')
-            expect(values).toContain('rule_rejected')
+            expect(values).toContain('discarded')
         }
         expect(calls[0][0]).toMatchObject({ values: expect.arrayContaining([10, 10]) })
     })
