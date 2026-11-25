@@ -54,7 +54,7 @@ def write_client():
     if from_file:
         env["ATS_API_KEY"] = read_text(key_file())
     key = env.get("ATS_API_KEY", "").strip()
-    if not key.isascii() or len(key.split()) > 1:  # would fail as a header, as "unreachable"
+    if not key.isascii() or not key.isprintable() or len(key.split()) > 1:  # would fail as a header, as "unreachable"
         sys.exit("error: the write key must be one line of ASCII with no spaces")
     client = write_client_from_env(env)
     if client is None:

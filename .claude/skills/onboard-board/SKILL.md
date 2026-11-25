@@ -174,7 +174,8 @@ python .claude/skills/onboard-board/scripts/add_watched.py \
 
 A platform board's list is fetched once before the add, and a board that lists nothing or
 fails to fetch is refused; a recipe board is not fetched, so Step 3 is its only check. The
-helper prints `added`, or exits with `error:` and the reason: already on the watchlist, a
+helper prints `added`, or exits with `error:` and the reason (`not confirmed`: run it once
+more, "already on the watchlist" then means it was added): already on the watchlist, a
 validation message, no key, web unreachable. A missing key or an unreachable web app is the
 user's to fix: relay the reason and stop. Then **tell the user the outcome in one
 line** — added / already there — and, for a `browser` row, that it needs

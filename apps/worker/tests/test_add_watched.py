@@ -125,7 +125,7 @@ def test_the_env_key_wins_over_the_file_unless_blank(web, monkeypatch, tmp_path,
     assert {c[1] for c in web.calls} == {f"Bearer {sent}"}
 
 
-@pytest.mark.parametrize("key", ["two\nlines", "k\u00e9y\u2026"])
+@pytest.mark.parametrize("key", ["two\nlines", "a\x01b", "k\u00e9y\u2026"])
 def test_a_malformed_key_is_named_and_never_sent_or_printed(web, monkeypatch, key):
     monkeypatch.setenv("ATS_API_KEY", key)
     with pytest.raises(SystemExit, match="one line of ASCII") as exc:
