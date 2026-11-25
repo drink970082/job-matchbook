@@ -115,6 +115,49 @@ def test_the_key_file_is_used_when_the_env_has_none(web, monkeypatch, tmp_path):
     assert {c[1] for c in web.calls} == {"Bearer from-file"}
 
 
+@pytest.mark.parametrize("env, sent", [("from-env", "from-env"), ("  ", "from-file")])
+def test_the_env_key_wins_over_the_file_unless_blank(web, monkeypatch, tmp_path, env, sent):
+    monkeypatch.setenv("ATS_API_KEY", env)
+    key = tmp_path / ".config/ats-mcp/api-key"
+    key.parent.mkdir(parents=True)
+    key.write_text("from-file")
+    add_watched.main(ACME, has_listings=lists_one)
+    assert {c[1] for c in web.calls} == {f"Bearer {sent}"}
+
+
+@pytest.mark.parametrize("key", ["two\nlines", "k\u00e9y\u2026"])
+def test_a_malformed_key_is_named_and_never_sent_or_printed(web, monkeypatch, key):
+    monkeypatch.setenv("ATS_API_KEY", key)
+    with pytest.raises(SystemExit, match="one line of ASCII") as exc:
+        add_watched.main(ACME, has_listings=never)
+    assert web.calls == [] and key not in str(exc.value)
+
+
+def test_a_rejected_second_call_is_not_reported_as_added(web, capsys):
+    web.answers += [(200, {"data": {"source": "greenhouse", "slug": "acme", "name": "Acme"}}),
+                    (400, {"error": "greenhouse/acme is already on the watchlist"})]
+    with pytest.raises(SystemExit, match="already on the watchlist"):
+        add_watched.main(ACME, has_listings=lists_one)
+    assert capsys.readouterr().out == ""
+
+
+def test_a_server_that_is_not_the_ats_web_is_named(web):
+    web.answers.append((200, ["hello"]))
+    with pytest.raises(SystemExit, match="not the ATS web app"):
+        add_watched.main(ACME, has_listings=never)
+
+
+def test_a_missing_recipe_file_is_an_error_not_a_traceback(web, tmp_path):
+    with pytest.raises(SystemExit, match="cannot read"):
+        add_watched.main([*ACME, "--recipe", str(tmp_path / "nope.json")], has_listings=never)
+    assert web.calls == []
+
+
+def test_the_default_check_is_the_adapters_list_check():
+    from ats_worker.fetch import board_has_listings
+    assert add_watched.main.__defaults__ == (None, board_has_listings)
+
+
 def test_no_key_fails_with_the_reason_and_sends_nothing(web, monkeypatch):
     monkeypatch.delenv("ATS_API_KEY")
     with pytest.raises(SystemExit, match="no write key"):

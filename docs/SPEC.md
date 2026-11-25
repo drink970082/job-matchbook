@@ -2282,8 +2282,9 @@ Triage evidence with duplicate object members at its root, screen map, or check 
 - **Adds are verified where a fetch can run.** MCP `add_source` and onboard-board's
   `add_watched.py` (on the host; the latter reads the key from `ATS_API_KEY` or
   `~/.config/ats-mcp/api-key` and never opens the DB) read
-  the board's list once and add it only if it lists a posting, never making a
-  per-posting detail call; the web add cannot fetch, so its
+  a known-ATS board's list once and add it only if it lists a posting, never making a
+  per-posting detail call; the script adds a recipe board unfetched (the skill validates
+  the recipe first); the web add cannot fetch, so its
   row reads `never_fetched` until the next pass records it.
 
 **Web ↔ pipeline seam** (`lib/job-actions.ts`):

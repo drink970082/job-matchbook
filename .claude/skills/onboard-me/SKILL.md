@@ -199,8 +199,8 @@ data; never commit it.
 For each company they named, hand off to the **`onboard-board` skill** — it walks the
 platform → plain-HTTP → browser cascade, validates, and adds the row to the DB
 watchlist through the web's write API (`add_watched.py`), which needs the web app running
-and its write key (docs/SETUP.md, "enable writes"); without them it fails with the reason
-and adds nothing. Don't reimplement that here; invoke it per company. If
+and its write key: set both up first (`make dev` or `make up`, then docs/SETUP.md "enable
+writes"), or it fails with the reason and adds nothing. Don't reimplement that here; invoke it per company. If
 they named none, that's fine — they can add boards anytime in the web **Watchlist**
 tab or by asking to "add <company>" later.
 
@@ -254,8 +254,8 @@ That's the finish line — a personalized pipeline surfacing real roles.
 
 - **Personalization is data, never the prompt.** Never edit
   `ats_worker/prompts/screen.txt`. Wrong screen verdict → fix the hard requirements.
-- **DB writes go through the bundled script; files you edit directly.** Categories and
-  watchlist touch SQLite (script / `onboard-board`); the profile, `config.yaml`, and
+- **DB writes go through the bundled scripts; files you edit directly.** Categories write
+  SQLite (script) and the watchlist goes through the web's API (`onboard-board`); the profile, `config.yaml`, and
   résumé are files you write.
 - **Don't fabricate secrets or prereqs.** Verify what exists, name what's missing.
 - **`make doctor` reports; it doesn't gate.** Only its core rows (worker deps,

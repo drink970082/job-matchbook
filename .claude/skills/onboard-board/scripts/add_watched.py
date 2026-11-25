@@ -38,10 +38,20 @@ def key_file() -> Path:
     return Path.home() / ".config/ats-mcp/api-key"
 
 
+def read_text(path: Path) -> str:
+    try:
+        return path.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError) as exc:
+        sys.exit(f"error: cannot read {path}: {exc}")
+
+
 def write_client():
     env = dict(os.environ)
     if not env.get("ATS_API_KEY", "").strip() and key_file().is_file():
-        env["ATS_API_KEY"] = key_file().read_text(encoding="utf-8")
+        env["ATS_API_KEY"] = read_text(key_file())
+    key = env.get("ATS_API_KEY", "").strip()
+    if not key.isascii() or len(key.split()) > 1:  # would fail as a header, as "unreachable"
+        sys.exit("error: the write key must be one line of ASCII with no spaces")
     client = write_client_from_env(env)
     if client is None:
         sys.exit(f"error: no write key: set ATS_API_KEY or put the web's ATS_API_KEY_READ_WRITE "
@@ -59,13 +69,15 @@ def main(argv=None, has_listings=board_has_listings):
 
     body = {"source": args.source, "slug": args.slug, "name": args.name}
     if args.recipe:
-        body["recipe"] = Path(args.recipe).read_text(encoding="utf-8")
+        body["recipe"] = read_text(Path(args.recipe))
 
     client = write_client()
     try:
         # The web resolves and validates first, so the fetch only ever runs on a board it
         # would accept (an unsafe slug never reaches a fetch URL).
         board = client.call("POST", "/api/v1/watchlist", {**body, "dry_run": True})
+        if not isinstance(board, dict):
+            raise WriteAPIError("the server at ATS_API_URL is not the ATS web app")
         if board["source"] not in RECIPE_SOURCES:
             reason = verify_board(has_listings, board["source"], board["slug"], board["name"])
             if reason:
