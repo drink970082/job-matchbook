@@ -202,9 +202,9 @@ def run_fetch(conn, companies, title_filter, *, now, fetch_fn=None,
             record_health(conn, c, now=now, status="ok", figures=figures)
         except Exception as exc:  # noqa: BLE001 — one bad board must not abort the rest
             # Its stub gate counted drops before it failed, and its listings were never
-            # counted: take the whole board back out (closures did happen), along with a
-            # half-written upsert.
-            conn.rollback()
+            # counted: take the board back out of the tally (closures did happen). Rows it
+            # stored before failing stay stored; the intake funnel shows them as
+            # unaccounted rather than dropping good postings.
             tally.update({**before, "closed_by_absence": tally["closed_by_absence"],
                           "boards_failed": before["boards_failed"] + 1})
             print(f"[fetch] {c.get('source')}/{c.get('slug')}: skipped after error: {exc}")
@@ -353,12 +353,7 @@ def _fetch_group(source, slug, name, missing, *, detail_fetch_fn, fetch_fn,
     postings = _safe_call(fetch_fn, source, slug, name)
     if postings is None:
         return [], [(m, "list_fetch_failed") for m in missing]
-    # One per id: a list that repeats an id would count it as resolved twice.
-    found: dict[str, dict] = {}
-    for p in postings:
-        if p.get("external_id") in missing:
-            found.setdefault(p["external_id"], p)
-    return list(found.values()), []
+    return [p for p in postings if p.get("external_id") in missing], []
 
 
 def _feed_posting_view(listing: dict) -> dict:

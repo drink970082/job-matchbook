@@ -42,7 +42,7 @@ function Funnel({ title, window: w }: { title: string; window: FunnelWindow }) {
                             {STAGE_LABEL[s.stage]}
                             {reasonText(s) && <span className="block text-xs">{reasonText(s)}</span>}
                         </th>
-                        <td className="text-right align-top">{count(-s.removed)}</td>
+                        <td className="text-right align-top">{count(0 - s.removed)}</td>
                     </tr>
                 ))}
                 <tr><th scope="row" className="text-left font-medium">Open and eligible</th><td className="text-right font-medium">{count(w.open)}</td></tr>

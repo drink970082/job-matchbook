@@ -126,7 +126,7 @@ export const STAGE_LABEL: Record<string, string> = {
     closed: 'Closed since',
 }
 const REASON_LABEL: Record<string, string> = {
-    feed_gate: 'feed gate (inactive, category, sponsorship)', already_stored: 'already stored', duplicate: 'listed twice', unreadable: 'could not be read',
+    feed_gate: 'feed gate (inactive, category, sponsorship)', already_stored: 'already stored', duplicate: 'listed twice in the feed', unreadable: 'could not be read',
     closed: 'closed', unaccounted: 'unaccounted', pending: 'waiting', not_evaluated: 'aged out',
 }
 
