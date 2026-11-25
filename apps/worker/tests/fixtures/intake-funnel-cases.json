@@ -1,0 +1,388 @@
+{
+ "_doc": "Intake funnel (#248): the same passes and postings through the web (lib/intake-funnel.ts, src/__tests__/intake-funnel.int.test.ts) and the MCP (ats_worker/mcp/intake_funnel.py, tests/test_intake_funnel.py). A pass counts once it recorded both fetch and feed; passes_without_intake are the other finished passes in the window. A posting belongs to the pass whose started_at is its created_at. The older pass has no already_stored or inactive tally, so its remainder is unaccounted.",
+ "now": "2026-11-24T12:00:00.000Z",
+ "runs": [
+  {
+   "started_at": "2026-11-17T11:59:59.999Z",
+   "status": "ok",
+   "counts": {
+    "fetch": {
+     "boards_attempted": 2,
+     "boards_failed": 0,
+     "listed": 999,
+     "dropped_title": 0,
+     "dropped_age": 0,
+     "discarded": 0,
+     "discarded_by_reason": {},
+     "bodyless": 0,
+     "detail_failed": 0,
+     "inactive": 0,
+     "already_stored": 0,
+     "closed_by_absence": 0,
+     "inserted": 1
+    },
+    "feed": {}
+   }
+  },
+  {
+   "started_at": "2026-11-20T05:00:00.000Z",
+   "status": "failed",
+   "counts": {
+    "fetch": {
+     "boards_attempted": 2,
+     "boards_failed": 0,
+     "listed": 20,
+     "dropped_title": 10,
+     "dropped_age": 0,
+     "discarded": 0,
+     "discarded_by_reason": {},
+     "bodyless": 0,
+     "detail_failed": 0,
+     "closed_by_absence": 0,
+     "inserted": 2
+    },
+    "feed": {}
+   }
+  },
+  {
+   "started_at": "2026-11-22T05:00:00.000Z",
+   "status": "failed",
+   "counts": {
+    "fetch": {
+     "boards_attempted": 2,
+     "boards_failed": 0,
+     "listed": 50,
+     "dropped_title": 0,
+     "dropped_age": 0,
+     "discarded": 0,
+     "discarded_by_reason": {},
+     "bodyless": 0,
+     "detail_failed": 0,
+     "inactive": 0,
+     "already_stored": 0,
+     "closed_by_absence": 0,
+     "inserted": 5
+    }
+   }
+  },
+  {
+   "started_at": "2026-11-23T05:00:00.000Z",
+   "status": "failed",
+   "counts": "not json"
+  },
+  {
+   "started_at": "2026-11-24T05:00:00.000Z",
+   "status": "ok",
+   "counts": {
+    "fetch": {
+     "boards_attempted": 2,
+     "boards_failed": 0,
+     "listed": 40,
+     "dropped_title": 15,
+     "dropped_age": 5,
+     "discarded": 1,
+     "discarded_by_reason": {
+      "location": 1
+     },
+     "bodyless": 1,
+     "detail_failed": 2,
+     "inactive": 1,
+     "already_stored": 8,
+     "closed_by_absence": 0,
+     "inserted": 8
+    },
+    "feed": {
+     "simplify": {
+      "listings": 30,
+      "prefilter_dropped": 10,
+      "dropped_title": 4,
+      "dropped_age": 2,
+      "no_url": 1,
+      "unresolved_by_reason": {
+       "unsupported_host": 2,
+       "detail_fetch_failed": 1
+      },
+      "duplicate": 1,
+      "already_stored": 3,
+      "not_on_board": 1,
+      "resolved": 5,
+      "dropped_age_board": 1,
+      "discarded": 0,
+      "inserted": 3
+     }
+    }
+   }
+  },
+  {
+   "started_at": "2026-11-24T11:00:00.000Z",
+   "status": "running",
+   "counts": {}
+  }
+ ],
+ "postings": [
+  {
+   "created_at": "2026-11-24T05:00:00.000Z",
+   "verdict": "discarded",
+   "source_state": "available",
+   "pipeline_status": "new",
+   "override": null,
+   "screen": "{\"screen\": {\"location\": {\"pass\": false, \"note\": \"\"}}, \"disqualified\": true}"
+  },
+  {
+   "created_at": "2026-11-24T05:00:00.000Z",
+   "verdict": "discarded",
+   "source_state": "available",
+   "pipeline_status": "new",
+   "override": null,
+   "screen": "{\"screen\": {\"authorization\": {\"pass\": false, \"note\": \"\"}, \"degree\": {\"pass\": false, \"note\": \"\"}, \"clearance\": {\"pass\": true, \"note\": \"\"}}, \"disqualified\": true}"
+  },
+  {
+   "created_at": "2026-11-24T05:00:00.000Z",
+   "verdict": "discarded",
+   "source_state": "available",
+   "pipeline_status": "new",
+   "override": null,
+   "screen": "not json"
+  },
+  {
+   "created_at": "2026-11-24T05:00:00.000Z",
+   "verdict": "skip",
+   "source_state": "available",
+   "pipeline_status": "new",
+   "override": null,
+   "screen": null
+  },
+  {
+   "created_at": "2026-11-24T05:00:00.000Z",
+   "verdict": "skip",
+   "source_state": "available",
+   "pipeline_status": "new",
+   "override": "keep",
+   "screen": null
+  },
+  {
+   "created_at": "2026-11-24T05:00:00.000Z",
+   "verdict": "pending",
+   "source_state": "available",
+   "pipeline_status": "new",
+   "override": null,
+   "screen": null
+  },
+  {
+   "created_at": "2026-11-24T05:00:00.000Z",
+   "verdict": "not_evaluated",
+   "source_state": "available",
+   "pipeline_status": "new",
+   "override": null,
+   "screen": null
+  },
+  {
+   "created_at": "2026-11-24T05:00:00.000Z",
+   "verdict": "keep",
+   "source_state": "available",
+   "pipeline_status": "new",
+   "override": null,
+   "screen": null
+  },
+  {
+   "created_at": "2026-11-24T05:00:00.000Z",
+   "verdict": "keep",
+   "source_state": "available",
+   "pipeline_status": "applied",
+   "override": null,
+   "screen": null
+  },
+  {
+   "created_at": "2026-11-24T05:00:00.000Z",
+   "verdict": "keep",
+   "source_state": "available",
+   "pipeline_status": "new",
+   "override": "skip",
+   "screen": "{\"screen\": {\"degree\": {\"pass\": true, \"note\": \"\"}}, \"disqualified\": true}"
+  },
+  {
+   "created_at": "2026-11-24T05:00:00.000Z",
+   "verdict": "keep",
+   "source_state": "closed",
+   "pipeline_status": "new",
+   "override": null,
+   "screen": null
+  },
+  {
+   "created_at": "2026-11-20T05:00:00.000Z",
+   "verdict": "keep",
+   "source_state": "unknown",
+   "pipeline_status": "new",
+   "override": null,
+   "screen": null
+  },
+  {
+   "created_at": "2026-11-20T05:00:00.000Z",
+   "verdict": "skip",
+   "source_state": "closed",
+   "pipeline_status": "new",
+   "override": null,
+   "screen": null
+  },
+  {
+   "created_at": "2026-11-24T05:00:00.001Z",
+   "verdict": "keep",
+   "source_state": "available",
+   "pipeline_status": "new",
+   "override": null,
+   "screen": null
+  },
+  {
+   "created_at": "2026-11-17T11:59:59.999Z",
+   "verdict": "keep",
+   "source_state": "available",
+   "pipeline_status": "new",
+   "override": null,
+   "screen": null
+  }
+ ],
+ "expected": {
+  "latest_pass": {
+   "passes": 1,
+   "passes_without_intake": 0,
+   "since": "2026-11-24T05:00:00.000Z",
+   "open": 3,
+   "stages": [
+    {
+     "stage": "filters",
+     "input": 70,
+     "removed": 37,
+     "reasons": {
+      "title": 19,
+      "age": 8,
+      "feed_category": 10
+     },
+     "output": 33
+    },
+    {
+     "stage": "new",
+     "input": 33,
+     "removed": 22,
+     "reasons": {
+      "already_stored": 13,
+      "unreadable": 8,
+      "closed": 1,
+      "unaccounted": 0
+     },
+     "output": 11
+    },
+    {
+     "stage": "evaluated",
+     "input": 11,
+     "removed": 2,
+     "reasons": {
+      "pending": 1,
+      "not_evaluated": 1
+     },
+     "output": 9
+    },
+    {
+     "stage": "requirements",
+     "input": 9,
+     "removed": 3,
+     "reasons": {
+      "location": 1,
+      "authorization": 1,
+      "degree": 1,
+      "unknown": 1
+     },
+     "output": 6
+    },
+    {
+     "stage": "triage",
+     "input": 6,
+     "removed": 2,
+     "reasons": {
+      "skip": 2
+     },
+     "output": 4
+    },
+    {
+     "stage": "closed",
+     "input": 4,
+     "removed": 1,
+     "reasons": {
+      "closed": 1
+     },
+     "output": 3
+    }
+   ]
+  },
+  "last_7_days": {
+   "passes": 2,
+   "passes_without_intake": 2,
+   "since": "2026-11-20T05:00:00.000Z",
+   "open": 4,
+   "stages": [
+    {
+     "stage": "filters",
+     "input": 90,
+     "removed": 47,
+     "reasons": {
+      "title": 29,
+      "age": 8,
+      "feed_category": 10
+     },
+     "output": 43
+    },
+    {
+     "stage": "new",
+     "input": 43,
+     "removed": 30,
+     "reasons": {
+      "already_stored": 13,
+      "unreadable": 8,
+      "closed": 1,
+      "unaccounted": 8
+     },
+     "output": 13
+    },
+    {
+     "stage": "evaluated",
+     "input": 13,
+     "removed": 2,
+     "reasons": {
+      "pending": 1,
+      "not_evaluated": 1
+     },
+     "output": 11
+    },
+    {
+     "stage": "requirements",
+     "input": 11,
+     "removed": 3,
+     "reasons": {
+      "location": 1,
+      "authorization": 1,
+      "degree": 1,
+      "unknown": 1
+     },
+     "output": 8
+    },
+    {
+     "stage": "triage",
+     "input": 8,
+     "removed": 3,
+     "reasons": {
+      "skip": 3
+     },
+     "output": 5
+    },
+    {
+     "stage": "closed",
+     "input": 5,
+     "removed": 1,
+     "reasons": {
+      "closed": 1
+     },
+     "output": 4
+    }
+   ]
+  }
+ }
+}

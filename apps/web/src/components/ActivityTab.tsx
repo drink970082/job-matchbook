@@ -5,6 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { QuotaBar } from './QuotaBar'
 import type { ActivityItem, getActivityStatus } from '@/lib/activity-actions'
+import { reasonText, STAGE_LABEL, type FunnelWindow } from '@/lib/intake-funnel'
 import { describePass } from '@/lib/pass-record'
 
 export type ActivityStatus = Awaited<ReturnType<typeof getActivityStatus>>
@@ -24,6 +25,29 @@ function Stat({ label, value, warn }: { label: string; value: string; warn?: boo
             {/* Relative times use the clock; the server and browser render a moment apart. */}
             <div className={`text-sm font-medium ${warn ? 'text-amber-600' : ''}`} suppressHydrationWarning>{value}</div>
         </div>
+    )
+}
+
+// One window of the intake funnel (#248): what came in, what each stage removed, what is left.
+function Funnel({ title, window: w }: { title: string; window: FunnelWindow }) {
+    const count = (v: number) => v.toLocaleString('en-US')
+    return (
+        <table className="w-full text-sm">
+            <caption className="pb-1 text-left font-medium">{title}</caption>
+            <tbody>
+                <tr><th scope="row" className="text-left font-normal">Listings seen</th><td className="text-right">{count(w.stages[0].input)}</td></tr>
+                {w.stages.map((s) => (
+                    <tr key={s.stage} className={s.reasons.unaccounted ? 'text-amber-600' : 'text-muted-foreground'}>
+                        <th scope="row" className="text-left font-normal">
+                            {STAGE_LABEL[s.stage]}
+                            {reasonText(s) && <span className="block text-xs">{reasonText(s)}</span>}
+                        </th>
+                        <td className="text-right align-top">-{count(s.removed)}</td>
+                    </tr>
+                ))}
+                <tr><th scope="row" className="text-left font-medium">Open and eligible</th><td className="text-right font-medium">{count(w.open)}</td></tr>
+            </tbody>
+        </table>
     )
 }
 
@@ -94,6 +118,26 @@ export function ActivityTab({ status, initial, loadMore }: Props) {
                         <Stat label="Aged out unevaluated" value={`${status.agedOut7d} in 7d, ${status.agedOutTotal} total`} />
                     </div>
                     <QuotaBar />
+                </CardContent>
+            </Card>
+            <Card>
+                <CardHeader className="pb-2"><CardTitle className="text-base">Intake funnel</CardTitle></CardHeader>
+                <CardContent className="space-y-3">
+                    {!status.funnel.latest_pass ? <p className="text-sm text-muted-foreground">No pass has recorded its intake yet.</p> : (
+                        <div className="grid gap-6 md:grid-cols-2">
+                            <Funnel title="Latest pass" window={status.funnel.latest_pass} />
+                            <Funnel title={`Last 7 days, passes: ${status.funnel.last_7_days.passes}`} window={status.funnel.last_7_days} />
+                        </div>
+                    )}
+                    {status.funnel.last_7_days.passes_without_intake > 0 && (
+                        <p className="text-xs text-amber-600">
+                            Passes not counted, stopped before recording their intake: {status.funnel.last_7_days.passes_without_intake}
+                        </p>
+                    )}
+                    <p className="text-xs text-muted-foreground">
+                        A stored listing counts again in every pass that lists it. A posting can fail several requirements.
+                        Later stages are the stored verdicts now; keep/skip overrides are not applied.
+                    </p>
                 </CardContent>
             </Card>
             <Card>

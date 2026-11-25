@@ -121,8 +121,12 @@ test('the Activity view: status strip, one timeline marking only MCP, Load more'
     const lastPass = { startedAt: new Date().toISOString(), finishedAt: null, status: 'running', errorCategory: null,
         fetchOnly: true, jevEnabled: false, config: {}, counts: { fetch: { boards_attempted: 5, boards_failed: 1, inserted: 2 } } }
     const lastFailure = { startedAt: new Date(Date.now() - 86_400_000).toISOString(), errorCategory: 'abandoned', since: 1 }
+    const funnelWindow = { passes: 1, passes_without_intake: 0, since: '2026-11-24T05:00:00.000Z', open: 3, stages: [
+        { stage: 'filters', input: 1070, removed: 1037, reasons: { title: 1019, age: 8, feed_category: 10 } as Record<string, number>, output: 33 },
+        { stage: 'requirements', input: 33, removed: 30, reasons: { authorization: 30, degree: 1 } as Record<string, number>, output: 3 },
+    ] }
     const status = { lastPass, lastFailure, new24h: 3, new7d: 40, assessed24h: 12, failures24h: 1, spend7dUsd: 0.0042,
-        agedOut7d: 2, agedOutTotal: 9 }
+        agedOut7d: 2, agedOutTotal: 9, funnel: { latest_pass: funnelWindow, last_7_days: { ...funnelWindow, passes: 4, passes_without_intake: 1 } } }
     const initial = { items: [
         { key: 'c9', at: '2026-11-19T00:00:00Z', actor: 'web', text: 'Updated the JEV profile' },
         { key: 'a5', at: '2026-11-18', actor: 'mcp', text: 'Applied to Acme - Engineer' },
@@ -137,6 +141,10 @@ test('the Activity view: status strip, one timeline marking only MCP, Load more'
     expect(screen.getByText('Fetch: 5 boards, 1 failed; 2 new postings')).toBeInTheDocument()
     expect(screen.getByText('Screen: not run (fetch only)')).toBeInTheDocument()
     expect(screen.getByText(/fetch only; every 24h/)).toBeInTheDocument()
+    expect(screen.getByRole('table', { name: 'Latest pass' })).toHaveTextContent('Listings seen1,070')
+    expect(screen.getByRole('table', { name: 'Latest pass' })).toHaveTextContent('Removed by a requirementauthorization 30, degree 1-30')
+    expect(screen.getByRole('table', { name: 'Last 7 days, passes: 4' })).toHaveTextContent('Open and eligible3')
+    expect(screen.getByText(/stopped before recording their intake: 1/)).toBeInTheDocument()
     expect(screen.getAllByText('via MCP')).toHaveLength(1)
     fireEvent.click(screen.getByRole('button', { name: 'Load more' }))
     await waitFor(() => expect(screen.getByText('Acme - Engineer -> Interviewing')).toBeInTheDocument())

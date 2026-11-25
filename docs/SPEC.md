@@ -478,7 +478,10 @@ worker modules are pure and dependency-injected; real services are wired only in
   board, the number of stubs the gate judged, since workday stubs carry no id),
   `dropped_title`, `dropped_age`, `discarded` + `discarded_by_reason` (failed check
   names), `bodyless`, `detail_failed` (a stub the gate passed that came back as
-  nothing), `closed_by_absence`, `inserted`; feed, in non-overlapping buckets that sum
+  nothing), `inactive` (a listed posting whose detail says closed), `already_stored`,
+  `closed_by_absence`, `inserted`; `listed` = `dropped_title` + `dropped_age` + `bodyless` +
+  `detail_failed` + `inactive` + `already_stored` + `inserted`, and a failed board adds
+  nothing to any of them; feed, in non-overlapping buckets that sum
   to `listings`: `prefilter_dropped` (the feed's own gate), `dropped_title`,
   `dropped_age` (feed date), `no_url`, `unresolved_by_reason` (resolver and list/detail
   failures), `duplicate` (same board id twice), `already_stored`, `not_on_board`,
@@ -1496,7 +1499,8 @@ worker modules are pure and dependency-injected; real services are wired only in
   null; `reasons` only from a completed triage). `get_job` adds the triage state, model,
   cost and attempt times; `get_ats_overview` adds `status_counts` over
   `pipeline_status=new`, not `source_state=closed`, and `verdict_counts`, the stored
-  verdict over every posting (`not_evaluated` = aged out of the window unfinished).
+  verdict over every posting (`not_evaluated` = aged out of the window unfinished), and
+  `intake_funnel` (§9 "Intake funnel", `mcp/intake_funnel.py`).
   `list_jobs` keeps metadata search as the default and offers opt-in literal `all_text`
   matching over title, company, location and description; `%`, `_` and `!` are escaped,
   and description bodies remain available only through the chunk tool. Its optional
@@ -1709,7 +1713,7 @@ worker modules are pure and dependency-injected; real services are wired only in
     starts `running`; new postings 24h / 7d, JEV assessments and
     `provider_error` failures in the last 24h by `last_attempted_at`, JEV cost 7d as the
     sum of `cost_usd` (the latest assessment per posting: a re-assessment overwrites its
-    row, so this is not every dollar spent))
+    row, so this is not every dollar spent); the intake funnel, §9)
     and `getActivityTimeline(offset, limit=30)` — applications (by `date_applied`; they
     carry no creation stamp), `status_history` rows other than the initial `Applied`, and
     `audit_log` rows (minus application `add`/`status`, which the first two sources
@@ -2444,6 +2448,20 @@ one (named by its `error_category`, even while a newer pass runs), a `running` r
 than the pass interval, or no pass within the interval is shown as a problem. A killed
 pass still reads `running` until the next pass starts or the interval elapses.
 
+**Intake funnel** (#248; web `lib/intake-funnel.ts` on the Activity page, MCP
+`get_ats_overview.intake_funnel`, one rule in both, pinned by
+`worker/tests/fixtures/intake-funnel-cases.json`): for the latest pass and the passes
+started in the last 7 days, stages `filters` (`title`, `age`, `feed_category`), `new`
+(`already_stored`, `unreadable`, `closed`, `unaccounted`), `evaluated` (`pending`,
+`not_evaluated`), `requirements` (per failed check; a posting can fail several), `triage`
+(`skip`), `closed`, then `open`. Each stage's input is the previous stage's output. The
+first two come from the pass record; the rest are the current stored verdicts (overrides
+not applied) of the postings those passes inserted (`created_at` = the pass's
+`started_at`); `open` is verdict `keep`, not closed at its source. A pass counts once it
+recorded both `fetch` and `feed`; `passes_without_intake` counts the other finished ones.
+A stored listing is counted again by every pass that lists it. `unaccounted` is what a
+record leaves unexplained; records without the `already_stored` tally have one.
+
 ### Invariant → test traceability
 
 Grounds the "verifiable" claim. **(no test)** marks an invariant with **no** (or only indirect)
@@ -2456,6 +2474,7 @@ automated coverage — those rely on code review or the human in the loop, not a
 | Screen-only stores result/provenance separately, preserves posting/fit lifecycle fields, caches completed rows, retries provider errors oldest-first under the provider-call cap, and re-checks eligibility before commit | `test_screen_pipeline.py` (`test_screen_results_cache_and_leave_fit_lifecycle_unchanged`, `test_provider_cap_counts_failures_and_errors_retry_oldest_first`, `test_screen_result_is_not_saved_if_lifecycle_changes_during_provider_call`, `test_provider_exception_text_is_not_persisted`) |
 | A pass is fetch then screen; `--screen-only` is an accepted alias; invalid mode combinations are rejected; Codex defaults to Luna/medium when no overrides are set | `test_run.py` (`test_run_once_defaults_codex_to_luna_medium`, `test_screen_only_is_an_accepted_alias_for_the_default_pass`, `test_screen_only_invalid_combinations_fail_before_config_or_db`, `test_rescreen_screened_is_gone`), `test_backends_screen.py` |
 | Pass record: one `worker_runs` row per pass; a failing screen backend still records `ok` with errors by category; a raising pass is marked `failed`/`crashed`; a killed one stays `running` and the next marks it `failed`/`abandoned`; no secret in the recorded config; stage tallies | `test_worker_runs.py` |
+| Intake funnel: every stage's input is the previous stage's output, in web and MCP for the shared case; a recorded pass leaves nothing unaccounted; a board that fails mid-fetch leaves no partial tally | `test_intake_funnel.py`, `test_worker_runs.py` (`test_run_fetch_counts_every_drop_by_cause`, `test_a_board_that_fails_after_gating_stubs_leaves_no_partial_tally`), `intake-funnel.int.test.ts` |
 | Activity strip from the pass record: a `failed` row since the last `ok` one names its category, also behind a newer `running` row; an overlong `running` row and a missed pass are problems | `pass-record.test.ts`, `activity.int.test.ts`, `Views.test.tsx` |
 | Dedup `(source, external_id)` on ingest | `test_db.py`, `test_pipeline.py` |
 | WAL + `busy_timeout` pragmas on connect | `test_db.py` |

@@ -27,4 +27,5 @@ test('Sources adds a board from a careers URL and removes one after a confirm', 
     await expect(page.getByText('Added board Hooli Labs')).toBeVisible()
     await expect(page.getByText('Last pass', { exact: true })).toBeVisible()
     await expect(page.getByText('Aged out unevaluated')).toBeVisible()
+    await expect(page.getByText('Intake funnel')).toBeVisible()
 })

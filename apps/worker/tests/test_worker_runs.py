@@ -190,8 +190,53 @@ def test_run_fetch_counts_every_drop_by_cause(tmp_path):
     assert counts == {
         "boards_attempted": 2, "boards_failed": 1, "listed": 5, "dropped_title": 1,
         "dropped_age": 1, "discarded": 1, "discarded_by_reason": {"location": 1},
-        "bodyless": 1, "detail_failed": 0, "closed_by_absence": 0, "inserted": 2,
+        "bodyless": 1, "detail_failed": 0, "inactive": 0, "already_stored": 0,
+        "closed_by_absence": 0, "inserted": 2,
     }
+    # The next pass lists the same two stored postings again.
+    again: dict = {}
+    pipeline.run_fetch(
+        conn, companies, ["engineer"], now=NOW, fetch_fn=fetch_fn, max_age_days=30,
+        candidate={"locations": ["Remote"]}, counts=again)
+    assert (again["inserted"], again["already_stored"]) == (0, 2)
+    for c in (counts, again):
+        assert c["listed"] == sum(c[k] for k in (
+            "dropped_title", "dropped_age", "bodyless", "detail_failed", "inactive",
+            "already_stored", "inserted"))
+
+
+def test_a_board_that_fails_after_gating_stubs_leaves_no_partial_tally(tmp_path):
+    # Its drops were counted by the stub gate, but its `listed` never was: without the
+    # reset the intake funnel would drop more listings than it saw (#248).
+    conn = db.connect(bootstrap_db(tmp_path / "a.db"))
+
+    def fetch_fn(source, slug, name, *, keep, **_):
+        keep(make_posting("title", job_title="Sales Manager"))
+        keep(make_posting("old", posted_at="2020-01-01"))
+        raise RuntimeError("429 on the next page")
+
+    counts: dict = {}
+    pipeline.run_fetch(conn, [{"source": "smartrecruiters", "slug": "s", "name": "S"}],
+                       ["engineer"], now=NOW, fetch_fn=fetch_fn, max_age_days=30,
+                       counts=counts)
+    assert (counts["boards_attempted"], counts["boards_failed"], counts["listed"],
+            counts["dropped_title"], counts["dropped_age"]) == (1, 1, 0, 0, 0)
+
+
+def test_run_fetch_counts_a_listed_posting_whose_detail_says_closed(tmp_path):
+    conn = db.connect(bootstrap_db(tmp_path / "a.db"))
+
+    def fetch_fn(source, slug, name, *, keep, inactive, **_):
+        keep(make_posting("ok"))
+        keep(make_posting("gone"))
+        inactive.append("gone")
+        return [make_posting("ok")]
+
+    counts: dict = {}
+    pipeline.run_fetch(conn, [{"source": "smartrecruiters", "slug": "s", "name": "S"}],
+                       ["engineer"], now=NOW, fetch_fn=fetch_fn, counts=counts)
+    assert (counts["listed"], counts["inactive"], counts["detail_failed"],
+            counts["inserted"]) == (2, 1, 0, 1)
 
 
 def test_run_fetch_counts_id_less_stubs_and_lost_details(tmp_path):

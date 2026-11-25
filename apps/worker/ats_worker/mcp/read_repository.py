@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import Any, Callable, Iterator
 from urllib.parse import parse_qsl, unquote_plus, urlencode, urlsplit, urlunsplit
 
+from .intake_funnel import intake_funnel
 from ..source_lifecycle import (SOURCE_ERROR_CATEGORIES, assessment_freshness,
                                 has_embedded_screen, has_fit_assessment)
 
@@ -1022,6 +1023,7 @@ class ReadOnlyATSRepository:
                     + int(eligible_counts["retry_eligible"] or 0),
                 },
                 "unknown_screening_updated_at_count": unknown_screening_times,
+                "intake_funnel": intake_funnel(conn, generated_at),
                 "response_generated_at": response_generated_at,
                 "response_time_semantics": (
                     "query response time; not fetch completion or source freshness"

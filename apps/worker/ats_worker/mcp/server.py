@@ -168,8 +168,10 @@ def create_server(repository: ReadOnlyATSRepository | None = None,
     @server.tool(annotations=_READ_ONLY)
     def get_ats_overview() -> dict[str, Any]:
         """Return live record/state counts, advisory screen outcomes, eligible screen backlog,
-        disjoint job-triage counts, unparseable assessment times, and response time. Triage
-        counts partition all job_postings. Backlog scope is pipeline_status=new; response time
+        disjoint job-triage counts, unparseable assessment times, the intake funnel (latest
+        pass and last 7 days: listings seen, what each stage removed and why, open and
+        eligible; see its semantics) and response time. Triage counts partition all
+        job_postings. Backlog scope is pipeline_status=new; response time
         is not a fetch completion or source-freshness timestamp."""
         return read(repo.get_ats_overview)
 
