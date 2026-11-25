@@ -1461,8 +1461,8 @@ worker modules are pure and dependency-injected; real services are wired only in
   `list_application_history`, `list_ats_records`, `get_ats_record`, `list_sources`,
   `get_setup_status`, `get_candidate_profile`. They carry read-only/
   closed-world annotations, and the connection-level SQLite settings enforce the
-  boundary. With `ATS_API_KEY` set, eight write tools are added, each a call to the web's
-  loopback `/api/v1` (never a DB write): `record_application`, `mark_job_applied`,
+  boundary. With `ATS_API_KEY` set, nine write tools and one read (`suggest_application_links`) are added, each a call to the web's
+  loopback `/api/v1` (never a DB write): `record_application`, `mark_job_applied`, `link_application`,
   `update_application_status`, `update_application_notes`, `override_triage`,
   `set_candidate_profile`, `add_source` (known-ATS boards only) and
   `remove_source`. The seven entity names are a closed enum, identifiers are selected
@@ -1539,8 +1539,11 @@ worker modules are pure and dependency-injected; real services are wired only in
   `read_write` key, §7.2); without it the tool list is the read tools above and the
   instructions say the server cannot change state. They call web's `/api/v1` over
   `ATS_API_URL` (default `http://127.0.0.1:3000`) and never open a writable DB handle:
-  `record_application` (date defaults to today, status from the `STATUSES` enum),
-  `mark_job_applied(job_id, category?)`, `update_application_status(application_id,
+  `record_application` (date defaults to today, status from the `STATUSES` enum, optional
+  `job_id` to link), `mark_job_applied(job_id, category?, date?, create_new?)`,
+  `suggest_application_links(application_id? | job_id?)` and
+  `link_application(application_id, job_id)` (§9 "Linking applications to postings"; the
+  matcher runs in the web only), `update_application_status(application_id,
   status, date?)` (returns `{application_id, status, recorded}`: `status` is the current
   status, which a backdated `recorded` change does not move), `add_source(name, url? | source + slug)` (known-ATS boards; a
   `url` is resolved by the web's `lib/board-url.ts`, the Sources tab's resolver; web's
@@ -1583,7 +1586,8 @@ worker modules are pure and dependency-injected; real services are wired only in
   because stored text says so. `list_applications`, `get_application` and
   `list_application_history` report `actor` (`web`/`mcp`).
   **Workflow text** lives in the server, not in a client skill: with writes enabled the
-  instructions map "I applied to job N" -> `get_job` + `mark_job_applied`, an
+  instructions map "I applied to job N" -> `get_job` + `mark_job_applied`, "link my
+  applications" -> suggestions, a confirmed pair, `link_application`, an
   off-ATS application -> duplicate search + `record_application`, and a status change
   -> `update_application_status` + a dated note. MCP prompts: `daily_brief` (always;
   read-only, no write tools), and with writes `log_application(what)` and
@@ -1623,11 +1627,13 @@ worker modules are pure and dependency-injected; real services are wired only in
   `200`), since the worker may not have run a subscription screen pass yet.
 - **`app/api/v1/*`** — the key-scoped loopback write API the MCP server calls, so write
   validation exists once in the `lib/*-actions.ts` Server Actions. Each route is a
-  thin wrapper over one action; every write stamps `actor='mcp'`: `POST applications` (`addApplication`; an
-  unknown `status` is a `400`, where the UI falls back to `Applied`), `PATCH
+  thin wrapper over one action; every write stamps `actor='mcp'`: `POST applications` (`addApplication`, optional `job_id`; an
+  unknown `status` is a `400`, where the UI falls back to `Applied`), `POST
+  applications/{id}/link` `{job_id}` (`linkApplication`), `GET link-suggestions`
+  `?application_id=` / `?job_id=` (`getLinkSuggestions`, read key), `PATCH
   applications/{id}` (`updateApplicationDetails`; omitted fields unchanged), `POST
   applications/{id}/status` `{status, date?}` (`updateApplicationStatus`), `POST
-  jobs/{id}/applied` `{category?}` (`markJobApplied`, scope `{stage: 'all'}`), `POST
+  jobs/{id}/applied` `{category?, date?, create_new?}` (`markJobApplied`, scope `{stage: 'all'}`), `POST
   watchlist` / `DELETE watchlist/{id}` (`addWatchedCompany` / `removeWatchedCompany`;
   a `recipe` that fails the recipe schema is a `400` listing each violation; the delete
   returns the removed row), `POST jobs/{id}/triage` `{decision, reason?}` /
@@ -1672,13 +1678,15 @@ worker modules are pure and dependency-injected; real services are wired only in
     through the stored description, without a provider call. Postings are
     filtered by the default "for you" view or one funnel `stage` (§9 "Discovered Jobs
     funnel"); all views page with `page`/`size`. The pipeline-status mutation is
-    `markJobApplied(id, category, scope)`
+    `markJobApplied(id, category, scope, actor, {date?, createNew?})`
     (category chosen at apply time from the user-configured vocabulary — free-form,
     default `Others` when blank); `getCategories`/`setCategories` edit the category list
     in `app_settings`.
     Each row also carries a source-lifecycle summary: source state, last seen/check times,
     safe inconclusive category, current content revision, and independent screen
     freshness. Unknown legacy revisions and provider errors stay explicitly unknown/error.
+    A row with no application carries `applied_match`, the unlinked application it matches at
+    tier 1 or 2 (§9), shown as "You may have applied already (application #N)".
     Rows and job detail also carry a derived `triage_summary`: rule-based rejection,
     standalone screening rejection, candidate retained for fit research, or needs review.
     Triage feeds the funnel stage, filtered in bound SQL before pagination and count; MCP overview separately reports four disjoint counts that partition all postings. A rule-only standalone result
@@ -1748,7 +1756,7 @@ worker modules are pure and dependency-injected; real services are wired only in
   row — and triage (a target role or custom context) are optional steps). The checklist carries copy-paste MCP client configs and starter prompts read
   from `apps/web/templates/mcp/` (plain text, placeholder keys only; the Docker image
   copies the directory).
-- **`components/`** — `ApplicationsView` (KPI grid, Export/Import CSV, the
+- **`components/`** — `ApplicationsView` (KPI grid, Export/Import CSV, Link postings, the
   Applications table/form/charts and history modal) and `JobsView` (Discovered Jobs, the
   Mark Applied flow and Not interested); only Applications, Settings, Mark Applied and Not
   interested write;
@@ -1757,7 +1765,7 @@ worker modules are pure and dependency-injected; real services are wired only in
   blank state and a remote checkbox writing the `remote` entry, internship and contract
   checkboxes, education rows with a `DEGREES` select; built from `ProfileEditors`
   `ListEditor` and `CustomContextEditor`) and `CategoriesEditor` (the category
-  vocabulary) make up `/settings`; `ApplicationTable` (inline status edit; job title links to `application_url`; Details opens the history/edit modal; dates show the year outside the current one; Company / Date / Status headers sort server-side via `getApplications` `sort`/`dir`, default date desc), `KPIGrid`,
+  vocabulary) make up `/settings`; `ApplicationTable` (inline status edit; job title links to `application_url`; Details opens the history/edit modal; dates show the year outside the current one; Company / Date / Status headers sort server-side via `getApplications` `sort`/`dir`, default date desc; an application with no posting has a Link button), `LinkPostingsDialog` (the candidates of one application, or of every unlinked one, each with its own Link click; opens by itself after adding an application that has candidates), `KPIGrid`,
   `StatusHistoryModal`, `AddApplicationForm`, `DiscoveredJobsTable` (a job-board list of "postings for you", #207: title link,
   company, location, posted age ("3d ago"); actions Apply (the `job_url` via `safeHref`,
   new tab), Mark applied, Not interested and View JD; filters search, Search in JD and
@@ -1765,7 +1773,7 @@ worker modules are pure and dependency-injected; real services are wired only in
   cells. `JobsView` controls the filters with request-version checks, states the active
   mode and triage's 7-day window in one line, and makes Not interested a triage `skip`
   override (actor `web`) with an Undo toast that clears it), `Pagination` (reusable: first/last, numbered pages, go-to), `ApplyCategoryDialog`
-  (category picker on Mark Applied), `ImportCSVDialog` (drag-and-drop or browse file
+  (category and date on Mark Applied; when an unlinked application matches, link it or mark as new), `ImportCSVDialog` (drag-and-drop or browse file
   picker behind the Import CSV button, with the column contract — required columns,
   `YYYY-MM-DD` dates, the exact `status` vocabulary, dedup-skips-never-overwrites —
   stated inline; guards on the `.csv` extension, not the MIME type, since Excel on
@@ -2291,12 +2299,29 @@ Triage evidence with duplicate object members at its root, screen map, or check 
   gate nothing and are not shown; `bucket`, `minScore`, `cause`, `triageStatus` and the
   `score` sort are rejected filter keys. Every row carries `stage`, `status` (effective),
   `verdict` (stored), `profile_version` and `jev {reasons, override}`.
-- **`markJobApplied(id, category?)`** runs in a `$transaction`: it refuses if an
+- **`markJobApplied(id, category?)`** runs in a `$transaction`: when an unlinked application
+  matches the posting at tier 1 or 2 (below) it writes nothing and returns it as `match`,
+  unless `createNew`; it refuses if an
   application with the same `(company_name, job_title)` exists, else creates the
-  application (`status='Applied'`, `category` chosen by the user at apply time from the
+  application (`status='Applied'`, dated `date`, default today, `category` chosen by the user at apply time from the
   configured vocabulary — free-form, default `Others` when blank — url from `job_url`) and atomically
   sets the posting to `pipeline_status='applied'` + `application_id`. Application and
   back-link are created together or not at all.
+- **Linking applications to postings** (`lib/application-match.ts`, `lib/link-actions.ts`,
+  #241). Nothing links by itself: a match is a suggestion, a link is one call naming both
+  ids. Tiers: **1** same posting URL (host and path, plus the query values that hold a digit
+  and are not tracking parameters: many boards keep the posting id in the query, where
+  dropping it makes hundreds of postings one URL); **2** same company and same title,
+  normalized (company: case, punctuation and legal suffixes dropped, one name may contain
+  the other on word boundaries; title: case, dashes and punctuation, with parentheticals,
+  `+` and `#` kept); **3** same company, another title: a picker only. Title similarity
+  orders tier 3 and is never a match; there is no date gate. Only unlinked applications and
+  unlinked postings not `removed` are matched; tiers 1 and 2 are never cut, tier 3 is (5 per
+  application in the whole list, 50 for one) with the rest counted in `more`.
+  `linkApplication` (and `job_id` on `addApplication`, in the same transaction) sets
+  `application_id` and `pipeline_status='applied'` and refuses a missing or `removed`
+  posting and either side already linked elsewhere; the same pair again changes nothing.
+  There is no unlink action.
 
 **Application invariants:**
 
@@ -2336,7 +2361,7 @@ Triage evidence with duplicate object members at its root, screen map, or check 
   (`web` | `mcp`) and write one `audit_log` row (`entity='applications'`, `entity_id` =
   application id) in the same transaction: action `add` (payload: the row), `update` /
   `status` / `remove_history` (`{before, after}`, plus `history` or `removed` for the
-  history row), `remove` (the row with its `status_history` and `job_posting_ids`). CSV
+  history row), `remove` (the row with its `status_history` and `job_posting_ids`), `link` (the row and the posting as it was). CSV
   import audits one `add` (actor `web`) per imported row. A rejected write writes none.
 - **KPIs** (`getKPIs`): `total` = every application; `active` = not Offer / Accepted /
   Rejected / Withdrew and the latest status-history date (else `date_applied`) within
@@ -2501,8 +2526,9 @@ automated coverage — those rely on code review or the human in the loop, not a
 | A **blind** live backend (nothing usable: not a dict, or neither a `screen` object nor any requirement key) is a `provider_error`, not a verdict; the FLAT shape the 4B emits ~1 call in 100 is a real verdict and is honoured, byte-identical to the nested shape — so it cannot discard on the phrase floor and cannot record breaker successes; the narrow scope is pinned on the other side, where an empty `screen` dict is an answer and keeps the floor | `test_screen.py` (`test_a_blind_response_is_a_provider_error_not_a_verdict`, `test_an_empty_screen_object_is_a_verdict_and_keeps_the_floor`, `test_the_flat_shape_is_a_verdict_and_is_honoured`, `test_the_flat_shape_and_the_schema_shape_agree`, `test_the_observed_flat_response_is_kept_not_discarded`) |
 | `mark_failed` → terminal `failed` + `attempts+1` (fetch/score paths) | `test_db.py` |
 | Effective status (#226) = override decision, else the stored verdict, identical in Web and MCP for every shared case; an override survives a content change and `keep` rescues a requirements discard into "for you" and the MCP default view; each posting in exactly one funnel stage, a closed one only in `closed` and hidden by default from MCP `list_jobs`; each row shows its profile version; Mark Applied scoped to its view; retired stages and filter keys rejected | `web/src/__tests__/effective-status-parity.int.test.ts`, `worker/tests/test_effective_status_parity.py` (shared `effective-status-cases.json`), `test_mcp_repository.py::test_override_holds_across_reassessment_and_content_change`, `web/src/__tests__/inventory-contract.int.test.ts` |
-| Discovered Jobs and Activity are read-only except Mark Applied and Not interested, Sources writes only board add/remove (no server-action import in their display components; `JobsView` wires only reads plus `markJobApplied` and the triage override set/clear; no discard/reopen/bulk export); Sources `postings_30d`; Activity's status strip and merged plain-English timeline with paging | `web/src/__tests__/readonly-dashboard.test.ts`, `watchlist.int.test.ts`, `activity.int.test.ts`, `web/e2e/discovered.spec.ts`, `web/e2e/sources-activity.spec.ts` |
+| Discovered Jobs and Activity are read-only except Mark Applied and Not interested, Sources writes only board add/remove (no server-action import in their display components; `JobsView` wires only reads plus `markJobApplied`, `linkApplication` and the triage override set/clear; no discard/reopen/bulk export); Sources `postings_30d`; Activity's status strip and merged plain-English timeline with paging | `web/src/__tests__/readonly-dashboard.test.ts`, `watchlist.int.test.ts`, `activity.int.test.ts`, `web/e2e/discovered.spec.ts`, `web/e2e/sources-activity.spec.ts` |
 | `markJobApplied` atomic create + back-link + dedup | `actions.test.ts`, `actions.int.test.ts` (real-Prisma tx) |
+| Link tiers; a similar title is never tier 1-2; suggestions write nothing; web and `/api/v1` link alike; refusals; Mark Applied offers the match; MCP calls the web matcher | `application-match.test.ts`, `link.int.test.ts`, `LinkPostingsDialog.test.tsx`, `Views.test.tsx`, `test_mcp_write.py` |
 | `updateApplicationStatus` validates `STATUSES`, appends history | `actions.test.ts`, `actions.int.test.ts` |
 | Status = latest history row (timestamp, ties by id) on write and `deleteHistoryItem`; creation writes the initial `Applied` row; the #243 backfill | `actions.int.test.ts`, `history-backfill.int.test.ts` |
 | `deleteApplication` resets linked `applied` postings to `new`; every application write leaves one audit row (web and `/api/v1`) | `application-audit.int.test.ts` |

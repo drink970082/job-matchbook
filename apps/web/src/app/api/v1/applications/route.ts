@@ -1,6 +1,6 @@
 import { addApplication } from '@/lib/application-actions'
 import { STATUSES } from '@/lib/constants'
-import { str, write } from '@/lib/api-v1'
+import { int, str, write } from '@/lib/api-v1'
 
 export const dynamic = 'force-dynamic'
 
@@ -19,6 +19,7 @@ export function POST(req: Request) {
         status,
         application_url: str(b, 'application_url'),
         notes: str(b, 'notes'),
+        job_id: int(b, 'job_id'),
     }, 'mcp')
     })
 }

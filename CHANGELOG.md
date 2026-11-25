@@ -9,6 +9,12 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 
 ### Added
 
+- **Link applications to postings (#241)**: an unlinked application shows the postings it
+  may belong to (same posting URL, same company and title, or a same-company picker) on the
+  Applications page and through MCP `suggest_application_links`; one click or
+  `link_application` links it. A posting that matches says "You may have applied already",
+  and Mark Applied then offers linking instead of failing. Mark Applied and
+  `mark_job_applied` take a date; `record_application` takes a `job_id`.
 - **Intake funnel (#248)**: the Activity page and MCP `get_ats_overview.intake_funnel` show,
   for the latest pass and the last 7 days, what the passes listed and what each stage
   removed and why, down to the open and eligible postings. The fetch tally gains

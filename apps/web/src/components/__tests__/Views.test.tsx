@@ -5,6 +5,7 @@ import { ActivityTab } from '@/components/ActivityTab'
 import { Onboarding } from '@/components/Onboarding'
 import * as applicationActions from '@/lib/application-actions'
 import * as jobActions from '@/lib/job-actions'
+import * as linkActions from '@/lib/link-actions'
 import * as watchlistActions from '@/lib/watchlist-actions'
 import * as activityActions from '@/lib/activity-actions'
 
@@ -16,6 +17,7 @@ jest.mock('@/lib/analytics-actions')
 jest.mock('@/lib/csv-actions')
 jest.mock('@/lib/watchlist-actions')
 jest.mock('@/lib/job-actions')
+jest.mock('@/lib/link-actions')
 jest.mock('@/lib/profile-actions')
 jest.mock('@/lib/category-actions')
 jest.mock('@/lib/activity-actions')
@@ -78,6 +80,33 @@ test('Not interested writes a skip override and offers Undo', async () => {
     await waitFor(() => expect(jobActions.getJobPostings).toHaveBeenCalled())
     expect(jobActions.setTriageOverride).toHaveBeenCalledTimes(1)
     expect(jobActions.setTriageOverride).toHaveBeenCalledWith(7, 'skip', 'Not interested (web)')
+})
+
+const MATCH = { id: 9, tier: 2 as const, company_name: 'ACME', job_title: 'eng', date_applied: '2026-11-02' }
+const applyRow = { id: 7, source: 's', company_name: 'Acme', job_title: 'Eng', job_url: 'https://x.test/7', pipeline_status: 'new' }
+
+test('a posting that matches an application says so and offers to link it', async () => {
+    ;(linkActions.linkApplication as jest.Mock).mockResolvedValue({ success: true })
+    render(<JobsView {...jobProps} initialJobPostings={[{ ...applyRow, applied_match: MATCH }]} totalJobPostings={1} />)
+    expect(screen.getByText('You may have applied already (application #9)')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Mark applied: Eng' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Link to application #9' }))
+    await waitFor(() => expect(linkActions.linkApplication).toHaveBeenCalledWith(9, 7))
+    expect(jobActions.markJobApplied).not.toHaveBeenCalled()
+})
+
+test('a match found at write time turns the dialog into the same choice; New keeps the chosen date', async () => {
+    ;(jobActions.markJobApplied as jest.Mock).mockResolvedValueOnce({ success: false, error: 'x', match: MATCH }).mockResolvedValueOnce({ success: true })
+    render(<JobsView {...jobProps} initialJobPostings={[applyRow]} totalJobPostings={1} />)
+    fireEvent.click(screen.getByRole('button', { name: 'Mark applied: Eng' }))
+    fireEvent.change(screen.getByLabelText('Date applied'), { target: { value: '2026-11-03' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Mark Applied' }))
+    await screen.findByRole('button', { name: 'Link to application #9' })
+    fireEvent.click(screen.getByRole('button', { name: 'It is a new application' }))
+    await waitFor(() => expect(jobActions.markJobApplied).toHaveBeenCalledTimes(2))
+    const calls = (jobActions.markJobApplied as jest.Mock).mock.calls
+    expect(calls.map((c) => [c[0], c[1], c[4]])).toEqual([
+        [7, 'SWE', { date: '2026-11-03', createNew: false }], [7, 'SWE', { date: '2026-11-03', createNew: true }]])
 })
 
 test('overlapping inventory requests never show stale rows under newer filters', async () => {

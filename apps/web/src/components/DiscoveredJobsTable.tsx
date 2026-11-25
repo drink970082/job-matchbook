@@ -18,6 +18,9 @@ export interface JobJev {
     override: { decision: string; reason: string | null; actor: string | null; set_at: string | null } | null
 }
 
+// An unlinked application this posting matches (#241, lib/application-match.ts tier 1 or 2).
+export interface AppliedMatch { id: number; tier: 1 | 2; company_name: string; job_title: string; date_applied: string }
+
 export interface JobPosting {
     id: number
     source: string
@@ -36,6 +39,7 @@ export interface JobPosting {
     verdict?: string
     profile_version?: number | null
     jev?: JobJev
+    applied_match?: AppliedMatch | null
     screen_summary?: ScreenSummary
     legacy_screen_evidence?: LegacyScreenEvidence
     triage_summary?: JobTriageSummary
@@ -142,6 +146,9 @@ export function DiscoveredJobsTable({
                                         <a href={job.job_url} target="_blank" rel="noopener noreferrer" className="font-medium hover:underline">
                                             {job.job_title}
                                         </a>
+                                    )}
+                                    {job.applied_match && (
+                                        <div className="text-xs text-amber-700">You may have applied already (application #{job.applied_match.id})</div>
                                     )}
                                     {job.profile_version != null && (
                                         <div className="text-xs text-muted-foreground">Judged under profile v{job.profile_version}</div>

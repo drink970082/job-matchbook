@@ -2,6 +2,7 @@
 
 import { useCallback, useState } from 'react'
 import { getApplications, addApplication, updateApplicationStatus, deleteApplication, getApplicationHistory, deleteHistoryItem, updateApplicationDetails } from '@/lib/application-actions'
+import { getLinkSuggestions } from '@/lib/link-actions'
 import { getKPIs, getStatusFlow, getTimelineData, getCategoryData } from '@/lib/analytics-actions'
 import { exportApplicationsCSV, importApplicationsCSV } from '@/lib/csv-actions'
 import { todayISO } from '@/lib/utils'
@@ -9,8 +10,9 @@ import { ApplicationsTab } from './ApplicationsTab'
 import { KPIGrid } from './KPIGrid'
 import { StatusHistoryModal } from './StatusHistoryModal'
 import { ImportCSVDialog } from './ImportCSVDialog'
+import { LinkPostingsDialog } from './LinkPostingsDialog'
 import { Button } from '@/components/ui/button'
-import { Download, Upload } from 'lucide-react'
+import { Download, Link2, Upload } from 'lucide-react'
 import { toast } from 'sonner'
 
 interface ApplicationsViewProps {
@@ -45,6 +47,8 @@ export function ApplicationsView({
     const [historyData, setHistoryData] = useState<any[]>([])
     const [isHistoryOpen, setIsHistoryOpen] = useState(false)
     const [importDialogOpen, setImportDialogOpen] = useState(false)
+    // Link to postings (#241): one application, or 'all' unlinked ones.
+    const [linking, setLinking] = useState<number | 'all' | null>(null)
 
     // Light tier: apps + KPIs + status flow only. A status edit can't move
     // date_applied or category, so re-fetching the timeline/category charts on
@@ -95,6 +99,10 @@ export function ApplicationsView({
         if (result.success) {
             toast.success(`Added ${data.company_name} — ${data.job_title}`)
             refreshData()
+            // A failed lookup is not a failed add: the row keeps its Link button.
+            const id = result.data!.id
+            const found = await getLinkSuggestions({ applicationId: id }).catch(() => null)
+            if (found?.success && found.data.some((s) => s.suggestions.length > 0)) setLinking(id)
         } else {
             toast.error(result.error)
         }
@@ -241,6 +249,9 @@ export function ApplicationsView({
             <div className="flex flex-wrap items-center justify-between gap-3">
                 <KPIGrid stats={kpis} />
                 <div className="ml-auto flex gap-2">
+                    <Button variant="outline" size="sm" title="Link applications to postings" onClick={() => setLinking('all')}>
+                        <Link2 className="mr-1.5 h-4 w-4" /> Link postings
+                    </Button>
                     <Button variant="outline" size="sm" title="Export CSV" aria-label="Export CSV" onClick={handleExportCSV}>
                         <Download className="mr-1.5 h-4 w-4" /> Export
                     </Button>
@@ -263,6 +274,7 @@ export function ApplicationsView({
                 onStatusChange={handleStatusChange}
                 onDelete={handleDeleteApplication}
                 onHistory={handleViewHistory}
+                onLink={setLinking}
             />
 
             {selectedApp && (
@@ -280,6 +292,13 @@ export function ApplicationsView({
                     onEditApplication={handleEditApplication}
                 />
             )}
+
+            <LinkPostingsDialog
+                open={linking !== null}
+                applicationId={typeof linking === 'number' ? linking : null}
+                onClose={() => setLinking(null)}
+                onLinked={refreshStatusData}
+            />
 
             <ImportCSVDialog
                 open={importDialogOpen}

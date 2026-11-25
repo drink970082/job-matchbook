@@ -135,6 +135,7 @@ function auditText(c: { entity: string; action: string; entity_id: number; paylo
         case 'applications': {
             const app = `${row.company_name} - ${row.job_title}`
             if (c.action === 'remove') return `Deleted the application ${app}`
+            if (c.action === 'link') return `Linked ${app} to its posting`
             if (c.action === 'remove_history') return `Removed ${p.removed?.status} from the history of ${app}`
             return `Edited ${app}`
         }

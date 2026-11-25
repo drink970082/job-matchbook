@@ -4,7 +4,7 @@ import { prisma } from '@/lib/db'
 import { Prisma } from '@prisma/client'
 import { type Actor, STATUSES } from '@/lib/constants'
 import { todayISO } from '@/lib/utils'
-import { applicationAudit, checkedActor, searchClause, syncStatusFromHistory, writeInitialHistory, CATEGORY_FALLBACK } from '@/lib/action-helpers'
+import { applicationAudit, checkedActor, linkPosting, searchClause, syncStatusFromHistory, writeInitialHistory, CATEGORY_FALLBACK } from '@/lib/action-helpers'
 
 // Header sort on the Applications table (#205): one column, server-side (paginated).
 export type ApplicationSort = { sort: 'company' | 'date' | 'status'; dir: 'asc' | 'desc' }
@@ -42,6 +42,7 @@ export async function getApplications(params: {
             skip: page * size,
             take: size,
             orderBy: [{ [SORT_FIELD[sortKey]]: dir }, { id: 'desc' }],
+            include: { job_postings: { select: { id: true } } }, // linked or not (#241)
         }),
         prisma.applications.count({ where }),
     ])
@@ -57,6 +58,7 @@ export async function addApplication(data: {
     status?: string
     application_url?: string
     notes?: string
+    job_id?: number // the posting it was made for (#241); refused like any other link
 }, actor: Actor = 'web') {
     try {
         checkedActor(actor)
@@ -96,6 +98,7 @@ export async function addApplication(data: {
             })
             await writeInitialHistory(tx, row)
             await tx.audit_log.create({ data: applicationAudit(actor, 'add', row.id, row) })
+            if (data.job_id !== undefined) await linkPosting(tx, row.id, data.job_id, actor)
             return row
         })
 
