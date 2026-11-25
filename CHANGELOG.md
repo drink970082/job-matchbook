@@ -9,6 +9,12 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 
 ### Added
 
+- **onboard-board adds go through `/api/v1` (#235)**: `add_watched.py` calls
+  `POST /api/v1/watchlist` with the MCP write key (`ATS_API_KEY`, else
+  `~/.config/ats-mcp/api-key`) instead of inserting into `watched_companies`, so a skill
+  add gets the web's validation and an `audit_log` row (`actor='mcp'`). A platform board
+  is verified from its list first, as in `add_source`; no key or no reachable web app
+  fails with the reason. `--db` is gone.
 - **Intake funnel (#248)**: the Activity page and MCP `get_ats_overview.intake_funnel` show,
   for the latest pass and the last 7 days, what the passes listed and what each stage
   removed and why, down to the open and eligible postings. The fetch tally gains

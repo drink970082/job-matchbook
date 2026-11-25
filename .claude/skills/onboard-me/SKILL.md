@@ -198,7 +198,9 @@ data; never commit it.
 
 For each company they named, hand off to the **`onboard-board` skill** — it walks the
 platform → plain-HTTP → browser cascade, validates, and adds the row to the DB
-watchlist (`add_watched.py`). Don't reimplement that here; invoke it per company. If
+watchlist through the web's write API (`add_watched.py`), which needs the web app running
+and its write key (docs/SETUP.md, "enable writes"); without them it fails with the reason
+and adds nothing. Don't reimplement that here; invoke it per company. If
 they named none, that's fine — they can add boards anytime in the web **Watchlist**
 tab or by asking to "add <company>" later.
 

@@ -57,7 +57,7 @@ or guess a `search.json` / `/api/…` sibling). Don't stop at the probe.
 
 The authoritative recipe shapes live in the recipe JSON Schema,
 `apps/web/src/lib/recipe.schema.json`: every key each executor reads, with one example
-per mode. Any other key is rejected, so a typo fails `add_watched.py` naming the key.
+per mode. Any other key is rejected, so a typo fails the add naming the key.
 Also skim: `apps/worker/config.yaml.example` (worked examples of every source),
 `apps/worker/ats_worker/fetch/custom.py` + `browser.py` (the executors), and
 `fetch/_recipe.py` (the field extractor: dotted paths, `url` templates, the tolerant
@@ -160,17 +160,26 @@ add a broken row; write the failure report instead (see below).
 
 The watchlist lives in the DB table `watched_companies`, which the web **Sources tab**
 shows and the Sources tab (add by careers URL, remove) and MCP `add_source`/`remove_source` tools write; a custom/browser recipe row is only added here. `config.yaml` `companies:` is ONLY a one-time seed — editing it after the
-first run does nothing and never reaches the UI. So add the board straight to the DB with the
-bundled helper (deduped on `(source, slug)`):
+first run does nothing and never reaches the UI. Add the board with the bundled helper, which
+goes through the web's write API (`POST /api/v1/watchlist`): the web validates it, refuses a
+duplicate `(source, slug)`, and audits the add. **Never insert the row into the database
+yourself.** It needs the web app running and its write key, from `ATS_API_KEY` or
+`~/.config/ats-mcp/api-key` (docs/SETUP.md, "enable writes"; `ATS_API_URL` overrides the
+address):
 
 ```bash
 python .claude/skills/onboard-board/scripts/add_watched.py \
   --source <source> --slug <slug> --name "<name>" [--recipe /tmp/recipe.json]
 ```
 
-It prints `added` or `already on the watchlist`. Then **tell the user the outcome in one
+A platform board's list is fetched once before the add, and a board that lists nothing or
+fails to fetch is refused; a recipe board is not fetched, so Step 3 is its only check. The
+helper prints `added`, or exits with `error:` and the reason: already on the watchlist, a
+validation message, no key, web unreachable. A missing key or an unreachable web app is the
+user's to fix: relay the reason and stop. Then **tell the user the outcome in one
 line** — added / already there — and, for a `browser` row, that it needs
-`enable_browser_sources: true` + the Playwright extra to actually run. **No success report.**
+`enable_browser_sources: true` + the Playwright extra to actually run (relay any `warning:`
+line). **No success report.**
 The board now shows in the Sources tab; the worker fetches it next cycle. (The user can also
 add or remove boards through their AI client's MCP tools — this skill is the repo-side path.)
 

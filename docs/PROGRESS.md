@@ -18,7 +18,7 @@ before changing them. No older research authorization schedules new provider cal
 
 ## Do next — the pick order
 
-1. [#229 Sources tell the truth](https://github.com/drink970082/job-matchbook/issues/229): #232, #233, #235.
+1. [#229 Sources tell the truth](https://github.com/drink970082/job-matchbook/issues/229): #232, #233.
 2. [#223 One candidate profile](https://github.com/drink970082/job-matchbook/issues/223): #224 -> #225 -> #226, with #227 after #224.
 3. [#251 Runtime settings in the web](https://github.com/drink970082/job-matchbook/issues/251), then [#256 MCP as the downstream contract](https://github.com/drink970082/job-matchbook/issues/256)
    (#209 decided: option A, [note](superpowers/specs/2026-11-20-mcp-read-path-research.md); next a hosted tunnel check, then #257).
