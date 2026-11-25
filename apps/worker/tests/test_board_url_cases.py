@@ -78,6 +78,10 @@ def test_the_probe_finds_scheme_less_and_repeated_embeds_once_each_in_page_order
     ("u=https%3A%2F%2Fboards.greenhouse.io/embed/job_board?for=acme", ["acme"]), ("host%3Dcareers-acme.icims.com", ["careers-acme"]),
     ("https://jobs.lever.co/acme?u=https://jobs.ashbyhq.com/beta", ["acme", "beta"]),
     ("https://acme_co.wd5.myworkdayjobs.com/Ext", ["acme_co/wd5/Ext"]), ("careers-acme.icims.com.evil.com", []),
+    ("https%3A%2F%2Fjobs.lever.co%2Facme%0AThanks", ["acme"]), ("https%3A%2F%2Fjobs.lever.co%2Facme%22%3E", ["acme"]),
+    ("https%253A%252F%252Fjobs.lever.co%252Facme", ["acme"]), ("https%3A%2F%2Fjobs.ashbyhq.com%2FAcme%20Corp", ["Acme Corp"]),
+    ("https%3A%2F%2Fjobs.lever.co%2Facme%20https%3A%2F%2Fjobs.lever.co%2Fbeta", ["acme", "beta"]),
+    ("https://jobs.lever.co/acme?u=jobs.ashbyhq.com/beta", ["acme", "beta"]),
     ("https://jobs.lever.co/acme%2C", ["acme"]), ("https://jobs.lever.co/acme%2F", ["acme"]), ("job-boards.greenhouse.io/embed/job_board?for=acme%26b=1", ["acme"]),
     ("https://jobs.lever.co/acme%20", ["acme"]), ("https://jobs.lever.co/acme%22", ["acme"]), ("https://jobs.lever.co/acme%3Fx=1", ["acme"]),
     ("https://jobs.ashbyhq.com/Acme%20Corp", ["Acme Corp"]),
@@ -95,6 +99,7 @@ def test_a_workday_host_label_must_be_a_host_label(host):
 @pytest.mark.parametrize("text, want", [
     ("https://Acme.WD5.myworkdayjobs.com", ["acme/wd5"]), ("https:\\x2F\\x2Facme.wd5.myworkdayjobs.com", ["acme/wd5"]),
     ("https%253A%252F%252Facme.wd5.myworkdayjobs.com", ["acme/wd5"]),
+    ("acme.myworkdayjobs.com", []),
     ("acme.wd5.myworkdayjobs.com.evil.com acme.wd5.myworkdayjobs.community", []),
 ])
 def test_the_workday_hint_reads_the_tenant_host(text, want):
@@ -139,13 +144,15 @@ def test_the_probe_verifies_through_the_adapters_list_check():
     ("https://acme.com/careers", '<a href="https://jobs.lever.co/acme/1">', {"acme"}, "platform=lever slug=acme ->"),
     ("https://acme.com/careers", '<a href="https://jobs.lever.co/acme/1"> /wp-json/', set(), "plain-http ->"),  # an embed that lists nothing
     ("https://acme.com/careers", 'fetch("/api/pcsx/search")', set(), "platform=phenom ->"),
-    ("https://acme.wd5.myworkdayjobs.com/wday/cxs/acme/Ext/jobs", "/wp-json/", set(), "platform=workday -> find the site for slug acme/wd5/{site}"),
-    ("https://acme.com/careers", '<a href="https://acme.wd5.myworkdayjobs.com/en-US">', set(), "platform=workday -> find"),
+    ("https://acme.wd5.myworkdayjobs.com/wday/cxs/acme/Ext/jobs", "/wp-json/", set(), "platform=workday -> find or confirm the site for slug acme/wd5/{site}"),
+    ("https://acme.com/careers", '<a href="https://acme.wd5.myworkdayjobs.com/en-US">', set(), "platform=workday -> find or confirm"),
     ("https://acme.wd5.myworkdayjobs.com/Ext", "", set(), "platform? -> the URL is workday slug=acme/wd5/Ext"),
-    ("https://acme.wd5.myworkdayjobs.com/wday/cxs/acme/Ext/jobs", "https://zed.wd1.myworkdayjobs.com/X", set(), "platform=workday -> find the site for slug acme/wd5/{site}"),
+    ("https://acme.wd5.myworkdayjobs.com/wday/cxs/acme/Ext/jobs", "https://zed.wd1.myworkdayjobs.com/X", set(), "platform=workday -> find or confirm the site for slug acme/wd5/{site}"),
     ("https://acme.com/careers", "https://jobs.lever.co/down /wp-json/", set(), "plain-http ->"),
     ("https://acme.com/careers", "https://jobs.lever.co/down", set(), "platform? -> the page embeds lever slug=down, but could not verify"),
-    ("https://acme.com/careers", "https://acme.wd5.myworkdayjobs.com/favicon.ico", set(), "platform=workday -> find the site for slug acme/wd5/{site}"),
+    ("https://acme.com/careers", "https://acme.wd5.myworkdayjobs.com/favicon.ico", set(), "platform=workday -> find or confirm the site for slug acme/wd5/{site}"),
+    ("https://acme.com/careers", "https://jobs.lever.co/acme/1", set(), "plain-http? ->"),
+    ("https://acme.com/c?utm_source=jobs.lever.co/other", "/wp-json/", set(), "plain-http ->"),
     ("https://www.google.com/url?q=https://jobs.lever.co/acme", "", {"acme"}, "platform=lever slug=acme ->"),
     ("https://acme.com/careers", "<p>", set(), "plain-http? ->"),
 ])

@@ -6,8 +6,8 @@ the real endpoint and writes the recipe. It reports which cascade rung fits:
 
   platform    -> a known ATS adapter (greenhouse, lever, ashby, workday, pinpoint,
                  smartrecruiters, workable, icims, phenom) — onboarding = a data row, no recipe
-  platform?   -> the URL is a known ATS board whose list is empty or unreadable, or the page
-                 embeds one that could not be read
+  platform?   -> the URL is a known ATS board whose list is empty or unreadable, or (with no
+                 plain-HTTP signal) the page embeds one that could not be read
   plain-http  -> a `custom` recipe: a JSON/XHR endpoint, __NEXT_DATA__, or json-ld on the page
   browser     -> a `browser` recipe: the page bot-walls plain HTTP (403 challenge) or renders
                  its jobs only client-side with no discoverable JSON
@@ -66,7 +66,8 @@ _BOARD_HOST = re.compile(
 # /, \x2f or \/ in a script.
 _SCRIPT_ESCAPED = re.compile(r"\\(?:u00|x)([0-9a-f]{2})", re.I)
 # What follows the slug of a URL cut out of text: an escape that is no part of one.
-_TAIL = re.compile(r"(?:%(?!(?:2f|20)[a-z0-9])|[~+]).*", re.I)
+_TAIL = re.compile(r"(?:%(?!(?:2f|20)[a-z0-9])|[~+ ]).*", re.I)
+_DECODED = re.compile(r"[a-z0-9._~%+/=&?\[\] -]*", re.I)
 
 
 def board_hosts(page: str) -> list[tuple[str, str]]:
@@ -78,6 +79,7 @@ def board_hosts(page: str) -> list[tuple[str, str]]:
         rest = m.group(3)
         while rest.startswith("%"):  # the host was inside a percent-encoded URL
             rest = unquote(rest)
+        rest = _DECODED.match(rest).group().rstrip()  # decoding can end the URL
         out.append(((m.group(1) or m.group(2)).lower(), rest))
     return out
 
@@ -135,7 +137,7 @@ def main():
     # 1. platform from the URL itself (highest confidence)
     own = recognize_url(url) or next(iter(recognize_page(url)), None)  # or one inside a redirect URL
     plat, misses = verify([own] if own else [])
-    own_miss = misses[0] if misses else None
+    own_miss = misses[0] if misses and recognize_url(url) else None
 
     # 2. fetch the page: status -> bot wall; body -> embedded ATS + plain-HTTP signals
     print("\n## page fetch")
@@ -166,7 +168,7 @@ def main():
     if phenom:
         print("  MAYBE  phenom  (/api/pcsx/ seen; slug is {host}/{domain}, not checked here)")
     if workday:
-        print(f"  MAYBE  workday  (host of {workday}; no site named, so not checked here)")
+        print(f"  MAYBE  workday  (host of {workday}; site not confirmed)")
     if not (plat or misses or phenom or workday):
         print("  no known ATS recognized in the URL or embedded in the page")
     if bot_walled:
@@ -182,7 +184,7 @@ def main():
     elif phenom:
         print("VERDICT: platform=phenom -> verify the {host}/{domain} slug, then data row, NO recipe needed")
     elif workday:
-        print(f"VERDICT: platform=workday -> find the site for slug {workday}/{{site}}, then data row, NO recipe needed")
+        print(f"VERDICT: platform=workday -> find or confirm the site for slug {workday}/{{site}}, then data row, NO recipe needed")
     elif own_miss:
         source, slug, reason = own_miss
         print(f"VERDICT: platform? -> the URL is {source} slug={slug}, but {reason}")

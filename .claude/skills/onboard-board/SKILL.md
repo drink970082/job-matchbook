@@ -53,8 +53,8 @@ the search. In particular, a `plain-http?` result (page fetched, but jobs not in
 static HTML) means *the jobs load via an XHR you still have to find* — that's normal
 for a JSON board; go find the endpoint (browser DevTools → Network → filter Fetch/XHR,
 or guess a `search.json` / `/api/…` sibling). `platform?` means the URL
-names a known ATS but its board did not verify (the reason is printed), or a board the page
-embeds could not be read: check the slug before trying another rung. A `platform=workday`
+names a known ATS but its board did not verify (the reason is printed), or (with no
+plain-HTTP signal) a board the page embeds could not be read: check the slug before trying another rung. A `platform=workday`
 verdict with `{site}` means only the Workday host was found: get the site from a job link. Don't stop at the probe.
 
 ## Step 2 — build the row for the rung the probe pointed you at
