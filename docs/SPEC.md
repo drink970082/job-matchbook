@@ -2308,9 +2308,9 @@ Triage evidence with duplicate object members at its root, screen map, or check 
   back-link are created together or not at all.
 - **Linking applications to postings** (`lib/application-match.ts`, `lib/link-actions.ts`,
   #241). Nothing links by itself: a match is a suggestion, a link is one call naming both
-  ids. Tiers: **1** same posting URL (host and path, plus the query values that hold a digit
-  and are not tracking parameters: many boards keep the posting id in the query, where
-  dropping it makes hundreds of postings one URL); **2** same company and same title,
+  ids. Tiers: **1** same posting URL (host and path, plus a fragment and the query
+  values that hold a digit and are not tracking parameters: many boards keep the posting id
+  there, where dropping it makes hundreds of postings one URL); **2** same company and same title,
   normalized (company: case, punctuation and legal suffixes dropped, one name may contain
   the other on word boundaries; title: case, dashes and punctuation, with parentheticals,
   `+` and `#` kept); **3** same company, another title: a picker only. Title similarity
@@ -2348,11 +2348,11 @@ Triage evidence with duplicate object members at its root, screen map, or check 
   equality, no containment), unless both applications have a posting: then the posting is
   the identity, and a posting links once. `addApplication` and an `updateApplicationDetails`
   that changes the key check it (`findDuplicate`) and reject, naming the existing id; CSV
-  import, whose rows have no posting, skips. `markJobApplied` needs no check of its own: its
-  application has a posting, and an unlinked application with the same names is always its
-  `match`. A company or title with no letters or digits is compared as written. Check and
+  import, whose rows have no posting, skips. `markJobApplied` offers an
+  unlinked application with the same names as its `match` and, with `createNew`, records
+  another. A company or title with no letters or digits is compared as written. Check and
   write share a `$transaction`, closing the TOCTOU window. There is no DB-level `@@unique` on the pair
-  (deferred — see PROGRESS.md); dedup is enforced entirely in application code.
+  (two applications to different postings may share it); dedup is enforced entirely in application code.
 - **`deleteHistoryItem`** deletes the row and recomputes the status by the same rule
   in one `$transaction`.
 - **`deleteApplication` frees its postings.** In one `$transaction` with the cascade

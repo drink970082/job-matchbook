@@ -48,6 +48,8 @@ test('editing company or title runs the same check, and only then', async () => 
     const b: any = await add('Acme', 'Analyst')
     expect(await updateApplicationDetails(b.data.id, { job_title: 'ENGINEER' })).toEqual({ success: false, error: `Application for Acme - Engineer already exists (#${a.data.id})` })
     expect((await prisma.applications.findUniqueOrThrow({ where: { id: b.data.id } })).job_title).toBe('Analyst')
+    const c: any = await add('Globex', 'Engineer')
+    expect((await updateApplicationDetails(c.data.id, { company_name: 'acme' })).success).toBe(false)
     expect((await updateApplicationDetails(a.data.id, { company_name: 'ACME, Inc.', job_title: 'engineer' })).success).toBe(true) // itself
     const [p, q] = [await job(), await job()]
     await linkApplication(a.data.id, p.id)
@@ -66,8 +68,13 @@ test('CSV import skips a normalized duplicate of a stored row and of an earlier 
     expect([res.added, res.skipped]).toEqual([1, 2])
 })
 
-test('a title with no letters or digits is compared as written', async () => {
+test('a company or title with no letters or digits is compared as written', async () => {
     expect((await add('Acme', '???')).success).toBe(true)
     expect((await add('Acme', '!!!')).success).toBe(true)
     expect((await add('Acme', '???')).success).toBe(false)
+    expect((await add('???', 'Engineer')).success).toBe(true)
+    expect((await add('!!!', 'Engineer')).success).toBe(true)
+    const p = await job({ job_title: '???' })
+    expect((await markJobApplied(p.id, undefined, { stage: 'all' })).success).toBe(false)
+    expect((await markJobApplied(p.id, undefined, { stage: 'all' }, 'web', { createNew: true })).success).toBe(true)
 })

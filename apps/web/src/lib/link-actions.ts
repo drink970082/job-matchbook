@@ -44,6 +44,7 @@ export async function getLinkSuggestions(filter: { applicationId?: number; jobId
         if (jobId !== undefined) {
             const job = await prisma.job_postings.findUnique({ where: { id: jobId }, select: { application_id: true, pipeline_status: true } })
             if (!job) return { success: false, error: 'Job posting not found' }
+            if (job.pipeline_status === 'removed') return { success: false, error: 'Job was removed and cannot be linked' }
             if (job.application_id != null) return { success: false, error: `Job ${jobId} is already linked to application ${job.application_id}` }
         }
         const [apps, postings] = await Promise.all([
@@ -73,7 +74,7 @@ export async function linkApplication(applicationId: number, jobId: number, acto
     try {
         checkedActor(actor)
         await prisma.$transaction((tx) => linkPosting(tx, applicationId, jobId, actor))
-        return { success: true as const, data: { application_id: applicationId, job_id: jobId, pipeline_status: 'applied' } }
+        return { success: true as const, data: { application_id: applicationId, job_id: jobId } }
     } catch (error: any) {
         return { success: false as const, error: error.message as string }
     }

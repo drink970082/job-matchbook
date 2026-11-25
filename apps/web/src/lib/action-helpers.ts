@@ -97,14 +97,13 @@ export function checkedDate(date: string): string {
 
 // The application that already records this company and title (#244, normalized), or null.
 // `linked`: this one has a posting, so another that has one too is a different application
-// (a posting links once).
+// (a posting links once). An edit asks only when the key changes, so it never finds itself.
 // ponytail: reads every application; a stored key column if there are ever thousands.
-export async function findDuplicate(tx: Prisma.TransactionClient, app: { company_name: string; job_title: string },
-    linked: boolean, exceptId?: number) {
+export async function findDuplicate(tx: Prisma.TransactionClient, app: { company_name: string; job_title: string }, linked: boolean) {
     const key = duplicateKey(app)
     const rows = await tx.applications.findMany({
         select: { id: true, company_name: true, job_title: true, job_postings: { select: { id: true } } } })
-    return rows.find((r) => r.id !== exceptId && !(linked && r.job_postings.length) && duplicateKey(r) === key) ?? null
+    return rows.find((r) => !(linked && r.job_postings.length) && duplicateKey(r) === key) ?? null
 }
 
 export function duplicateError(dup: { id: number; company_name: string; job_title: string }) {

@@ -6,7 +6,7 @@ const app = (company_name: string, job_title: string, application_url: string | 
 const post = (id: number, company_name: string, job_title: string, job_url = `https://jobs.example.com/${id}`) => ({ id, company_name, job_title, job_url })
 
 test.each([
-    ['Acme Inc', 'acme'], ['ACME, Inc.', 'acme'], ['Acme L.P.', 'acme'], ['The Acme Group', 'acme'], ['Acme Holdings, LLC', 'acme'],
+    ['Acme Inc', 'acme'], ['ACME, Inc.', 'acme'], ['Acme L.P.', 'acme'], ['The Acme Group', 'acme'], ['Acme Incorporated', 'acme'], ['Acme Company Limited', 'acme'], ['Acme Holdings, LLC', 'acme'],
     ['Smith & Sons', 'smith and sons'], ['D.E. Shaw', 'de shaw'], ['D. E. Shaw', 'de shaw'], ['DE Shaw', 'de shaw'],
     ["O'Neil Corp", 'oneil'], ['Group One', 'group one'], ['Co Star', 'co star'], ['The Group', 'group'], ['', ''],
 ])('company %s -> %s', (raw, want) => expect(normalizeCompany(raw)).toBe(want))
@@ -33,6 +33,8 @@ test.each([
     ['https://acme.com/careers?gh_jid=1&utm_medium=x', 'https://acme.com/careers?gh_jid=1', true],
     ['https://acme.com/careers', 'https://acme.com/careers?gh_jid=1', false],
     ['https://acme.com/careers?refId=1', 'https://acme.com/careers?refId=2', false],
+    ['https://acme.com/#/jobs/1', 'https://acme.com/#/jobs/2', false],
+    ['https://acme.com/careers', 'https://acme.com/careers#job-2', false],
     ['https://acme.com/Jobs/1', 'https://acme.com/jobs/1', false],
 ])('url %s / %s same: %s', (a, b, want) => expect(urlIdentity(a) === urlIdentity(b)).toBe(want))
 

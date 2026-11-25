@@ -20,7 +20,7 @@ function words(raw: string): string[] {
     const flat = raw.normalize('NFKC').toLowerCase().replace(/&/g, ' and ').replace(/[.'’]/g, '')
     const out: string[] = []
     let joined = false
-    for (const w of flat.split(/[^\p{L}\p{N}]+/u).filter(Boolean)) {
+    for (const w of flat.split(/[^\p{L}\p{M}\p{N}]+/u).filter(Boolean)) {
         const single = /^\p{L}$/u.test(w)
         if (single && joined) out[out.length - 1] += w
         else out.push(w)
@@ -29,7 +29,8 @@ function words(raw: string): string[] {
     return out
 }
 
-const LEGAL = new Set(['inc', 'llc', 'ltd', 'corp', 'co', 'lp', 'plc', 'group', 'holdings', 'technologies', 'the'])
+const LEGAL = new Set(['inc', 'incorporated', 'llc', 'ltd', 'limited', 'corp', 'corporation', 'co', 'company',
+    'lp', 'plc', 'group', 'holdings', 'technologies', 'the'])
 
 // Legal words go from the end (and a leading "the"); a name made only of them keeps one.
 export function normalizeCompany(raw: string): string {
@@ -52,7 +53,7 @@ function sameName(x: string, y: string): boolean {
 // Parentheticals are kept as words, and so are + and #: "(C++)" and "(C#)" and
 // "(Python)" can be different requisitions.
 export function normalizeTitle(raw: string): string {
-    return raw.normalize('NFKC').toLowerCase().replace(/['’]/g, '').split(/[^\p{L}\p{N}+#]+/u).filter(Boolean).join(' ')
+    return raw.normalize('NFKC').toLowerCase().replace(/['’]/g, '').split(/[^\p{L}\p{M}\p{N}+#]+/u).filter(Boolean).join(' ')
 }
 
 // Two applications with one key are the same application, unless each is linked to its own
@@ -63,9 +64,10 @@ export function duplicateKey(a: { company_name: string; job_title: string }): st
 
 const TRACKING = /^(utm_.*|gh_src|src|source|ref|referrer|lever-source.*|lever-origin)$/i
 
-// The page a URL names: scheme, fragment, trailing slash and tracking parameters dropped.
-// Query values holding a digit are kept: many boards carry the posting id there
-// (`/careers?gh_jid=123`), and without it every posting of the board is one URL.
+// The page a URL names: scheme, trailing slash and tracking parameters dropped. Query
+// values and a fragment holding a digit are kept: many boards carry the posting id there
+// (`/careers?gh_jid=123`, `/#/jobs/123`), and without it every posting of the board is
+// one URL.
 export function urlIdentity(raw: string | null | undefined): string | null {
     let u: URL
     try {
@@ -76,7 +78,7 @@ export function urlIdentity(raw: string | null | undefined): string | null {
     if (u.protocol !== 'https:' && u.protocol !== 'http:') return null
     const ids = [...u.searchParams].filter(([k, v]) => /\d/.test(v) && !TRACKING.test(k))
         .map(([k, v]) => `${k}=${v}`).sort()
-    return `${u.host}${u.pathname.replace(/\/+$/, '')}?${ids.join('&')}`
+    return `${u.host}${u.pathname.replace(/\/+$/, '')}?${ids.join('&')}${/\d/.test(u.hash) ? u.hash : ''}`
 }
 
 // Each row is normalized once, however many rows it is compared with (the whole-list view

@@ -9,6 +9,8 @@ import { toast } from 'sonner'
 
 const TIER_LABEL = { 1: 'Same posting', 2: 'Same company and title', 3: 'Same company' } as const
 
+const hasCandidates = (i: LinkSuggestions) => i.suggestions.length > 0 || i.more > 0
+
 interface LinkPostingsDialogProps {
     open: boolean
     applicationId: number | null // null: every unlinked application that has a candidate
@@ -39,16 +41,18 @@ export function LinkPostingsDialog({ open, applicationId, onClose, onLinked }: L
     const link = async (appId: number, jobId: number) => {
         if (linking) return
         setLinking(true)
+        const v = version.current // a reply that lands after the dialog moved on must not touch it
         try {
             const res = await linkApplication(appId, jobId)
             if (!res.success) return toast.error(res.error)
             toast.success('Linked')
+            onLinked()
+            if (v !== version.current) return
             // A posting links once: drop it from the other applications' lists too.
             const rest = (items ?? []).filter((i) => i.application.id !== appId)
                 .map((i) => ({ ...i, suggestions: i.suggestions.filter((s) => s.job_id !== jobId) }))
-                .filter((i) => i.suggestions.length > 0)
+                .filter(hasCandidates)
             setItems(rest)
-            onLinked()
             if (rest.length === 0) onClose()
         } catch {
             toast.error('Could not link the application')
@@ -69,10 +73,10 @@ export function LinkPostingsDialog({ open, applicationId, onClose, onLinked }: L
                 <div className="max-h-[65vh] space-y-4 overflow-y-auto">
                     {error && <p className="text-sm text-red-600">{error}</p>}
                     {!error && items === null && <p className="text-sm text-muted-foreground">Loading...</p>}
-                    {!error && items?.every((i) => i.suggestions.length === 0) && (
+                    {!error && items !== null && !items.some(hasCandidates) && (
                         <p className="text-sm text-muted-foreground">No posting found for {applicationId === null ? 'any unlinked application' : 'this application'}.</p>
                     )}
-                    {items?.filter((i) => i.suggestions.length > 0).map(({ application: a, suggestions, more }) => (
+                    {items?.filter(hasCandidates).map(({ application: a, suggestions, more }) => (
                         <section key={a.id} className="rounded-md border p-3" aria-label={`${a.company_name} - ${a.job_title}`}>
                             <h4 className="text-sm font-medium">{a.company_name} - {a.job_title}</h4>
                             <p className="mb-2 text-xs text-muted-foreground">Application #{a.id}, applied {a.date_applied}</p>
@@ -94,7 +98,7 @@ export function LinkPostingsDialog({ open, applicationId, onClose, onLinked }: L
                                     </li>
                                 ))}
                             </ul>
-                            {more > 0 && <p className="mt-2 text-xs text-muted-foreground">{more} more postings at this company.</p>}
+                            {more > 0 && <p className="mt-2 text-xs text-muted-foreground">{more} more postings at this company{applicationId === null && ': use the Link button on the application'}.</p>}
                         </section>
                     ))}
                 </div>

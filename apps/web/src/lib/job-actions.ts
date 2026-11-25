@@ -7,7 +7,7 @@ import { todayISO } from '@/lib/utils'
 import { legacyScreenEvidence, SCREEN_OUTCOMES, standaloneScreenSummary, type ScreenOutcome } from '@/lib/screen-summary'
 import { sourceLifecycleSummary } from '@/lib/source-lifecycle'
 import { jobTriageSummary } from '@/lib/triage-summary'
-import { applicationAudit, checkedActor, checkedDate, unlinkedApplications, writeInitialHistory, CATEGORY_FALLBACK } from '@/lib/action-helpers'
+import { applicationAudit, checkedActor, checkedDate, duplicateError, findDuplicate, unlinkedApplications, writeInitialHistory, CATEGORY_FALLBACK } from '@/lib/action-helpers'
 import { bestApplication } from '@/lib/application-match'
 import { JOB_STAGES, type JobStage, type JobStageFilter } from '@/lib/job-stages'
 
@@ -349,13 +349,15 @@ export async function markJobApplied(id: number, category: string | undefined, s
             // given, falling back to 'Others' only when blank.
             const cat = category?.trim() || CATEGORY_FALLBACK
 
-            // The whole duplicate check (#244): an unlinked application with the same company
-            // and title is always a match here, and a linked one is another posting's.
             const match = opts.createNew ? null : bestApplication(posting, await unlinkedApplications(tx))
             if (match) {
                 return { success: false, match, error: `Not marked: application #${match.id} (${match.date_applied}, not linked to a posting) `
                     + `looks like this job. Link it to job ${id}, or mark again as a new application.` }
             }
+
+            // #244. Only names with no letter or digit, which never match, get this far.
+            const dup = opts.createNew ? null : await findDuplicate(tx, posting, true)
+            if (dup) throw duplicateError(dup)
 
             const newApp = await tx.applications.create({
                 data: {

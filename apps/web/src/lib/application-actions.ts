@@ -126,7 +126,7 @@ export async function updateApplicationDetails(
             // before this check existed can still have its notes or spelling edited.
             const names = { company_name: data.company_name ?? before.company_name, job_title: data.job_title ?? before.job_title }
             if (duplicateKey(names) !== duplicateKey(before)) {
-                const dup = await findDuplicate(tx, names, job_postings.length > 0, id)
+                const dup = await findDuplicate(tx, names, job_postings.length > 0)
                 if (dup) throw duplicateError(dup)
             }
             const after = await tx.applications.update({

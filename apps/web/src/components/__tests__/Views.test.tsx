@@ -4,6 +4,7 @@ import { JobsView } from '@/components/JobsView'
 import { ActivityTab } from '@/components/ActivityTab'
 import { Onboarding } from '@/components/Onboarding'
 import * as applicationActions from '@/lib/application-actions'
+import * as analyticsActions from '@/lib/analytics-actions'
 import * as jobActions from '@/lib/job-actions'
 import * as linkActions from '@/lib/link-actions'
 import * as watchlistActions from '@/lib/watchlist-actions'
@@ -107,6 +108,43 @@ test('a match found at write time turns the dialog into the same choice; New kee
     const calls = (jobActions.markJobApplied as jest.Mock).mock.calls
     expect(calls.map((c) => [c[0], c[1], c[4]])).toEqual([
         [7, 'SWE', { date: '2026-11-03', createNew: false }], [7, 'SWE', { date: '2026-11-03', createNew: true }]])
+})
+
+test('cancelling Mark Applied while it is in flight: a late match does not reopen the dialog', async () => {
+    const late = deferred<any>()
+    ;(jobActions.markJobApplied as jest.Mock).mockReturnValueOnce(late.promise)
+    render(<JobsView {...jobProps} initialJobPostings={[applyRow]} totalJobPostings={1} />)
+    fireEvent.click(screen.getByRole('button', { name: 'Mark applied: Eng' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Mark Applied' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
+    await act(async () => { late.resolve({ success: false, error: 'x', match: MATCH }) })
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+})
+
+test('adding an application opens its candidates when it has any, and only then', async () => {
+    const add = async () => {
+        fireEvent.change(screen.getByPlaceholderText('Company Name'), { target: { value: 'Acme' } })
+        fireEvent.change(screen.getByPlaceholderText('Job Title'), { target: { value: 'Eng' } })
+        fireEvent.click(screen.getByRole('button', { name: /Add Application/ }))
+        await waitFor(() => expect(linkActions.getLinkSuggestions).toHaveBeenCalledWith({ applicationId: 5 }))
+    }
+    ;(analyticsActions.getKPIs as jest.Mock).mockResolvedValue(appProps.initialKpis)
+    for (const read of [analyticsActions.getStatusFlow, analyticsActions.getTimelineData, analyticsActions.getCategoryData]) {
+        ;(read as jest.Mock).mockResolvedValue({ success: true, data: [] })
+    }
+    ;(applicationActions.addApplication as jest.Mock).mockResolvedValue({ success: true, data: { id: 5 } })
+    const application = { id: 5, company_name: 'Acme', job_title: 'Eng', application_url: '', date_applied: '2026-11-02', status: 'Applied' }
+    ;(linkActions.getLinkSuggestions as jest.Mock).mockResolvedValue({ success: true, data: [{ application, suggestions: [], more: 0 }] })
+    const { unmount } = render(<ApplicationsView {...appProps} />)
+    await add()
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    unmount()
+
+    ;(linkActions.getLinkSuggestions as jest.Mock).mockReset().mockResolvedValue({ success: true, data: [{ application, more: 0, suggestions: [
+        { tier: 2, job_id: 7, company_name: 'Acme', job_title: 'Eng', job_url: 'https://x.test/7', location: null, posted_at: null, source_state: 'available' }] }] })
+    render(<ApplicationsView {...appProps} />)
+    await add()
+    expect(await screen.findByRole('button', { name: /^Link Acme - Eng to Eng/ })).toBeInTheDocument()
 })
 
 test('overlapping inventory requests never show stale rows under newer filters', async () => {
