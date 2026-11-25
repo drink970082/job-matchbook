@@ -62,7 +62,7 @@ export function ApplyCategoryDialog({ open, categories, companyName, jobTitle, m
                         </p>
                     )}
                     {match && (
-                        <div className="space-y-2 rounded-md border border-amber-500/40 bg-amber-500/10 p-3 text-sm">
+                        <div role="alert" className="space-y-2 rounded-md border border-amber-500/40 bg-amber-500/10 p-3 text-sm">
                             <p>
                                 You may have applied already: application #{match.id}, {match.company_name} - {match.job_title},
                                 applied {match.date_applied} ({match.tier === 1 ? 'same posting' : 'same company and title'}).

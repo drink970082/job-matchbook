@@ -58,9 +58,9 @@ test('suggestions for one application: tiers 1-3, best first, writing nothing', 
 })
 
 test('the whole list: applications with a candidate only, tier 1-2 first, pickers capped', async () => {
-    const picker = await application({ company_name: 'Globex', job_title: 'Analyst' })
-    for (let i = 0; i < 7; i++) await job({ company_name: 'Globex', job_title: `Role ${i}` })
     const settled = await application({ company_name: 'Acme', job_title: 'Engineer' })
+    const picker = await application({ company_name: 'Globex', job_title: 'Analyst' }) // newer: tier, not id, orders
+    for (let i = 0; i < 7; i++) await job({ company_name: 'Globex', job_title: `Role ${i}` })
     for (let i = 0; i < 7; i++) await job()               // seven same-title postings: tier 2 is never cut
     await application({ company_name: 'Nowhere' })
     const linked = await application({ company_name: 'Acme', job_title: 'Linked' })
@@ -84,7 +84,8 @@ test('suggestions for one posting name the applications it may be', async () => 
 test('suggest route: auth and bad ids', async () => {
     expect((await suggest('', 'nope')).status).toBe(401)
     expect((await suggest('?application_id=x')).status).toBe(400)
-    for (const q of ['?application_id=999', '?job_id=999']) expect((await suggest(q)).status).toBe(400)
+    const gone = await job({ pipeline_status: 'removed' })
+    for (const q of ['?application_id=999', '?job_id=999', `?job_id=${gone.id}`]) expect((await suggest(q)).status).toBe(400)
     const app = await application()
     const p = await job({ application_id: app.id, pipeline_status: 'applied' })
     expect((await (await suggest(`?application_id=${app.id}`)).json()).error).toMatch(`already linked to job ${p.id}`)
@@ -141,7 +142,11 @@ test('mark applied offers the matching application instead of failing, and write
     const api = await postApplied(req({}), params(p.id))
     expect([api.status, (await api.json()).error]).toEqual([400, res.error])
     expect([(await posting(p.id)).pipeline_status, await prisma.applications.count(), await prisma.audit_log.count()]).toEqual(['new', 1, 0])
-    // The operator says it is another application.
+    // The operator says it is another application, also when the names are equal as written.
+    const same = await application({ company_name: 'Globex', job_title: 'Analyst' })
+    const g = await job({ company_name: 'Globex', job_title: 'Analyst' })
+    expect(((await markJobApplied(g.id, undefined, { stage: 'all' })) as any).match.id).toBe(same.id)
+    expect((await markJobApplied(g.id, undefined, { stage: 'all' }, 'web', { createNew: true })).success).toBe(true)
     expect((await postApplied(req({ create_new: true }), params(p.id))).status).toBe(200)
     expect((await posting(p.id)).application_id).not.toBe(app.id)
 })
@@ -192,5 +197,8 @@ test('a fetched posting shows the unlinked application it may be; linked ones an
     expect((await getApplications({ search: 'Acme' })).data[0].job_postings).toEqual([])
     await linkApplication(app.id, p.id)
     expect((await rows()).get(p.id)).toBeNull()
+    await application() // another unlinked one with the same names: a linked posting is still no match
+    expect((await rows()).get(p.id)).toBeNull()
+    await prisma.applications.deleteMany({ where: { job_postings: { none: {} }, company_name: 'Acme' } })
     expect((await getApplications({ search: 'Acme' })).data[0].job_postings).toEqual([{ id: p.id }])
 })

@@ -2301,17 +2301,17 @@ Triage evidence with duplicate object members at its root, screen map, or check 
   `verdict` (stored), `profile_version` and `jev {reasons, override}`.
 - **`markJobApplied(id, category?)`** runs in a `$transaction`: when an unlinked application
   matches the posting at tier 1 or 2 (below) it writes nothing and returns it as `match`,
-  unless `createNew`; it refuses if an
-  application with the same `(company_name, job_title)` exists, else creates the
+  unless `createNew`; without `createNew` it refuses if an
+  application with the same `(company_name, job_title)` exists; else it creates the
   application (`status='Applied'`, dated `date`, default today, `category` chosen by the user at apply time from the
   configured vocabulary — free-form, default `Others` when blank — url from `job_url`) and atomically
   sets the posting to `pipeline_status='applied'` + `application_id`. Application and
   back-link are created together or not at all.
 - **Linking applications to postings** (`lib/application-match.ts`, `lib/link-actions.ts`,
   #241). Nothing links by itself: a match is a suggestion, a link is one call naming both
-  ids. Tiers: **1** same posting URL (host and path, plus the query values that hold a digit
-  and are not tracking parameters: many boards keep the posting id in the query, where
-  dropping it makes hundreds of postings one URL); **2** same company and same title,
+  ids. Tiers: **1** same posting URL (host and path, plus a fragment and the query
+  values that hold a digit and are not tracking parameters: many boards keep the posting id
+  there, where dropping it makes hundreds of postings one URL); **2** same company and same title,
   normalized (company: case, punctuation and legal suffixes dropped, one name may contain
   the other on word boundaries; title: case, dashes and punctuation, with parentheticals,
   `+` and `#` kept); **3** same company, another title: a picker only. Title similarity
@@ -2345,7 +2345,7 @@ Triage evidence with duplicate object members at its root, screen map, or check 
   order by when they were made.
   It returns `{ status, recorded }`: the current status after the write and the one
   requested. The UI says when they differ; `/api/v1` and MCP return both.
-- **Dedup on `(company_name, job_title)`** for `addApplication`, `markJobApplied`,
+- **Dedup on `(company_name, job_title)`** for `addApplication`, `markJobApplied` (not with `createNew`),
   and CSV import — all three run their existence-check + create in a `$transaction`
   (findFirst-then-throw-to-rollback if a match exists), closing the TOCTOU window
   between the check and the write. There is no DB-level `@@unique` on the pair

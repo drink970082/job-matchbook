@@ -355,7 +355,8 @@ export async function markJobApplied(id: number, category: string | undefined, s
                     + `looks like this job. Link it to job ${id}, or mark again as a new application.` }
             }
 
-            const existing = await tx.applications.findFirst({
+            // createNew is the answer to a match, so it also answers an equal pair of names.
+            const existing = opts.createNew ? null : await tx.applications.findFirst({
                 where: {
                     company_name: posting.company_name,
                     job_title: posting.job_title,
