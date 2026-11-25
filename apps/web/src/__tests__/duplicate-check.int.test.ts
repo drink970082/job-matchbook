@@ -20,6 +20,7 @@ afterAll(() => prisma.$disconnect())
 test('"Acme Inc" / "software engineer" duplicates "ACME" / "Software Engineer"; another title does not', async () => {
     const first: any = await add('ACME', 'Software Engineer')
     expect(await add('Acme Inc', 'software engineer')).toEqual({ success: false, error: `Application for ACME - Software Engineer already exists (#${first.data.id})` })
+    expect((await add('Acme & Co.', 'Software Engineer')).success).toBe(false)
     expect((await add('Acme', 'Software Engineer (C++)')).success).toBe(true)
     expect((await add('Acme Robotics', 'Software Engineer')).success).toBe(true) // containment is a link suggestion, not a duplicate
     expect(await prisma.applications.count()).toBe(3)
@@ -74,6 +75,7 @@ test('a company or title with no letters or digits is compared as written', asyn
     expect((await add('Acme', '???')).success).toBe(false)
     expect((await add('???', 'Engineer')).success).toBe(true)
     expect((await add('!!!', 'Engineer')).success).toBe(true)
+    expect((await add('!!! ', 'Engineer')).success).toBe(false)
     const p = await job({ job_title: '???' })
     expect((await markJobApplied(p.id, undefined, { stage: 'all' })).success).toBe(false)
     expect((await markJobApplied(p.id, undefined, { stage: 'all' }, 'web', { createNew: true })).success).toBe(true)

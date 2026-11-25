@@ -2350,7 +2350,8 @@ Triage evidence with duplicate object members at its root, screen map, or check 
   that changes the key check it (`findDuplicate`) and reject, naming the existing id; CSV
   import, whose rows have no posting, skips. `markJobApplied` offers an
   unlinked application with the same names as its `match` and, with `createNew`, records
-  another. A company or title with no letters or digits is compared as written. Check and
+  another; a name with no letters or digits never matches, so there it rejects the duplicate.
+  A company or title with no letters or digits is compared as written, trimmed. Check and
   write share a `$transaction`, closing the TOCTOU window. There is no DB-level `@@unique` on the pair
   (two applications to different postings may share it); dedup is enforced entirely in application code.
 - **`deleteHistoryItem`** deletes the row and recomputes the status by the same rule

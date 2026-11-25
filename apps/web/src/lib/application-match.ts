@@ -59,7 +59,7 @@ export function normalizeTitle(raw: string): string {
 // Two applications with one key are the same application, unless each is linked to its own
 // posting (#244). A name that normalizes to nothing is compared as written.
 export function duplicateKey(a: { company_name: string; job_title: string }): string {
-    return JSON.stringify([normalizeCompany(a.company_name) || a.company_name, normalizeTitle(a.job_title) || a.job_title])
+    return JSON.stringify([normalizeCompany(a.company_name) || a.company_name.trim(), normalizeTitle(a.job_title) || a.job_title.trim()])
 }
 
 const TRACKING = /^(utm_.*|gh_src|src|source|ref|referrer|lever-source.*|lever-origin)$/i
