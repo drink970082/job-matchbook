@@ -54,8 +54,8 @@ export function intakeFunnel(runs: FunnelRun[], postings: FunnelPosting[], now: 
 
 function funnelWindow(passes: FunnelRun[], all: FunnelPosting[], missed: number): FunnelWindow {
     let listed = 0
-    const filters = { title: 0, age: 0, feed_category: 0 }
-    const notNew = { already_stored: 0, unreadable: 0, closed: 0, unaccounted: 0 }
+    const filters = { title: 0, age: 0, feed_gate: 0 }
+    const notNew = { already_stored: 0, duplicate: 0, unreadable: 0, closed: 0, unaccounted: 0 }
     for (const { counts: { fetch, feed: feeds } } of passes) {
         listed += n(fetch, 'listed')
         filters.title += n(fetch, 'dropped_title')
@@ -67,9 +67,10 @@ function funnelWindow(passes: FunnelRun[], all: FunnelPosting[], missed: number)
             listed += n(feed, 'listings')
             filters.title += n(feed, 'dropped_title')
             filters.age += n(feed, 'dropped_age', 'dropped_age_board')
-            filters.feed_category += n(feed, 'prefilter_dropped')
+            filters.feed_gate += n(feed, 'prefilter_dropped')
             // A resolved posting that was neither too old nor inserted was stored already.
-            notNew.already_stored += n(feed, 'already_stored', 'duplicate', 'resolved') - n(feed, 'dropped_age_board', 'inserted')
+            notNew.already_stored += n(feed, 'already_stored', 'resolved') - n(feed, 'dropped_age_board', 'inserted')
+            notNew.duplicate += n(feed, 'duplicate')
             const unresolved = feed?.unresolved_by_reason
             notNew.unreadable += n(feed, 'no_url', 'not_on_board')
                 + (isObject(unresolved) ? n(unresolved, ...Object.keys(unresolved)) : 0)
@@ -117,7 +118,7 @@ function failedChecks(raw: string | null): string[] {
 // How the Activity page names the stages and reasons; a reason not named here (a
 // requirement check) is shown as recorded.
 export const STAGE_LABEL: Record<string, string> = {
-    filters: 'Dropped by title, age or feed category',
+    filters: 'Dropped by title, age or the feed gate',
     new: 'Not a new posting',
     evaluated: 'Not evaluated',
     requirements: 'Removed by a requirement',
@@ -125,7 +126,7 @@ export const STAGE_LABEL: Record<string, string> = {
     closed: 'Closed since',
 }
 const REASON_LABEL: Record<string, string> = {
-    feed_category: 'feed category', already_stored: 'already stored', unreadable: 'could not be read',
+    feed_gate: 'feed gate (inactive, category, sponsorship)', already_stored: 'already stored', duplicate: 'listed twice', unreadable: 'could not be read',
     closed: 'closed', unaccounted: 'unaccounted', pending: 'waiting', not_evaluated: 'aged out',
 }
 

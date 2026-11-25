@@ -13,7 +13,8 @@ from typing import Any
 WINDOW_DAYS = 7
 SEMANTICS = (
     "each stage's input is the previous stage's output; a stored listing is counted again "
-    "by every pass that lists it (stage new, already_stored); later stages are the current "
+    "by every pass that lists it (stage new, already_stored); feed_gate = the feed's own gate "
+    "(inactive, category, sponsorship); later stages are the current "
     "stored verdicts of the postings those passes inserted, operator overrides not applied; "
     "a posting can fail several requirements, so those reasons can exceed removed; open = "
     "verdict keep and not closed at its source; unaccounted is non-zero only when a pass "
@@ -59,8 +60,8 @@ def _n(tally: Any, *keys: str) -> int:
 def _window(conn: sqlite3.Connection, passes: list[tuple[str, dict[str, Any]]],
             missed: int) -> dict[str, Any]:
     listed = 0
-    filters = {"title": 0, "age": 0, "feed_category": 0}
-    not_new = {"already_stored": 0, "unreadable": 0, "closed": 0}
+    filters = {"title": 0, "age": 0, "feed_gate": 0}
+    not_new = {"already_stored": 0, "duplicate": 0, "unreadable": 0, "closed": 0}
     for _, counts in passes:
         fetch = counts["fetch"]
         listed += _n(fetch, "listed")
@@ -73,13 +74,14 @@ def _window(conn: sqlite3.Connection, passes: list[tuple[str, dict[str, Any]]],
             listed += _n(feed, "listings")
             filters["title"] += _n(feed, "dropped_title")
             filters["age"] += _n(feed, "dropped_age", "dropped_age_board")
-            filters["feed_category"] += _n(feed, "prefilter_dropped")
+            filters["feed_gate"] += _n(feed, "prefilter_dropped")
             # A resolved posting that was neither too old nor inserted was stored already.
-            not_new["already_stored"] += (_n(feed, "already_stored", "duplicate", "resolved")
+            not_new["already_stored"] += (_n(feed, "already_stored", "resolved")
                                           - _n(feed, "dropped_age_board", "inserted"))
+            not_new["duplicate"] += _n(feed, "duplicate")
             unresolved = feed.get("unresolved_by_reason") if isinstance(feed, dict) else None
             not_new["unreadable"] += _n(feed, "no_url", "not_on_board") + _n(
-                unresolved, *(unresolved or {}))
+                unresolved, *(unresolved if isinstance(unresolved, dict) else ()))
 
     starts = sorted({at for at, _ in passes})
     rows = conn.execute(

@@ -25,6 +25,28 @@
    }
   },
   {
+   "started_at": "2026-11-17T12:00:00.000Z",
+   "status": "ok",
+   "counts": {
+    "fetch": {
+     "boards_attempted": 2,
+     "boards_failed": 0,
+     "listed": 1,
+     "dropped_title": 1,
+     "dropped_age": 0,
+     "discarded": 0,
+     "discarded_by_reason": {},
+     "bodyless": 0,
+     "detail_failed": 0,
+     "inactive": 0,
+     "already_stored": 0,
+     "closed_by_absence": 0,
+     "inserted": 0
+    },
+    "feed": {}
+   }
+  },
+  {
    "started_at": "2026-11-20T05:00:00.000Z",
    "status": "failed",
    "counts": {
@@ -39,7 +61,7 @@
      "bodyless": 0,
      "detail_failed": 0,
      "closed_by_absence": 0,
-     "inserted": 2
+     "inserted": 3
     },
     "feed": {}
    }
@@ -225,6 +247,15 @@
    "screen": null
   },
   {
+   "created_at": "2026-11-20T05:00:00.000Z",
+   "verdict": "discarded",
+   "source_state": "available",
+   "pipeline_status": "new",
+   "override": null,
+   "screen": "{\"screen\": {\"degree\": {\"pass\": false, \"note\": \"\"}}, \"disqualified\": true}",
+   "screen_state": "provider_error"
+  },
+  {
    "created_at": "2026-11-24T05:00:00.001Z",
    "verdict": "keep",
    "source_state": "available",
@@ -255,7 +286,7 @@
      "reasons": {
       "title": 19,
       "age": 8,
-      "feed_category": 10
+      "feed_gate": 10
      },
      "output": 33
     },
@@ -264,7 +295,8 @@
      "input": 33,
      "removed": 22,
      "reasons": {
-      "already_stored": 13,
+      "already_stored": 12,
+      "duplicate": 1,
       "unreadable": 8,
       "closed": 1,
       "unaccounted": 0
@@ -314,53 +346,54 @@
    ]
   },
   "last_7_days": {
-   "passes": 2,
+   "passes": 3,
    "passes_without_intake": 2,
-   "since": "2026-11-20T05:00:00.000Z",
+   "since": "2026-11-17T12:00:00.000Z",
    "open": 4,
    "stages": [
     {
      "stage": "filters",
-     "input": 90,
-     "removed": 47,
+     "input": 91,
+     "removed": 48,
      "reasons": {
-      "title": 29,
+      "title": 30,
       "age": 8,
-      "feed_category": 10
+      "feed_gate": 10
      },
      "output": 43
     },
     {
      "stage": "new",
      "input": 43,
-     "removed": 30,
+     "removed": 29,
      "reasons": {
-      "already_stored": 13,
+      "already_stored": 12,
+      "duplicate": 1,
       "unreadable": 8,
       "closed": 1,
-      "unaccounted": 8
+      "unaccounted": 7
      },
-     "output": 13
+     "output": 14
     },
     {
      "stage": "evaluated",
-     "input": 13,
+     "input": 14,
      "removed": 2,
      "reasons": {
       "pending": 1,
       "not_evaluated": 1
      },
-     "output": 11
+     "output": 12
     },
     {
      "stage": "requirements",
-     "input": 11,
-     "removed": 3,
+     "input": 12,
+     "removed": 4,
      "reasons": {
       "location": 1,
       "authorization": 1,
       "degree": 1,
-      "unknown": 1
+      "unknown": 2
      },
      "output": 8
     },

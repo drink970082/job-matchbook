@@ -122,7 +122,7 @@ test('the Activity view: status strip, one timeline marking only MCP, Load more'
         fetchOnly: true, jevEnabled: false, config: {}, counts: { fetch: { boards_attempted: 5, boards_failed: 1, inserted: 2 } } }
     const lastFailure = { startedAt: new Date(Date.now() - 86_400_000).toISOString(), errorCategory: 'abandoned', since: 1 }
     const funnelWindow = { passes: 1, passes_without_intake: 0, since: '2026-11-24T05:00:00.000Z', open: 3, stages: [
-        { stage: 'filters', input: 1070, removed: 1037, reasons: { title: 1019, age: 8, feed_category: 10 } as Record<string, number>, output: 33 },
+        { stage: 'filters', input: 1070, removed: 1037, reasons: { title: 1019, age: 8, feed_gate: 10 } as Record<string, number>, output: 33 },
         { stage: 'requirements', input: 33, removed: 30, reasons: { authorization: 30, degree: 1 } as Record<string, number>, output: 3 },
     ] }
     const status = { lastPass, lastFailure, new24h: 3, new7d: 40, assessed24h: 12, failures24h: 1, spend7dUsd: 0.0042,

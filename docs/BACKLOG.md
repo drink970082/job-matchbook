@@ -37,13 +37,10 @@ data before selecting it.
 
 ## Fetch
 
-- **Two watchlist boards answer 404 on their list:** greenhouse `oldmissioncapital` and
-  `marqeta` (slug changed or board gone); board health shows them as `http_404`.
-- **`run_expire` is nearly all inconclusive** (48 of 50 in the 2026-11-24 pass, 50 of 50
-  the day before), probably Workday 429s. The pass record keeps totals only, no reason
-  per inconclusive check. Workday 429s still fail 25 boards (#273).
-- **A JD too long for the triage request** (`request_too_large`) leaves its posting
-  pending and is retried every pass until it ages out.
+- **Three watchlist boards answer 404 on their list** (slug changed or board gone); board
+  health names them as `http_404`.
+- **`run_expire` is nearly all inconclusive** (48 of 50 in the 2026-11-24 pass), probably
+  Workday 429s (#273). The pass record keeps totals only, no reason per inconclusive check.
 - **`run_expire` reads smartrecruiters' `active: false` as alive.** Only a 404/410
   closes; smartrecruiters' `fetch_one` returns `None` on an explicitly inactive detail,
   which is recorded inconclusive. Oracle answers a closed or unknown requisition with a

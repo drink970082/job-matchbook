@@ -223,6 +223,31 @@ def test_a_board_that_fails_after_gating_stubs_leaves_no_partial_tally(tmp_path)
             counts["dropped_title"], counts["dropped_age"]) == (1, 1, 0, 0, 0)
 
 
+def test_a_board_failing_mid_upsert_stores_and_counts_nothing(tmp_path):
+    conn = db.connect(bootstrap_db(tmp_path / "a.db"))
+    counts: dict = {}
+    pipeline.run_fetch(
+        conn, [{"source": "greenhouse", "slug": "a", "name": "A"},
+               {"source": "greenhouse", "slug": "b", "name": "B"}], ["engineer"], now=NOW,
+        fetch_fn=lambda source, slug, name, **_: [
+            make_posting(slug), make_posting(slug + "2", location="Berlin, Germany"),
+            make_posting(slug + "3", job_url=None if slug == "a" else "https://x/3")],
+        candidate={"locations": ["Remote"]}, counts=counts)
+    assert (counts["boards_failed"], counts["listed"], counts["inserted"]) == (1, 3, 3)
+    assert counts["discarded_by_reason"] == {"location": 1}
+    assert conn.execute("SELECT COUNT(*) FROM job_postings").fetchone()[0] == 3
+
+
+def test_closures_a_failing_board_already_made_stay_counted(tmp_path, monkeypatch):
+    conn = db.connect(bootstrap_db(tmp_path / "a.db"))
+    monkeypatch.setattr(db, "record_board_listing", lambda *_a, **_k: 4)
+    monkeypatch.setattr(db, "upsert_postings", lambda *_a, **_k: 1 / 0)
+    counts: dict = {}
+    pipeline.run_fetch(conn, [{"source": "greenhouse", "slug": "a", "name": "A"}], ["engineer"],
+                       now=NOW, fetch_fn=lambda *_a, **_k: [make_posting("1")], counts=counts)
+    assert (counts["closed_by_absence"], counts["listed"], counts["boards_failed"]) == (4, 0, 1)
+
+
 def test_run_fetch_counts_a_listed_posting_whose_detail_says_closed(tmp_path):
     conn = db.connect(bootstrap_db(tmp_path / "a.db"))
 
@@ -302,7 +327,7 @@ def test_run_feed_counts_listings_drops_resolution_and_inserts(tmp_path):
     def fetch_fn(source, slug, name):
         if source == "lever":
             raise RuntimeError("board down")
-        return [make_posting("1"), make_posting("7")]
+        return [make_posting("1"), make_posting("1"), make_posting("7")]   # a repeated id
 
     counts: dict = {}
     inserted = pipeline.run_feed(

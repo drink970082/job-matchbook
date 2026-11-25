@@ -31,7 +31,8 @@ def _seed(path):
         if p["screen"] is not None:
             conn.execute("INSERT INTO job_screenings (job_posting_id, state, result_json, backend, "
                          "evaluator_version, last_attempted_at, created_at) "
-                         "VALUES (?, 'complete', ?, 'ollama', 'v', 'x', 'x')", (i, p["screen"]))
+                         "VALUES (?, ?, ?, 'ollama', 'v', 'x', 'x')",
+                         (i, p.get("screen_state", "complete"), p["screen"]))
         if p["override"]:
             conn.execute("INSERT INTO job_triage_overrides (job_posting_id, decision, actor, "
                          "source_content_revision, created_at) VALUES (?, ?, 'mcp', 1, 'x')",

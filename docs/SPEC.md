@@ -2451,8 +2451,8 @@ pass still reads `running` until the next pass starts or the interval elapses.
 **Intake funnel** (#248; web `lib/intake-funnel.ts` on the Activity page, MCP
 `get_ats_overview.intake_funnel`, one rule in both, pinned by
 `worker/tests/fixtures/intake-funnel-cases.json`): for the latest pass and the passes
-started in the last 7 days, stages `filters` (`title`, `age`, `feed_category`), `new`
-(`already_stored`, `unreadable`, `closed`, `unaccounted`), `evaluated` (`pending`,
+started in the last 7 days, stages `filters` (`title`, `age`, `feed_gate` = the
+feed's own inactive/category/sponsorship gate), `new` (`already_stored`, `duplicate`, `unreadable`, `closed`, `unaccounted`), `evaluated` (`pending`,
 `not_evaluated`), `requirements` (per failed check; a posting can fail several), `triage`
 (`skip`), `closed`, then `open`. Each stage's input is the previous stage's output. The
 first two come from the pass record; the rest are the current stored verdicts (overrides

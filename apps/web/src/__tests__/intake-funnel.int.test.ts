@@ -14,7 +14,7 @@ interface Case {
     now: string
     runs: { started_at: string; status: string; counts: unknown }[]
     postings: { created_at: string; verdict: string; source_state: string; pipeline_status: string
-        override: string | null; screen: string | null }[]
+        override: string | null; screen: string | null; screen_state?: string }[]
     expected: IntakeFunnel
 }
 const CASE: Case = JSON.parse(readFileSync(
@@ -42,7 +42,7 @@ test('the funnel matches the shared case and every stage takes the previous stag
         const row = await prisma.job_postings.create({ data: makeJobPosting({ external_id: `f${i}`, created_at: p.created_at,
             verdict: p.verdict, source_state: p.source_state, pipeline_status: p.pipeline_status }) })
         if (p.screen !== null) {
-            await prisma.job_screenings.create({ data: { job_posting_id: row.id, state: 'complete', result_json: p.screen,
+            await prisma.job_screenings.create({ data: { job_posting_id: row.id, state: p.screen_state ?? 'complete', result_json: p.screen,
                 backend: 'ollama', evaluator_version: 'v', last_attempted_at: 'x', created_at: 'x' } })
         }
         if (p.override) {
