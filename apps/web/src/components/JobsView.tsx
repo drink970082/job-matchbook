@@ -106,7 +106,7 @@ export function JobsView({ initialJobPostings, totalJobPostings, categoryOptions
     const finishApply = async (jobId: number, result: { success: boolean; error?: string }, done: string) => {
         if (result.success) {
             toast.success(done)
-            setSelectedJob(null)
+            setSelectedJob((cur: any) => (cur?.id === jobId ? null : cur))
         } else {
             // E.g. the first JEV pass changed which postings are "for you" since this loaded.
             toast.error(result.error)

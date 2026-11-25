@@ -6,7 +6,7 @@ const app = (company_name: string, job_title: string, application_url: string | 
 const post = (id: number, company_name: string, job_title: string, job_url = `https://jobs.example.com/${id}`) => ({ id, company_name, job_title, job_url })
 
 test.each([
-    ['Acme Inc', 'acme'], ['ACME, Inc.', 'acme'], ['Acme L.P.', 'acme'], ['The Acme Group', 'acme'], ['Acme Incorporated', 'acme'], ['Acme Company Limited', 'acme'], ['Acme Holdings, LLC', 'acme'],
+    ['Acme Inc', 'acme'], ['ACME, Inc.', 'acme'], ['Acme L.P.', 'acme'], ['The Acme Group', 'acme'], ['Acme Incorporated', 'acme'], ['Acme Company Limited', 'acme'], ['Acme Corporation', 'acme'], ['Acme Bank & Co.', 'acme bank'], ['Acme Bank and Company', 'acme bank'], ['Acme Holdings, LLC', 'acme'],
     ['Smith & Sons', 'smith and sons'], ['D.E. Shaw', 'de shaw'], ['D. E. Shaw', 'de shaw'], ['DE Shaw', 'de shaw'],
     ["O'Neil Corp", 'oneil'], ['Group One', 'group one'], ['Co Star', 'co star'], ['The Group', 'group'], ['', ''],
 ])('company %s -> %s', (raw, want) => expect(normalizeCompany(raw)).toBe(want))
@@ -22,7 +22,8 @@ test.each([
 test.each([
     ['Software Engineer – Backend', 'software engineer - backend', true], ['Software Engineer,  Backend', 'Software Engineer (Backend)', true],
     ['Engineer (C++)', 'Engineer (Python)', false], ['Engineer (C++)', 'Engineer (C#)', false], ['Engineer (C++)', 'Engineer (C)', false],
-    ['Engineer, 2026', 'Engineer, 2027', false], ["Master's Intern", 'Master’s Intern', true],
+    ['Engineer, 2026', 'Engineer, 2027', false], ['Dev \u0915\u093f', 'Dev \u0915\u0940', false], // differ in a combining mark only
+    ["Master's Intern", 'Master’s Intern', true],
 ])('title %s / %s equal: %s', (a, b, want) => expect(normalizeTitle(a) === normalizeTitle(b)).toBe(want))
 
 test.each([

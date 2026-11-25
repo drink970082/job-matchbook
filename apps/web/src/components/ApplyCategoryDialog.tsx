@@ -26,8 +26,8 @@ interface ApplyCategoryDialogProps {
     companyName?: string
     jobTitle?: string
     match?: AppliedMatch | null // an unlinked application that looks like this job (#241)
-    onConfirm: (category: string, date: string, createNew: boolean) => void
-    onLink: (applicationId: number) => void
+    onConfirm: (category: string, date: string, createNew: boolean) => void | Promise<void>
+    onLink: (applicationId: number) => void | Promise<void>
     onClose: () => void
 }
 
@@ -38,12 +38,24 @@ interface ApplyCategoryDialogProps {
 export function ApplyCategoryDialog({ open, categories, companyName, jobTitle, match, onConfirm, onLink, onClose }: ApplyCategoryDialogProps) {
     const [category, setCategory] = useState<string>(categories[0] ?? '')
     const [date, setDate] = useState(todayISO())
+    const [busy, setBusy] = useState(false)
+
+    // One call at a time: a double click on Mark Applied must not become "It is a new application".
+    const run = async (call: () => void | Promise<void>) => {
+        setBusy(true)
+        try {
+            await call()
+        } finally {
+            setBusy(false)
+        }
+    }
 
     // Reset to the first category each time the dialog opens for a new job.
     useEffect(() => {
         if (open) {
             setCategory(categories[0] ?? '')
             setDate(todayISO())
+            setBusy(false)
         }
     }, [open, categories])
 
@@ -67,7 +79,7 @@ export function ApplyCategoryDialog({ open, categories, companyName, jobTitle, m
                                 You may have applied already: application #{match.id}, {match.company_name} - {match.job_title},
                                 applied {match.date_applied} ({match.tier === 1 ? 'same posting' : 'same company and title'}).
                             </p>
-                            <Button size="sm" onClick={() => onLink(match.id)}>Link to application #{match.id}</Button>
+                            <Button size="sm" disabled={busy} onClick={() => run(() => onLink(match.id))}>Link to application #{match.id}</Button>
                         </div>
                     )}
                     <div className="space-y-1.5">
@@ -90,7 +102,7 @@ export function ApplyCategoryDialog({ open, categories, companyName, jobTitle, m
                 </div>
                 <DialogFooter>
                     <Button variant="outline" onClick={onClose}>Cancel</Button>
-                    <Button variant={match ? 'outline' : 'default'} disabled={!date} onClick={() => onConfirm(category, date, !!match)}>
+                    <Button variant={match ? 'outline' : 'default'} disabled={!date || busy} onClick={() => run(() => onConfirm(category, date, !!match))}>
                         {match ? 'It is a new application' : 'Mark Applied'}
                     </Button>
                 </DialogFooter>

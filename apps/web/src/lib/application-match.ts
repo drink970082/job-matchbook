@@ -30,7 +30,7 @@ function words(raw: string): string[] {
 }
 
 const LEGAL = new Set(['inc', 'incorporated', 'llc', 'ltd', 'limited', 'corp', 'corporation', 'co', 'company',
-    'lp', 'plc', 'group', 'holdings', 'technologies', 'the'])
+    'lp', 'plc', 'group', 'holdings', 'technologies', 'the', 'and']) // 'and' is left by "& Co."
 
 // Legal words go from the end (and a leading "the"); a name made only of them keeps one.
 export function normalizeCompany(raw: string): string {
