@@ -40,7 +40,7 @@ export function ApplyCategoryDialog({ open, categories, companyName, jobTitle, m
     const [date, setDate] = useState(todayISO())
     const [busy, setBusy] = useState(false)
 
-    // One call at a time: a double click on Mark Applied must not become "It is a new application".
+    // One call at a time.
     const run = async (call: () => void | Promise<void>) => {
         setBusy(true)
         try {
@@ -102,7 +102,9 @@ export function ApplyCategoryDialog({ open, categories, companyName, jobTitle, m
                 </div>
                 <DialogFooter>
                     <Button variant="outline" onClick={onClose}>Cancel</Button>
-                    <Button variant={match ? 'outline' : 'default'} disabled={!date || busy} onClick={() => run(() => onConfirm(category, date, !!match))}>
+                    <Button variant={match ? 'outline' : 'default'} disabled={!date || busy}
+                        // The second click of a double click (detail 2) must not land on "It is a new application".
+                        onClick={(e) => { if (e.detail < 2) run(() => onConfirm(category, date, !!match)) }}>
                         {match ? 'It is a new application' : 'Mark Applied'}
                     </Button>
                 </DialogFooter>

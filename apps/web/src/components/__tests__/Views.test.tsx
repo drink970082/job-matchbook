@@ -104,6 +104,8 @@ test('a match found at write time turns the dialog into the same choice; New kee
     fireEvent.click(screen.getByRole('button', { name: 'Mark Applied' }))
     await waitFor(() => expect(screen.getByRole('button', { name: 'It is a new application' })).toBeEnabled())
     expect(screen.getByRole('alert')).toHaveTextContent('application #9')
+    fireEvent.click(screen.getByRole('button', { name: 'It is a new application' }), { detail: 2 }) // a double click's second
+    expect(jobActions.markJobApplied).toHaveBeenCalledTimes(1)
     fireEvent.click(screen.getByRole('button', { name: 'It is a new application' }))
     await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
     await waitFor(() => expect(jobActions.markJobApplied).toHaveBeenCalledTimes(2))
