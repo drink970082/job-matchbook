@@ -1,5 +1,5 @@
 {
-  "_doc": "URL -> watchlist (source, slug), or null when the web cannot add it from the URL (a custom/browser recipe site, a feed-only source such as oracle, or a slug the watchlist rejects) (#208). The web resolver (apps/web/src/lib/board-url.ts) runs every case. The worker's feed/resolve.py handles job URLs only, so it runs the `job: true` cases and must agree on source and slug; board URLs and null cases are web-only.",
+  "_doc": "URL -> watchlist (source, slug), or null when the web cannot add it from the URL (a custom/browser recipe site, a feed-only source such as oracle, or a slug the watchlist rejects) (#208). The web resolver (apps/web/src/lib/board-url.ts) runs every case. So does the worker's feed/resolve.py (resolve_board), which onboard-board's probe.py calls; its resolve_url handles job URLs only, so it runs the `job: true` cases and must agree on source and slug.",
   "cases": [
     {
       "url": "https://boards.greenhouse.io/acme/jobs/4012345",

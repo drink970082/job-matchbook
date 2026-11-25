@@ -9,6 +9,13 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 
 ### Added
 
+- **onboard-board's probe uses the worker's resolver and adapters (#237)**: `probe.py`
+  recognizes a URL, and the links and embeds in a page, with `feed/resolve.py`
+  `resolve_board` (new: board URLs as well as job URLs) instead of its own regex table,
+  and verifies a board through its adapter's list check instead of hard-coded endpoints,
+  so workday is now verified too. Every `board-url-cases.json` case runs through both. A
+  URL that names a known platform whose board does not verify reads `platform?` with the
+  reason.
 - **Intake funnel (#248)**: the Activity page and MCP `get_ats_overview.intake_funnel` show,
   for the latest pass and the last 7 days, what the passes listed and what each stage
   removed and why, down to the open and eligible postings. The fetch tally gains
