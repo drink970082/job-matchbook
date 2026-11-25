@@ -34,7 +34,7 @@ sys.path.insert(0, os.path.normpath(os.path.join(HERE, "../../../../apps/worker"
 
 try:
     import requests
-    from ats_worker.feed.resolve import resolve_board
+    from ats_worker.feed.resolve import FIXED_HOSTS, SUBDOMAIN_HOSTS, resolve_board
     from ats_worker.fetch import board_has_listings
     from ats_worker.source_lifecycle import verify_board
 except ImportError as exc:
@@ -53,38 +53,33 @@ def get(url, **kw):
 
 
 MAX_EMBEDS = 5
-# Anything host-shaped in a page, with the path and query characters a board URL uses:
-# resolve_board decides what it is. Other punctuation ends it, so a URL inside another one
-# (`?to=https://...`) or in prose is read on its own. The lookbehind starts each run of host
-# characters once, so a minified page scans linearly, and never inside a percent escape.
-_HOST_START = r"(?<![A-Za-z0-9.%-])"
-_URL_TEXT = re.compile(_HOST_START + r"(?:[A-Za-z0-9-]+\.)+[A-Za-z]{2,}"
-                       r"(?:/[A-Za-z0-9._~%+/-]*)?(?:\?[A-Za-z0-9._~%+/=&\[\]-]*)?")
-_WORKDAY_HOST = re.compile(_HOST_START + r"([a-z0-9_-]+)\.([a-z0-9_-]+)\.myworkdayjobs\.com(?!\.?[a-z0-9-])", re.I)
-# How a page escapes a URL: \u002f, \x2f or \/ in a script, and `//host/path` percent-encoded
-# (once or more) in a query value.
-_SCRIPT_ESCAPED = re.compile(r"\\(?:u00([0-9a-f]{2})|x([0-9a-f]{2})|[nrt])", re.I)
-_PERCENT_URL = re.compile(r"(?:%(?:25)*2f){2}[A-Za-z0-9._~%+-]*", re.I)
-# An encoded space, quote or delimiter after a URL is not part of its slug.
-_PERCENT_TAIL = re.compile(r"%(?:0[9ad]|2[27]|3[cef]|20(?![a-z0-9])).*", re.I)
+# A board host anywhere in a page, whatever surrounds it (a nested or encoded URL, prose), and
+# the path and query after it; resolve_board decides what it names. A subdomain board's first
+# label starts at a boundary or after a percent escape. Every length is bounded, so a minified
+# page scans linearly; the lookahead leaves what follows a host to be scanned too.
+_BOARD_HOST = re.compile(
+    r"(?:(" + "|".join(map(re.escape, FIXED_HOSTS)) + r")"
+    r"|(?:%(?:25){0,3}[0-9a-f]{2}|(?<![a-z0-9_-]))"
+    r"((?:[a-z0-9_-]{1,63}\.){1,2}(?:" + "|".join(map(re.escape, SUBDOMAIN_HOSTS)) + r")))"
+    r"(?![a-z0-9_-]|\.[a-z0-9])"
+    r"(?=((?:(?:/|%(?:25){0,3}2f)[a-z0-9._~%+/-]{0,300})?(?:\?[a-z0-9._~%+/=&\[\]-]{0,300})?))", re.I)
+# /, \x2f or \/ in a script.
+_SCRIPT_ESCAPED = re.compile(r"\\(?:u00|x)([0-9a-f]{2})", re.I)
+# What follows the slug of a URL cut out of text: an escape that is no part of one.
+_TAIL = re.compile(r"(?:%(?!(?:2f|20)[a-z0-9])|[~+]).*", re.I)
 
 
-def page_text(page: str) -> str:
-    """The page with its URLs readable; the percent-encoded ones are repeated, decoded, at the end."""
-    text = _SCRIPT_ESCAPED.sub(lambda m: chr(int(m.group(1) or m.group(2) or "20", 16)), page or "")
-    text = re.sub(r"\\+/", "/", html.unescape(text))
-    decoded = []
-    for m in _PERCENT_URL.finditer(text):
-        url = m.group()
-        while re.match(r"%", url):
-            url = unquote(url)
-        decoded.append(url)
-    return " ".join([text, *decoded])
-
-
-def board_in(url: str) -> tuple[str, str] | None:
-    url = "https://" + url.rstrip(".")
-    return resolve_board(url) or resolve_board(_PERCENT_TAIL.sub("", url))
+def board_hosts(page: str) -> list[tuple[str, str]]:
+    """(host, the path and query after it) of each board host in a page."""
+    text = _SCRIPT_ESCAPED.sub(lambda m: chr(int(m.group(1), 16)), page or "")
+    text = re.sub(r"(?<!\\)\\+/", "/", html.unescape(text))
+    out = []
+    for m in _BOARD_HOST.finditer(text):
+        rest = m.group(3)
+        while rest.startswith("%"):  # the host was inside a percent-encoded URL
+            rest = unquote(rest)
+        out.append(((m.group(1) or m.group(2)).lower(), rest))
+    return out
 
 
 def recognize_url(url: str) -> tuple[str, str] | None:
@@ -93,15 +88,17 @@ def recognize_url(url: str) -> tuple[str, str] | None:
 
 
 def recognize_page(page: str) -> list[tuple[str, str]]:
-    """Boards a page links to or embeds: each URL in it through the same resolver.
-    Deduped, in page order, at most MAX_EMBEDS (each one costs a list request)."""
-    found = (board_in(m.group()) for m in _URL_TEXT.finditer(page_text(page)))
+    """Boards a page links to or embeds, each through the same resolver. Deduped, in page
+    order, at most MAX_EMBEDS (each one costs a list request)."""
+    urls = [f"https://{host}{rest.rstrip('.')}" for host, rest in board_hosts(page)]
+    found = (resolve_board(u) or resolve_board(_TAIL.sub("", u)) for u in urls)
     return list(dict.fromkeys(b for b in found if b))[:MAX_EMBEDS]
 
 
 def workday_hosts(text: str) -> list[str]:
     """`{tenant}/{dc}` of each Workday host in a URL or page: the slug still needs the site."""
-    return [f"{m.group(1)}/{m.group(2)}".lower() for m in _WORKDAY_HOST.finditer(page_text(text))]
+    labels = [host.split(".") for host, _ in board_hosts(text) if host.endswith(".myworkdayjobs.com")]
+    return [f"{x[0]}/{x[1]}" for x in labels if len(x) == 4]
 
 
 def verify(boards, has_listings=board_has_listings):
@@ -136,7 +133,7 @@ def main():
     print(f"# probe {url}")
 
     # 1. platform from the URL itself (highest confidence)
-    own = recognize_url(url)
+    own = recognize_url(url) or next(iter(recognize_page(url)), None)  # or one inside a redirect URL
     plat, misses = verify([own] if own else [])
     own_miss = misses[0] if misses else None
 
@@ -154,11 +151,12 @@ def main():
         signals = plain_http_signals(r.text)
         phenom = phenom or "/api/pcsx/" in r.text
         workdays += workday_hosts(r.text)
-    # A tenant whose site was read and checked needs no hint.
-    read = {slug.rsplit("/", 1)[0] for source, slug, *_ in plat + misses if source == "workday"}
+    # A tenant whose board lists, or whose site the URL names, needs no hint. An embedded miss
+    # may be an asset or login link, so it keeps the hint.
+    read = {slug.rsplit("/", 1)[0] for source, slug, *_ in plat + ([own_miss] if own_miss else []) if source == "workday"}
     workday = next((w for w in workdays if w not in read), None)
     # An embed that could not be checked (not an empty one) is still a lead.
-    unread = own_miss or next((m for m in misses if m[2].startswith("could not verify")), None)
+    unread = next((m for m in misses if m[2].startswith("could not verify")), None)
 
     print("\n## platform check")
     for source, slug in plat:
@@ -185,13 +183,16 @@ def main():
         print("VERDICT: platform=phenom -> verify the {host}/{domain} slug, then data row, NO recipe needed")
     elif workday:
         print(f"VERDICT: platform=workday -> find the site for slug {workday}/{{site}}, then data row, NO recipe needed")
-    elif unread:
-        source, slug, reason = unread
-        print(f"VERDICT: platform? -> the {'URL' if own_miss else 'page'} is {source} slug={slug}, but {reason}")
+    elif own_miss:
+        source, slug, reason = own_miss
+        print(f"VERDICT: platform? -> the URL is {source} slug={slug}, but {reason}")
     elif bot_walled:
         print("VERDICT: browser -> plain HTTP is blocked; write a `browser` recipe (render + CSS)")
     elif signals:
         print("VERDICT: plain-http -> write a `custom` recipe; start from the signal(s) above")
+    elif unread:
+        source, slug, reason = unread
+        print(f"VERDICT: platform? -> the page embeds {source} slug={slug}, but {reason}")
     elif r is None or status != 200:
         print("VERDICT: browser -> page not fetchable by plain HTTP; try a `browser` recipe")
     else:

@@ -118,6 +118,9 @@ def resolve_url(url: str | None) -> tuple[str, str, str] | None:
 # Board hosts that carry no job URL the feed resolves, and boards named by a subdomain.
 _BOARD_ONLY_HOSTS = {"careers.smartrecruiters.com": "smartrecruiters"}
 _SUBDOMAIN_HOSTS = {"pinpointhq.com": "pinpoint", "icims.com": "icims"}
+# Every host `resolve_board` reads, for a scan of page text.
+FIXED_HOSTS = [*_FIXED_SHAPE_HOSTS, *_BOARD_ONLY_HOSTS]
+SUBDOMAIN_HOSTS = [*_SUBDOMAIN_HOSTS, "myworkdayjobs.com"]
 # A first path segment that is a route on that source's hosts, not a company slug.
 _ROUTE_SEGMENT = {"greenhouse": "embed", "workable": "j", "smartrecruiters": "oneclick-ui"}
 _LOCALE = re.compile(r"[a-z]{2}(-[A-Za-z]{2})?")

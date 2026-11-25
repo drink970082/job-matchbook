@@ -73,7 +73,12 @@ def test_the_probe_finds_scheme_less_and_repeated_embeds_once_each_in_page_order
     ("https%3a%2f%2fcareers-acme.icims.com", ["careers-acme"]),
     ("https%253A%252F%252Fcareers-acme.icims.com", ["careers-acme"]), ("u=%2F%2Fcareers-acme.icims.com", ["careers-acme"]),
     ("https:\\x2F\\x2Fcareers-acme.icims.com", ["careers-acme"]), ("\\u003ecareers-acme.icims.com", ["careers-acme"]),
-    ("\\njobs.lever.co/acme", ["acme"]),
+    ("\\njobs.lever.co/acme", ["acme"]), ("see...careers-acme.icims.com.", ["careers-acme"]), ("\\tenant.icims.com", ["tenant"]),
+    ("u=https%3A%2F%2Fjobs.lever.co/acme", ["acme"]), ("https://x.com/o?host=careers-acme.icims.com", ["careers-acme"]),
+    ("u=https%3A%2F%2Fboards.greenhouse.io/embed/job_board?for=acme", ["acme"]), ("host%3Dcareers-acme.icims.com", ["careers-acme"]),
+    ("https://jobs.lever.co/acme?u=https://jobs.ashbyhq.com/beta", ["acme", "beta"]),
+    ("https://acme_co.wd5.myworkdayjobs.com/Ext", ["acme_co/wd5/Ext"]), ("careers-acme.icims.com.evil.com", []),
+    ("https://jobs.lever.co/acme%2C", ["acme"]), ("https://jobs.lever.co/acme%2F", ["acme"]), ("job-boards.greenhouse.io/embed/job_board?for=acme%26b=1", ["acme"]),
     ("https://jobs.lever.co/acme%20", ["acme"]), ("https://jobs.lever.co/acme%22", ["acme"]), ("https://jobs.lever.co/acme%3Fx=1", ["acme"]),
     ("https://jobs.ashbyhq.com/Acme%20Corp", ["Acme Corp"]),
     ("https://boards.greenhouse.io/embed/job_board?b=https%3A%2F%2Facme.com%2Fcareers&for=acme", ["acme"]),
@@ -99,7 +104,7 @@ def test_the_workday_hint_reads_the_tenant_host(text, want):
 def test_the_page_scan_is_linear():
     import time
     start = time.monotonic()
-    for unit in ("a.", "-", "a.co/b?c=", "%2F", "%25", "\\x2f", "x.y.myworkdayjobs.com/"):
+    for unit in ("a.", "-", "_", "a_", "a.co/b?c=", "%2F", "%25", "%2525", "25", "\\", "\\x2f", "x.y.myworkdayjobs.com/", "jobs.lever.co/"):
         probe.recognize_page(unit * (200_000 // len(unit)))
     assert time.monotonic() - start < 20    # seconds when linear; minutes when not
 
@@ -138,7 +143,10 @@ def test_the_probe_verifies_through_the_adapters_list_check():
     ("https://acme.com/careers", '<a href="https://acme.wd5.myworkdayjobs.com/en-US">', set(), "platform=workday -> find"),
     ("https://acme.wd5.myworkdayjobs.com/Ext", "", set(), "platform? -> the URL is workday slug=acme/wd5/Ext"),
     ("https://acme.wd5.myworkdayjobs.com/wday/cxs/acme/Ext/jobs", "https://zed.wd1.myworkdayjobs.com/X", set(), "platform=workday -> find the site for slug acme/wd5/{site}"),
-    ("https://acme.com/careers", "https://jobs.lever.co/down /wp-json/", set(), "platform? -> the page is lever slug=down, but could not verify"),
+    ("https://acme.com/careers", "https://jobs.lever.co/down /wp-json/", set(), "plain-http ->"),
+    ("https://acme.com/careers", "https://jobs.lever.co/down", set(), "platform? -> the page embeds lever slug=down, but could not verify"),
+    ("https://acme.com/careers", "https://acme.wd5.myworkdayjobs.com/favicon.ico", set(), "platform=workday -> find the site for slug acme/wd5/{site}"),
+    ("https://www.google.com/url?q=https://jobs.lever.co/acme", "", {"acme"}, "platform=lever slug=acme ->"),
     ("https://acme.com/careers", "<p>", set(), "plain-http? ->"),
 ])
 def test_the_probe_verdict(monkeypatch, capsys, url, page, listing, verdict):
