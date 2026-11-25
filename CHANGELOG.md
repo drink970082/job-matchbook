@@ -9,6 +9,9 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 
 ### Added
 
+- **Normalized duplicate check (#244)**: "Acme Inc" / "software engineer" is a duplicate of
+  "ACME" / "Software Engineer" when adding, editing or importing applications; two
+  applications linked to different postings may share company and title.
 - **Link applications to postings (#241)**: an unlinked application shows the postings it
   may belong to (same posting URL, same company and title, or a same-company picker) on the
   Applications page and through MCP `suggest_application_links`; one click or

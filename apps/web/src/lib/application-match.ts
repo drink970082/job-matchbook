@@ -55,6 +55,12 @@ export function normalizeTitle(raw: string): string {
     return raw.normalize('NFKC').toLowerCase().replace(/['’]/g, '').split(/[^\p{L}\p{N}+#]+/u).filter(Boolean).join(' ')
 }
 
+// Two applications with one key are the same application, unless each is linked to its own
+// posting (#244). A name that normalizes to nothing is compared as written.
+export function duplicateKey(a: { company_name: string; job_title: string }): string {
+    return JSON.stringify([normalizeCompany(a.company_name) || a.company_name, normalizeTitle(a.job_title) || a.job_title])
+}
+
 const TRACKING = /^(utm_.*|gh_src|src|source|ref|referrer|lever-source.*|lever-origin)$/i
 
 // The page a URL names: scheme, fragment, trailing slash and tracking parameters dropped.

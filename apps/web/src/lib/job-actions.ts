@@ -349,23 +349,12 @@ export async function markJobApplied(id: number, category: string | undefined, s
             // given, falling back to 'Others' only when blank.
             const cat = category?.trim() || CATEGORY_FALLBACK
 
+            // The whole duplicate check (#244): an unlinked application with the same company
+            // and title is always a match here, and a linked one is another posting's.
             const match = opts.createNew ? null : bestApplication(posting, await unlinkedApplications(tx))
             if (match) {
                 return { success: false, match, error: `Not marked: application #${match.id} (${match.date_applied}, not linked to a posting) `
                     + `looks like this job. Link it to job ${id}, or mark again as a new application.` }
-            }
-
-            const existing = await tx.applications.findFirst({
-                where: {
-                    company_name: posting.company_name,
-                    job_title: posting.job_title,
-                },
-            })
-            if (existing) {
-                // Throw to roll back the transaction; surfaced as a failure below.
-                throw new Error(
-                    `Application for ${posting.company_name} - ${posting.job_title} already exists`
-                )
             }
 
             const newApp = await tx.applications.create({

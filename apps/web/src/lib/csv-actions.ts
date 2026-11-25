@@ -2,6 +2,7 @@
 
 import { prisma } from '@/lib/db'
 import { LEGACY_STATUS_MAP, STATUSES } from '@/lib/constants'
+import { duplicateKey } from '@/lib/application-match'
 import { applicationAudit, writeInitialHistory, CATEGORY_FALLBACK } from '@/lib/action-helpers'
 
 const CSV_COLUMNS = [
@@ -138,6 +139,7 @@ export async function importApplicationsCSV(csvText: string) {
                 let a = 0
                 let s = 0
                 const e: string[] = []
+                const keys = new Set((await tx.applications.findMany({ select: { company_name: true, job_title: true } })).map(duplicateKey))
 
                 for (let j = 0; j < batch.length; j++) {
                     const row = batch[j]
@@ -166,13 +168,12 @@ export async function importApplicationsCSV(csvText: string) {
                         continue
                     }
 
-                    const existing = await tx.applications.findFirst({
-                        where: { company_name, job_title },
-                    })
-                    if (existing) {
+                    const key = duplicateKey({ company_name, job_title })
+                    if (keys.has(key)) {
                         s++
                         continue
                     }
+                    keys.add(key)
 
                     const rawStatus = get('status') || 'Applied'
                     // An export from before #205 carries the old 14 names; map them.

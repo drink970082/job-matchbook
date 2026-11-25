@@ -414,7 +414,8 @@ def _add_write_tools(server: MCPServer, repo: ReadOnlyATSRepository, writer: ATS
         """Log an application the operator made outside the discovered-jobs queue. For a job
         already in the ATS, use mark_job_applied instead (or give its job_id here, to record
         fields mark_job_applied does not take). date_applied defaults to today.
-        Fails if the same company and title is already recorded."""
+        Fails if the same company and title is already recorded, unless both that
+        application and this one have a posting."""
         return {"application": write("POST", "/api/v1/applications", drop_none(
             company_name=company_name, job_title=job_title,
             date_applied=date_applied or datetime.date.today().isoformat(),

@@ -2301,8 +2301,7 @@ Triage evidence with duplicate object members at its root, screen map, or check 
   `verdict` (stored), `profile_version` and `jev {reasons, override}`.
 - **`markJobApplied(id, category?)`** runs in a `$transaction`: when an unlinked application
   matches the posting at tier 1 or 2 (below) it writes nothing and returns it as `match`,
-  unless `createNew`; it refuses if an
-  application with the same `(company_name, job_title)` exists, else creates the
+  unless `createNew`; else it creates the
   application (`status='Applied'`, dated `date`, default today, `category` chosen by the user at apply time from the
   configured vocabulary — free-form, default `Others` when blank — url from `job_url`) and atomically
   sets the posting to `pipeline_status='applied'` + `application_id`. Application and
@@ -2345,10 +2344,14 @@ Triage evidence with duplicate object members at its root, screen map, or check 
   order by when they were made.
   It returns `{ status, recorded }`: the current status after the write and the one
   requested. The UI says when they differ; `/api/v1` and MCP return both.
-- **Dedup on `(company_name, job_title)`** for `addApplication`, `markJobApplied`,
-  and CSV import — all three run their existence-check + create in a `$transaction`
-  (findFirst-then-throw-to-rollback if a match exists), closing the TOCTOU window
-  between the check and the write. There is no DB-level `@@unique` on the pair
+- **Duplicate = same normalized company and title** (`duplicateKey`, the #241 normalizers,
+  equality, no containment), unless both applications have a posting: then the posting is
+  the identity, and a posting links once. `addApplication` and an `updateApplicationDetails`
+  that changes the key check it (`findDuplicate`) and reject, naming the existing id; CSV
+  import, whose rows have no posting, skips. `markJobApplied` needs no check of its own: its
+  application has a posting, and an unlinked application with the same names is always its
+  `match`. A company or title with no letters or digits is compared as written. Check and
+  write share a `$transaction`, closing the TOCTOU window. There is no DB-level `@@unique` on the pair
   (deferred — see PROGRESS.md); dedup is enforced entirely in application code.
 - **`deleteHistoryItem`** deletes the row and recomputes the status by the same rule
   in one `$transaction`.
@@ -2369,12 +2372,14 @@ Triage evidence with duplicate object members at its root, screen map, or check 
   counts Offer + Accepted.
 - **CSV import** requires columns `company_name, job_title, date_applied`; a pre-#205
   status name is mapped through `LEGACY_STATUS_MAP`; other unknown
-  `status`/`category` values fall back to `Applied`/`Others`; existing
-  `(company, title)` rows are skipped (reported in `{added, skipped, errors}`).
+  `status`/`category` values fall back to `Applied`/`Others`; duplicates of stored or
+  earlier rows are skipped (reported in `{added, skipped, errors}`).
   The per-row loop runs in **chunked** `$transaction`s (100 rows each), so a large
   import doesn't hold SQLite's single write lock long enough to starve a concurrent
   worker pass; a mid-import DB error rolls back only the current chunk, and re-import is
-  idempotent (per-`(company, title)` dedup) so it completes the rest. Import also
+  idempotent (the duplicate check above) so it completes the rest; of two exported applications
+  with the same company and title, each linked to its own posting, only one is imported
+  into an empty table (the CSV carries no posting). Import also
   **reverses the export formula-injection guard** — it strips a leading `'` that precedes
   a formula-lead char (`= + - @`, tab, CR) — so an export→import round-trip is lossless.
   Per-row validation `continue`s (missing field, duplicate) are unaffected.
@@ -2527,7 +2532,8 @@ automated coverage — those rely on code review or the human in the loop, not a
 | `mark_failed` → terminal `failed` + `attempts+1` (fetch/score paths) | `test_db.py` |
 | Effective status (#226) = override decision, else the stored verdict, identical in Web and MCP for every shared case; an override survives a content change and `keep` rescues a requirements discard into "for you" and the MCP default view; each posting in exactly one funnel stage, a closed one only in `closed` and hidden by default from MCP `list_jobs`; each row shows its profile version; Mark Applied scoped to its view; retired stages and filter keys rejected | `web/src/__tests__/effective-status-parity.int.test.ts`, `worker/tests/test_effective_status_parity.py` (shared `effective-status-cases.json`), `test_mcp_repository.py::test_override_holds_across_reassessment_and_content_change`, `web/src/__tests__/inventory-contract.int.test.ts` |
 | Discovered Jobs and Activity are read-only except Mark Applied and Not interested, Sources writes only board add/remove (no server-action import in their display components; `JobsView` wires only reads plus `markJobApplied`, `linkApplication` and the triage override set/clear; no discard/reopen/bulk export); Sources `postings_30d`; Activity's status strip and merged plain-English timeline with paging | `web/src/__tests__/readonly-dashboard.test.ts`, `watchlist.int.test.ts`, `activity.int.test.ts`, `web/e2e/discovered.spec.ts`, `web/e2e/sources-activity.spec.ts` |
-| `markJobApplied` atomic create + back-link + dedup | `actions.test.ts`, `actions.int.test.ts` (real-Prisma tx) |
+| Duplicate check: normalized names; posting identity; on edit; CSV | `duplicate-check.int.test.ts` |
+| `markJobApplied` atomic create + back-link + match | `actions.test.ts`, `actions.int.test.ts` (real-Prisma tx) |
 | Link tiers; a similar title is never tier 1-2; suggestions write nothing; web and `/api/v1` link alike; refusals; Mark Applied offers the match; MCP calls the web matcher | `application-match.test.ts`, `link.int.test.ts`, `LinkPostingsDialog.test.tsx`, `Views.test.tsx`, `test_mcp_write.py` |
 | `updateApplicationStatus` validates `STATUSES`, appends history | `actions.test.ts`, `actions.int.test.ts` |
 | Status = latest history row (timestamp, ties by id) on write and `deleteHistoryItem`; creation writes the initial `Applied` row; the #243 backfill | `actions.int.test.ts`, `history-backfill.int.test.ts` |
