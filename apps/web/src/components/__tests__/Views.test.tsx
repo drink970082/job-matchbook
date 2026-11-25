@@ -102,12 +102,40 @@ test('a match found at write time turns the dialog into the same choice; New kee
     fireEvent.click(screen.getByRole('button', { name: 'Mark applied: Eng' }))
     fireEvent.change(screen.getByLabelText('Date applied'), { target: { value: '2026-11-03' } })
     fireEvent.click(screen.getByRole('button', { name: 'Mark Applied' }))
-    await screen.findByRole('button', { name: 'Link to application #9' })
+    await waitFor(() => expect(screen.getByRole('button', { name: 'It is a new application' })).toBeEnabled())
+    expect(screen.getByRole('alert')).toHaveTextContent('application #9')
     fireEvent.click(screen.getByRole('button', { name: 'It is a new application' }))
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
     await waitFor(() => expect(jobActions.markJobApplied).toHaveBeenCalledTimes(2))
     const calls = (jobActions.markJobApplied as jest.Mock).mock.calls
     expect(calls.map((c) => [c[0], c[1], c[4]])).toEqual([
         [7, 'SWE', { date: '2026-11-03', createNew: false }], [7, 'SWE', { date: '2026-11-03', createNew: true }]])
+})
+
+test('a second click while Mark Applied is in flight writes nothing more', async () => {
+    const late = deferred<any>()
+    ;(jobActions.markJobApplied as jest.Mock).mockReset().mockReturnValueOnce(late.promise)
+    render(<JobsView {...jobProps} initialJobPostings={[applyRow]} totalJobPostings={1} />)
+    fireEvent.click(screen.getByRole('button', { name: 'Mark applied: Eng' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Mark Applied' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Mark Applied' }))
+    expect(jobActions.markJobApplied).toHaveBeenCalledTimes(1)
+    await act(async () => { late.resolve({ success: true }) })
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+})
+
+test('a late success leaves the dialog of another job open', async () => {
+    const late = deferred<any>()
+    ;(jobActions.markJobApplied as jest.Mock).mockReturnValueOnce(late.promise)
+    const other = { ...applyRow, id: 8, job_title: 'Ops', job_url: 'https://x.test/8' }
+    render(<JobsView {...jobProps} initialJobPostings={[applyRow, other]} totalJobPostings={2} />)
+    fireEvent.click(screen.getByRole('button', { name: 'Mark applied: Eng' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Mark Applied' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Mark applied: Ops' }))
+    expect(screen.getByRole('button', { name: 'Mark Applied' })).toBeEnabled()
+    await act(async () => { late.resolve({ success: true }) })
+    expect(screen.getByRole('dialog')).toHaveTextContent('Ops')
 })
 
 test('cancelling Mark Applied while it is in flight: a late match does not reopen the dialog', async () => {
