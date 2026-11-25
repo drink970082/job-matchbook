@@ -1,11 +1,12 @@
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { SourcesTab, type WatchedSource } from '@/components/SourcesTab'
 import { addWatchedCompany, removeWatchedCompany } from '@/lib/watchlist-actions'
+import { toast } from 'sonner'
 
 const refresh = jest.fn()
 jest.mock('next/navigation', () => ({ useRouter: () => ({ refresh }) }))
 jest.mock('@/lib/watchlist-actions')
-jest.mock('sonner', () => ({ toast: { success: jest.fn(), error: jest.fn() } }))
+jest.mock('sonner', () => ({ toast: { success: jest.fn(), warning: jest.fn(), error: jest.fn() } }))
 
 const OK = { health: 'ok', last_fetched_at: '2026-11-21T08:00:00.000Z', last_fetch_status: 'ok',
     last_fetched: 30, last_kept: 6, last_new: 2, last_bodyless: 0, last_detail_failed: 0, last_desc_median: 2100 } as const
@@ -90,6 +91,15 @@ test('adds a board from a pasted URL, with the name prefilled and editable', asy
     fireEvent.click(screen.getByRole('button', { name: 'Add board' }))
     await waitFor(() => expect(addWatchedCompany).toHaveBeenCalledWith({ url: 'https://jobs.lever.co/acme-robotics/123', name: 'Acme' }))
     await waitFor(() => expect(refresh).toHaveBeenCalled())
+})
+
+test('an add the worker would skip shows its warning instead of promising a fetch (#233)', async () => {
+    ;(addWatchedCompany as jest.Mock).mockResolvedValue({ success: true, data: { warning: 'Browser sources were off.' } })
+    render(<SourcesTab sources={[]} />)
+    fireEvent.change(screen.getByLabelText('Careers or job URL'), { target: { value: 'https://jobs.lever.co/acme' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Add board' }))
+    await waitFor(() => expect(toast.warning).toHaveBeenCalledWith('Added Acme. Browser sources were off.'))
+    expect(toast.success).not.toHaveBeenCalled()
 })
 
 test('an unresolvable URL points at the onboard-board skill and cannot be added', () => {

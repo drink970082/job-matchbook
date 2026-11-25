@@ -338,6 +338,27 @@ test('watchlist add by careers URL resolves through the shared resolver (#208)',
     expect(both.status).toBe(400)
 })
 
+test('adding a browser board warns unless the latest pass recorded browser sources on (#233)', async () => {
+    const recipe = JSON.stringify({ url: 'https://careers.example.com', item: 'li',
+        fields: { title: 'a', external_id: 'a@href' } })
+    const add = async (slug: string, extra: object = {}) =>
+        (await (await addWatch(req({ source: 'browser', slug, name: 'Acme', recipe, ...extra }, RW))).json()).data
+    const pass = (started_at: string, config_json: string) =>
+        prisma.worker_runs.create({ data: { started_at, status: 'ok', config_json, counts_json: '{}', fetch_only: true, jev_enabled: false } })
+
+    expect((await add('none')).warning).toMatch(/No worker pass has recorded .* skips this board unless enable_browser_sources/)
+    await pass('2026-11-01T00:00:00.000Z', '{"browser_sources":true}')
+    expect(await add('on')).not.toHaveProperty('warning')
+    await pass('2026-11-02T00:00:00.000Z', '{"browser_sources":false}')
+    expect((await add('off', { dry_run: true })).warning).toMatch(/were off in the latest worker pass/)
+    expect((await add('off')).warning).toMatch(/were off in the latest worker pass/)
+    expect(await prisma.watched_companies.count()).toBe(3)            // warned, never refused
+    // Every other source is fetched whatever the flag says; the audit row holds the row alone.
+    const known = (await (await addWatch(req({ source: 'lever', slug: 'acme', name: 'Acme' }, RW))).json()).data
+    expect(known).not.toHaveProperty('warning')
+    for (const a of await prisma.audit_log.findMany()) expect(a.payload).not.toContain('warning')
+})
+
 test('watchlist add validates a recipe against the recipe schema (#238)', async () => {
     const recipe = { url: 'https://boards.example.com/api/jobs', item_path: 'jobs', fields: { title: 'title', external_id: 'id' } }
     const add = (r: object) => addWatch(req({ source: 'custom', slug: 'acme', name: 'Acme', recipe: JSON.stringify(r) }, RW))

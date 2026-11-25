@@ -2,7 +2,7 @@
 
 import { prisma } from '@/lib/db'
 import { funnelStarts, intakeFunnel, type IntakeFunnel } from '@/lib/intake-funnel'
-import type { PassFailure, PassRecord } from '@/lib/pass-record'
+import { parseObject, type PassFailure, type PassRecord } from '@/lib/pass-record'
 
 // The Activity tab (#210): a system status strip and one merged timeline of who wrote
 // what (actor web | mcp), newest first.
@@ -62,16 +62,6 @@ async function readIntakeFunnel(): Promise<IntakeFunnel> {
             job_screening: { select: { state: true, result_json: true } } } }) : []
     return intakeFunnel(runs, rows.map(({ job_screening: s, ...p }) => ({ ...p,
         result_json: s?.state === 'complete' ? s.result_json : null })), now)
-}
-
-// The worker writes both JSON columns; a value it could not have written reads as empty.
-function parseObject(raw: string): Record<string, any> {
-    try {
-        const v = JSON.parse(raw)
-        return v && typeof v === 'object' && !Array.isArray(v) ? v : {}
-    } catch {
-        return {}
-    }
 }
 
 export interface ActivityItem { key: string; at: string; text: string; actor: string }
