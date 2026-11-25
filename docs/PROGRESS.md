@@ -8,6 +8,8 @@ behavior. Completed work belongs in CHANGELOG, not this queue.
 
 ## In flight
 
+- **Intake funnel from the pass record** `[WORKER+WEB+MCP · S]` (#248, epic #246), branch
+  `worktree-feat-248-intake-funnel`.
 - **One candidate profile; evaluate each posting once** `[WORKER+WEB+MCP · L]` (epic
   #223). [Spec](superpowers/specs/2026-11-20-candidate-profile-design.md). #224 (#270)
   and #225 (#276) are merged and deployed, and so is #226 (#281); #227 remains.
