@@ -76,6 +76,8 @@ test('a company or title with no letters or digits is compared as written', asyn
     expect((await add('???', 'Engineer')).success).toBe(true)
     expect((await add('!!!', 'Engineer')).success).toBe(true)
     expect((await add('!!! ', 'Engineer')).success).toBe(false)
+    expect((await add('Acme', '---')).success).toBe(true)
+    expect((await add('Acme', '--- ')).success).toBe(false)
     const p = await job({ job_title: '???' })
     expect((await markJobApplied(p.id, undefined, { stage: 'all' })).success).toBe(false)
     expect((await markJobApplied(p.id, undefined, { stage: 'all' }, 'web', { createNew: true })).success).toBe(true)
