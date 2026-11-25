@@ -346,9 +346,11 @@ def delete_unresolved(conn: sqlite3.Connection, url: str) -> None:
     conn.commit()
 
 
-def delete_unresolved_many(conn: sqlite3.Connection, urls) -> None:
-    """`delete_unresolved` for a whole board, in one transaction."""
-    conn.executemany("DELETE FROM feed_unresolved WHERE url = ?", [(u,) for u in urls])
+def clear_empty_descriptions(conn: sqlite3.Connection, urls) -> None:
+    """Clear the `empty_description` rows of URLs that came back with a body. Only that
+    reason: a feed's unsupported_host row for the same URL is still true of the feed."""
+    conn.executemany("DELETE FROM feed_unresolved WHERE url = ? AND reason='empty_description'",
+                     [(u,) for u in urls])
     conn.commit()
 
 

@@ -862,7 +862,9 @@ class ReadOnlyATSRepository:
                 "SELECT feed,reason,host,COUNT(*) AS count,"
                 "MAX(COALESCE(updated_at,created_at)) AS last_seen_at,url AS example_url "
                 "FROM feed_unresolved WHERE ats_instant_cmp(COALESCE(updated_at,created_at), ?) >= 0 "
-                "GROUP BY feed,reason,host ORDER BY count DESC,last_seen_at DESC,feed,reason,host",
+                "GROUP BY feed,reason,host "
+                # A broken scraper is a few rows; it must not fall off behind feed hosts.
+                "ORDER BY reason='empty_description' DESC,count DESC,last_seen_at DESC,feed,reason,host",
                 (cutoff,)).fetchall()
         from ..db import board_health  # the one health rule, shared with the worker's log
 

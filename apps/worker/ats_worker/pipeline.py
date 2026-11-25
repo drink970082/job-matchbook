@@ -171,9 +171,9 @@ def run_fetch(conn, companies, title_filter, *, now, fetch_fn=None,
             # vanishing into a log line — the same visibility the feed path already
             # gives detail-fetch failures. Gate discards are exempt: the stub gate
             # returns them deliberately un-hydrated and they never reach the screen.
-            # A URL the board serves with a body again leaves the list, kept or not.
-            db.delete_unresolved_many(conn, [p["job_url"] for p in postings
-                                             if p.get("job_url") and _valid_posting(p)])
+            # A URL the board returns with a body again leaves the list, kept or not.
+            db.clear_empty_descriptions(conn, [p["job_url"] for p in postings
+                                               if p.get("job_url") and _valid_posting(p)])
             bodyless = [p for p in kept
                         if not p.get("requirements") and not _valid_posting(p)]
             tally["bodyless"] += len(bodyless)

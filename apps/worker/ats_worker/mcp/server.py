@@ -336,10 +336,10 @@ def create_server(repository: ReadOnlyATSRepository | None = None,
         """The watchlist: every company board the worker fetches each pass (id, source, slug,
         name, has_recipe), with postings_30d per board and unresolved_30d (listings
         first recorded unresolved in 30 days). `unresolved` is every listing still seen
-        unresolved in 30 days, largest 50 groups by feed, reason and host with the newest
+        unresolved in 30 days, 50 groups by feed, reason and host (empty_description first, then largest) with the newest
         example URL (feed `watchlist` reason empty_description = a board returned a
-        posting with no description; the row clears when a board or feed serves it
-        again). Each board carries its last pass: last_fetched_at,
+        posting with no description; the row clears when the board returns it
+        with one). Each board carries its last pass: last_fetched_at,
         last_fetch_status (ok, disabled, or an error category such as http_404),
         last_fetched (listed), last_kept (stored with a description; gate discards and
         bodyless excluded), last_new, last_bodyless, last_detail_failed (detail call

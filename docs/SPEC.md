@@ -1366,8 +1366,9 @@ worker modules are pure and dependency-injected; real services are wired only in
   JD simply yields nothing that cycle — while the `feed_unresolved` record surfaces the
   silently-broken scraper in MCP `list_sources` (dropping, not storing a discard,
   keeps the id re-fetchable so the board self-heals if a later cycle returns the body, which
-  also clears the record: `db.delete_unresolved_many`, for every URL the board returned with
-  a body, filtered out or not).
+  also clears its `empty_description` record: `db.clear_empty_descriptions`, for every URL
+  the board returned with a body. A stub-gate board does not return what its gate drops, and
+  no board returns what it delisted: those records stay).
   Gate discards are exempt —
   the stub gate returns those deliberately un-hydrated and they never reach the screen. `screen_posting`
   still runs `deterministic_screen` again post-LLM (preserving any degree/auth/
@@ -1574,7 +1575,8 @@ worker modules are pure and dependency-injected; real services are wired only in
   as stored and `health` (`db.board_health`, the web's rule too), a global
   `unresolved_30d` (rows first recorded in 30 days) and `unresolved`: the rows last seen in
   30 days grouped by feed, reason and host (`count`, `last_seen_at`, newest `example_url`,
-  secrets redacted), the 50 largest groups of `groups_total`.
+  secrets redacted), the first 50 of `groups_total`
+  groups, `empty_description` first, then largest.
   `get_candidate_profile` returns the profile (or null) with the derived
   `highest_degree` and `total_years`, `custom_triage_context`, `triage` (`configured`,
   `packs` default|custom and the packs' question ids; never the pack texts); an edit

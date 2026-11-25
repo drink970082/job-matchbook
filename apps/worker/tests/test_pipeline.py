@@ -198,11 +198,16 @@ def test_run_fetch_clears_the_unresolved_row_once_the_board_returns_the_body(db_
     bodies.update({"1": "a full description", "3": "a full description"})
     pipeline.run_fetch(conn, companies, None, now=NOW, fetch_fn=fetch_fn, max_age_days=30)
     assert urls() == {"https://x.co/2"}
+    # The still-empty row is refreshed, never deleted and re-recorded.
+    assert [r["id"] for r in conn.execute("SELECT id FROM feed_unresolved")] == [2]
     # Already stored on the next pass: still cleared (the row may predate the clearing).
     db.record_unresolved(conn, feed="watchlist", url="https://x.co/1", company_name="Acme",
                          job_title="E", host="x.co", reason="empty_description", now=NOW)
+    # A feed's own unresolved row for a URL the board serves is not the board's to clear.
+    db.record_unresolved(conn, feed="simplify", url="https://x.co/3", company_name="Acme",
+                         job_title="E", host="x.co", reason="unsupported_host", now=NOW)
     pipeline.run_fetch(conn, companies, None, now=NOW, fetch_fn=fetch_fn, max_age_days=30)
-    assert urls() == {"https://x.co/2"}
+    assert urls() == {"https://x.co/2", "https://x.co/3"}
 
 
 def test_run_fetch_no_candidate_leaves_all_new(db_path):
