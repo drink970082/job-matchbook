@@ -167,10 +167,13 @@ def run_fetch(conn, companies, title_filter, *, now, fetch_fn=None,
             # (not storing as 'discarded') keeps the id re-fetchable, so the board
             # self-heals if a later cycle returns the body. Each drop is recorded in
             # feed_unresolved (feed='watchlist', reason='empty_description') so a
-            # silently-broken scraper surfaces on the Unresolved board instead of
+            # silently-broken scraper surfaces there (MCP list_sources) instead of
             # vanishing into a log line — the same visibility the feed path already
             # gives detail-fetch failures. Gate discards are exempt: the stub gate
             # returns them deliberately un-hydrated and they never reach the screen.
+            # A URL the board serves with a body again leaves the list, kept or not.
+            db.delete_unresolved_many(conn, [p["job_url"] for p in postings
+                                             if p.get("job_url") and _valid_posting(p)])
             bodyless = [p for p in kept
                         if not p.get("requirements") and not _valid_posting(p)]
             tally["bodyless"] += len(bodyless)

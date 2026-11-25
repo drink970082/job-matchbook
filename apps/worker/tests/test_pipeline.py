@@ -179,6 +179,32 @@ def test_run_fetch_drops_bodyless_postings(db_path, capsys):
         ("watchlist", "https://x.co/empty", "empty_description")]
 
 
+def test_run_fetch_clears_the_unresolved_row_once_the_board_returns_the_body(db_path):
+    conn = db.connect(db_path)
+    bodies = {"1": "", "2": "", "3": ""}
+
+    def fetch_fn(source, slug, name, **kw):
+        return [_posting(i, description=d, job_url=f"https://x.co/{i}",
+                         posted_at="2026-01-01" if i == "3" and d else "2026-06-01")
+                for i, d in bodies.items()]
+
+    def urls():
+        return {r["url"] for r in conn.execute("SELECT url FROM feed_unresolved")}
+
+    companies = [{"source": "greenhouse", "slug": "acme", "name": "Acme"}]
+    pipeline.run_fetch(conn, companies, None, now=NOW, fetch_fn=fetch_fn, max_age_days=30)
+    assert urls() == {"https://x.co/1", "https://x.co/2", "https://x.co/3"}
+    # 1 is fixed and stored; 3 is fixed too, though its age now filters it out.
+    bodies.update({"1": "a full description", "3": "a full description"})
+    pipeline.run_fetch(conn, companies, None, now=NOW, fetch_fn=fetch_fn, max_age_days=30)
+    assert urls() == {"https://x.co/2"}
+    # Already stored on the next pass: still cleared (the row may predate the clearing).
+    db.record_unresolved(conn, feed="watchlist", url="https://x.co/1", company_name="Acme",
+                         job_title="E", host="x.co", reason="empty_description", now=NOW)
+    pipeline.run_fetch(conn, companies, None, now=NOW, fetch_fn=fetch_fn, max_age_days=30)
+    assert urls() == {"https://x.co/2"}
+
+
 def test_run_fetch_no_candidate_leaves_all_new(db_path):
     conn = db.connect(db_path)
 

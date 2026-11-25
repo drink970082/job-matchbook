@@ -17,7 +17,7 @@ This does I/O, so it deliberately lives OUTSIDE the pure `resolve.resolve_url`;
 `pipeline.run_feed` calls it as a fallback when `resolve_url` returns None and
 `classify_reason` is `embedded_greenhouse`. It only recovers the subset that embeds
 the token server-side — sites that inject greenhouse via client-side JS leave no
-token in the static HTML, so they return None and stay on the unresolved board.
+token in the static HTML, so they return None and stay in feed_unresolved.
 
 HTTP is injected (like the board adapters) so tests run with no network.
 """

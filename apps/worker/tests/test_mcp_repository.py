@@ -1043,3 +1043,31 @@ def test_overview_counts_stored_verdicts_including_aged_out_postings(tmp_path):
         {"verdict": "skip", "count": 0}, {"verdict": "discarded", "count": 0},
         {"verdict": "not_evaluated", "count": 2}]
     assert "window" in counts["semantics"]
+
+
+def test_list_sources_groups_recent_unresolved_listings(tmp_path):
+    path = bootstrap_db(tmp_path / "u.db")
+    conn = sqlite3.connect(path)
+    now = datetime(2026, 11, 24, tzinfo=timezone.utc)
+    for url, feed, host, reason, created, updated in (
+            ("https://a.co/1", "simplify", "a.co", "unsupported_host", "2026-11-01T00:00:00.000Z", None),
+            ("https://a.co/2?token=s3cret", "simplify", "a.co", "unsupported_host",
+             "2026-08-01T00:00:00.000Z", "2026-11-23T00:00:00.000Z"),
+            ("https://a.co/3", "simplify", "a.co", "detail_fetch_failed", "2026-11-02T00:00:00.000Z", None),
+            ("https://b.co/4", "watchlist", "b.co", "empty_description", "2026-11-03T00:00:00.000Z", None),
+            ("https://old.co/5", "simplify", "old.co", "unsupported_host", "2026-08-01T00:00:00.000Z", None)):
+        conn.execute("INSERT INTO feed_unresolved (feed,url,company_name,job_title,host,reason,created_at,"
+                     "updated_at) VALUES (?,?,'C','T',?,?,?,?)", (feed, url, host, reason, created, updated))
+    for i in range(60):
+        conn.execute("INSERT INTO feed_unresolved (feed,url,company_name,job_title,host,reason,created_at) "
+                     "VALUES ('simplify',?,'C','T',?,'unsupported_host','2026-11-04T00:00:00.000Z')",
+                     (f"https://h{i:02}.co/x", f"h{i:02}.co"))
+    conn.commit()
+    conn.close()
+    out = ReadOnlyATSRepository(path, clock=lambda: now).list_sources()["unresolved"]
+    assert out["listings"] == 64 and out["groups_total"] == 63 and len(out["groups"]) == 50
+    first = out["groups"][0]
+    assert (first["feed"], first["reason"], first["host"], first["count"], first["last_seen_at"]) == (
+        "simplify", "unsupported_host", "a.co", 2, "2026-11-23T00:00:00.000Z")
+    assert first["example_url"].startswith("https://a.co/2") and "s3cret" not in first["example_url"]
+    assert "old.co" not in {g["host"] for g in out["groups"]}

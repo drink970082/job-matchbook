@@ -346,6 +346,12 @@ def delete_unresolved(conn: sqlite3.Connection, url: str) -> None:
     conn.commit()
 
 
+def delete_unresolved_many(conn: sqlite3.Connection, urls) -> None:
+    """`delete_unresolved` for a whole board, in one transaction."""
+    conn.executemany("DELETE FROM feed_unresolved WHERE url = ?", [(u,) for u in urls])
+    conn.commit()
+
+
 def existing_external_ids(conn: sqlite3.Connection, source: str, ids) -> set[str]:
     """The subset of `ids` already present for `source` — lets run_feed skip a
     board fetch when every surfaced posting is already ingested."""

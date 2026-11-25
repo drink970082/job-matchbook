@@ -9,6 +9,9 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 
 ### Added
 
+- **Unresolved listings (#232)**: MCP `list_sources` groups the listings last seen unresolved
+  in 30 days by feed, reason and host with a newest example URL. A watchlist
+  `empty_description` row is cleared once its board returns that URL with a description.
 - **Intake funnel (#248)**: the Activity page and MCP `get_ats_overview.intake_funnel` show,
   for the latest pass and the last 7 days, what the passes listed and what each stage
   removed and why, down to the open and eligible postings. The fetch tally gains
