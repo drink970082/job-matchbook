@@ -36,10 +36,10 @@ def test_resolve_board_matches_the_shared_board_cases(case):
 def test_the_probe_recognizes_a_url_exactly_as_the_resolver_does(case):
     want = expected(case)
     assert probe.recognize_url(case["url"]) == want
-    # The same URL as a link in a page: every encoding a page carries it in.
+    # The same URL as a link in a page, plain and JSON-escaped.
     for html in (f'<a href="{case["url"]}">Jobs</a>',
                  json.dumps({"u": case["url"]}).replace("/", "\\/"),
-                 f"<script src='{case['url'].replace('&', '&amp;')}'></script>"):
+                 json.dumps({"u": case["url"]}).replace("/", "\\u002F")):
         assert probe.recognize_page(html) == ([want] if want else [])
 
 
@@ -58,6 +58,26 @@ def test_the_probe_finds_scheme_less_and_repeated_embeds_once_each_in_page_order
             "board: \"jobs.ashbyhq.com/initech\", (see jobs.lever.co/globex). <a href='https://careers-acme.icims.com'>")
     assert probe.recognize_page(html) == [("greenhouse", "acme"), ("lever", "globex"),
                                           ("ashby", "initech"), ("icims", "careers-acme")]
+
+
+@pytest.mark.parametrize("page, want", [
+    ("`https://jobs.lever.co/acme`", ["acme"]),
+    ("<a href='https://acme.com/out?to=https://jobs.lever.co/acme'>", ["acme"]),
+    ("<a href='https://acme.com/out?to=https%3A%2F%2Fjobs.lever.co%2Facme'>", ["acme"]),
+    ("https://web.archive.org/web/2020/https://jobs.lever.co/acme", ["acme"]),
+    ("https://jobs.lever.co/acme,https://jobs.lever.co/beta", ["acme", "beta"]),
+    ("{u:https://jobs.lever.co/acme}", ["acme"]), ("https://jobs.lever.co/acme&x=1", ["acme"]),
+    ("https://jobs.lever.co/acme!", ["acme"]), ("(https://jobs.lever.co/acme).", ["acme"]),
+    ("<a href='https://boards.greenhouse.io/embed/job_board?x=1&amp;for=acme'>", ["acme"]),
+    ("https:\\u002F\\u002Fcareers-acme.icims.com", ["careers-acme"]),
+    ("https%3a%2f%2fcareers-acme.icims.com", ["careers-acme"]),
+])
+def test_the_probe_reads_a_url_out_of_the_text_around_it(page, want):
+    assert [slug for _source, slug in probe.recognize_page(page)] == want
+
+
+def test_a_workday_host_label_must_be_a_host_label():
+    assert resolve_board("https://localhost\\.x.myworkdayjobs.com/site") is None
 
 
 def test_the_probe_checks_at_most_five_embedded_boards():
@@ -90,6 +110,9 @@ def test_the_probe_verifies_through_the_adapters_list_check():
     ("https://acme.com/careers", '<a href="https://jobs.lever.co/acme/1">', {"acme"}, "platform=lever slug=acme ->"),
     ("https://acme.com/careers", '<a href="https://jobs.lever.co/acme/1"> /wp-json/', set(), "plain-http ->"),  # an embed that lists nothing
     ("https://acme.com/careers", 'fetch("/api/pcsx/search")', set(), "platform=phenom ->"),
+    ("https://acme.wd5.myworkdayjobs.com/wday/cxs/acme/Ext/jobs", "/wp-json/", set(), "platform=workday -> find the site for slug acme/wd5/{site}"),
+    ("https://acme.com/careers", '<a href="https://acme.wd5.myworkdayjobs.com/en-US">', set(), "platform=workday -> find"),
+    ("https://acme.wd5.myworkdayjobs.com/Ext", "", set(), "platform? -> the URL is workday slug=acme/wd5/Ext"),
     ("https://acme.com/careers", "<p>", set(), "plain-http? ->"),
 ])
 def test_the_probe_verdict(monkeypatch, capsys, url, page, listing, verdict):

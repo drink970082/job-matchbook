@@ -121,6 +121,7 @@ _SUBDOMAIN_HOSTS = {"pinpointhq.com": "pinpoint", "icims.com": "icims"}
 # A first path segment that is a route on that source's hosts, not a company slug.
 _ROUTE_SEGMENT = {"greenhouse": "embed", "workable": "j", "smartrecruiters": "oneclick-ui"}
 _LOCALE = re.compile(r"[a-z]{2}(-[A-Za-z]{2})?")
+_HOST_LABEL = re.compile(r"[a-z0-9-]+")
 _SLUG = re.compile(r"[A-Za-z0-9._-]+")
 # Ashby and SmartRecruiters name boards by company name: single inner spaces allowed.
 _SPACED_SLUG = re.compile(r"[A-Za-z0-9._-]+( [A-Za-z0-9._-]+)*")
@@ -163,7 +164,7 @@ def resolve_board(url: str | None) -> tuple[str, str] | None:
     # before `job` (as _resolve_workday), else the first non-locale segment.
     if host.endswith(".myworkdayjobs.com"):
         labels = host.split(".")
-        if len(labels) < 4 or not labels[0] or not labels[1]:
+        if len(labels) < 4 or not all(_HOST_LABEL.fullmatch(x) for x in labels[:2]):
             return None
         job = parts.index("job") if "job" in parts else -1
         site = parts[job - 1] if job > 0 else next((s for s in parts if not _LOCALE.fullmatch(s)), "")

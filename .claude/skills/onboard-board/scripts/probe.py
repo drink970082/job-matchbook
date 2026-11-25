@@ -6,6 +6,7 @@ the real endpoint and writes the recipe. It reports which cascade rung fits:
 
   platform    -> a known ATS adapter (greenhouse, lever, ashby, workday, pinpoint,
                  smartrecruiters, workable, icims, phenom) — onboarding = a data row, no recipe
+  platform?   -> the URL is a known ATS board, but its list is empty or unreadable
   plain-http  -> a `custom` recipe: a JSON/XHR endpoint, __NEXT_DATA__, or json-ld on the page
   browser     -> a `browser` recipe: the page bot-walls plain HTTP (403 challenge) or renders
                  its jobs only client-side with no discoverable JSON
@@ -25,6 +26,7 @@ import html
 import os
 import re
 import sys
+from urllib.parse import unquote
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.normpath(os.path.join(HERE, "../../../../apps/worker")))  # <repo>/apps/worker
@@ -50,9 +52,22 @@ def get(url, **kw):
 
 
 MAX_EMBEDS = 5
-# Anything host-shaped in a page, with its path: resolve_board decides what it is. The
-# lookbehind starts each run of host characters once, so a minified page scans linearly.
-_URL_TEXT = re.compile(r"(?<![A-Za-z0-9.-])(?:[A-Za-z0-9-]+\.)+[A-Za-z]{2,}(?:[/?][^\s\"'<>\\]*)?")
+# Anything host-shaped in a page, with the path and query characters a board URL uses:
+# resolve_board decides what it is. Other punctuation ends it, so a URL inside another one
+# (`?to=https://...`) or in prose is read on its own. The lookbehind starts each run of host
+# characters once, so a minified page scans linearly.
+_URL_TEXT = re.compile(r"(?<![A-Za-z0-9.-])(?:[A-Za-z0-9-]+\.)+[A-Za-z]{2,}"
+                       r"(?:/[A-Za-z0-9._~%+/-]*)?(?:\?[A-Za-z0-9._~%+/=&\[\]-]*)?")
+# How a page escapes a URL: \u002f in JSON, a whole URL percent-encoded in a query value.
+_JSON_ESCAPED = re.compile(r"\\u00(2[fF]|3[aAdDfF]|26)")
+_PERCENT_URL = re.compile(r"https?%3a%2f%2f[A-Za-z0-9._~%+-]*", re.I)
+_WORKDAY_HOST = re.compile(r"(?<![A-Za-z0-9.-])([A-Za-z0-9-]+)\.([A-Za-z0-9-]+)\.myworkdayjobs\.com", re.I)
+
+
+def page_text(page: str) -> str:
+    text = html.unescape(page or "").replace("\\/", "/")
+    text = _JSON_ESCAPED.sub(lambda m: chr(int(m.group(1), 16)), text)
+    return _PERCENT_URL.sub(lambda m: " " + unquote(m.group()), text)
 
 
 def recognize_url(url: str) -> tuple[str, str] | None:
@@ -63,9 +78,14 @@ def recognize_url(url: str) -> tuple[str, str] | None:
 def recognize_page(page: str) -> list[tuple[str, str]]:
     """Boards a page links to or embeds: each URL in it through the same resolver.
     Deduped, in page order, at most MAX_EMBEDS (each one costs a list request)."""
-    text = html.unescape(page or "").replace("\\/", "/")
-    found = (resolve_board("https://" + m.group().rstrip(".,;:)")) for m in _URL_TEXT.finditer(text))
+    found = (resolve_board("https://" + m.group().rstrip(".")) for m in _URL_TEXT.finditer(page_text(page)))
     return list(dict.fromkeys(b for b in found if b))[:MAX_EMBEDS]
+
+
+def workday_host(text: str) -> str | None:
+    """`{tenant}/{dc}` of a Workday host in a URL or page: the slug still needs the site."""
+    m = _WORKDAY_HOST.search(page_text(text))
+    return f"{m.group(1)}/{m.group(2)}".lower() if m else None
 
 
 def verify(boards, has_listings=board_has_listings):
@@ -111,12 +131,15 @@ def main():
     print(f"  GET {url} -> {status}")
     bot_walled = r is not None and r.status_code in (403, 429) and \
         bool(re.search(r"just a moment|challenge|cf-|captcha|verify you are human", r.text, re.I))
-    signals, phenom = [], "/api/pcsx/" in url
+    signals, phenom, workday = [], "/api/pcsx/" in url, workday_host(url)
     if r is not None and r.status_code == 200:
         hits, more = verify([b for b in recognize_page(r.text) if b != own])
         plat, misses = plat + hits, misses + more
         signals = plain_http_signals(r.text)
         phenom = phenom or "/api/pcsx/" in r.text
+        workday = workday or workday_host(r.text)
+    if any(source == "workday" for source, *_ in plat + misses):
+        workday = None      # its site was read and checked
 
     print("\n## platform check")
     for source, slug in plat:
@@ -125,7 +148,9 @@ def main():
         print(f"  no   {source}  slug={slug}  ({reason})")
     if phenom:
         print("  MAYBE  phenom  (/api/pcsx/ seen; slug is {host}/{domain}, not checked here)")
-    if not (plat or misses or phenom):
+    if workday:
+        print(f"  MAYBE  workday  (host of {workday}; the URL names no site, so not checked here)")
+    if not (plat or misses or phenom or workday):
         print("  no known ATS recognized in the URL or embedded in the page")
     if bot_walled:
         print("\n  !! bot wall (Cloudflare/challenge) — plain HTTP is blocked")
@@ -139,6 +164,8 @@ def main():
         print(f"VERDICT: platform={source} slug={slug} -> data row, NO recipe needed")
     elif phenom:
         print("VERDICT: platform=phenom -> verify the {host}/{domain} slug, then data row, NO recipe needed")
+    elif workday:
+        print(f"VERDICT: platform=workday -> find the site for slug {workday}/{{site}}, then data row, NO recipe needed")
     elif own_miss:
         source, slug, reason = own_miss
         print(f"VERDICT: platform? -> the URL is {source} slug={slug}, but {reason}")
