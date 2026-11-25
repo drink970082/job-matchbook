@@ -62,7 +62,9 @@ def run_fetch(conn, companies, title_filter, *, now, fetch_fn=None,
 
     `counts`, when given, is filled with this pass's tallies for the pass record:
     listings by drop cause, discards by failed check, inserted. Listings are counted
-    every pass, including ones already stored.
+    every pass, including ones already stored: listed = dropped_title + dropped_age +
+    bodyless + detail_failed + inactive + already_stored + inserted, and a failed board
+    adds nothing to any of them.
     """
     if fetch_fn is None:
         raise ValueError("run_fetch requires an injected fetch_fn (wired in run.py)")
@@ -70,7 +72,7 @@ def run_fetch(conn, companies, title_filter, *, now, fetch_fn=None,
     tally.update({"boards_attempted": 0, "boards_failed": 0, "listed": 0,
                   "dropped_title": 0, "dropped_age": 0, "discarded": 0,
                   "discarded_by_reason": {}, "bodyless": 0, "detail_failed": 0,
-                  "closed_by_absence": 0,
+                  "inactive": 0, "already_stored": 0, "closed_by_absence": 0,
                   "inserted": 0})
 
     def _coarse(postings):
@@ -101,6 +103,7 @@ def run_fetch(conn, companies, title_filter, *, now, fetch_fn=None,
 
     for c in companies:
         tally["boards_attempted"] += 1
+        before = {**tally, "discarded_by_reason": dict(tally["discarded_by_reason"])}
         try:
             # Pass recipe only for recipe-driven rows so a plain 3-arg fetch_fn
             # (and every non-recipe adapter) is called exactly as before.
@@ -143,6 +146,7 @@ def run_fetch(conn, companies, title_filter, *, now, fetch_fn=None,
                 listed = len(postings)
             tally["listed"] += listed
             tally["detail_failed"] += detail_failed
+            tally["inactive"] += len(inactive)
             closed = db.record_board_listing(
                 conn, c["source"], c["slug"], gated | returned, now=now,
                 count_absence=c["source"] in ABSENCE_CLOSURE_SOURCES)
@@ -192,11 +196,17 @@ def run_fetch(conn, companies, title_filter, *, now, fetch_fn=None,
             new = db.upsert_postings(conn, hydrated, now=now)
             added = new + db.upsert_postings(conn, discards, now=now)
             tally["inserted"] += added
+            tally["already_stored"] += len(kept) - added
             figures = _board_health(listed, hydrated, bodyless, new, detail_failed)
             _log_board_health(c, figures)
             record_health(conn, c, now=now, status="ok", figures=figures)
         except Exception as exc:  # noqa: BLE001 — one bad board must not abort the rest
-            tally["boards_failed"] += 1
+            # Its stub gate counted drops before it failed, and its listings were never
+            # counted: take the board back out of the tally (closures did happen). Rows it
+            # stored before failing stay stored; the intake funnel shows them as
+            # unaccounted rather than dropping good postings.
+            tally.update({**before, "closed_by_absence": tally["closed_by_absence"],
+                          "boards_failed": before["boards_failed"] + 1})
             print(f"[fetch] {c.get('source')}/{c.get('slug')}: skipped after error: {exc}")
             record_health(conn, c, now=now, status=observation_error_category(exc))
             continue

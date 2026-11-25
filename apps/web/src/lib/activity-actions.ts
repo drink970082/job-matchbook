@@ -1,6 +1,7 @@
 'use server'
 
 import { prisma } from '@/lib/db'
+import { funnelStarts, intakeFunnel, type IntakeFunnel } from '@/lib/intake-funnel'
 import type { PassFailure, PassRecord } from '@/lib/pass-record'
 
 // The Activity tab (#210): a system status strip and one merged timeline of who wrote
@@ -35,6 +36,7 @@ export async function getActivityStatus() {
         prisma.worker_runs.findFirst({ where: failedSince, orderBy: [{ started_at: 'desc' }, { id: 'desc' }] }),
         prisma.worker_runs.count({ where: failedSince }),
     ])
+    const funnel = await readIntakeFunnel()
     const lastFailure: PassFailure | null = failed
         && { startedAt: failed.started_at, errorCategory: failed.error_category, since: failedCount }
     const lastPass: PassRecord | null = run && {
@@ -44,8 +46,22 @@ export async function getActivityStatus() {
     }
     return {
         lastPass, lastFailure, new24h, new7d, assessed24h, failures24h,
-        spend7dUsd: Math.round(spend7d * 10_000) / 10_000, agedOut7d, agedOutTotal,
+        spend7dUsd: Math.round(spend7d * 10_000) / 10_000, agedOut7d, agedOutTotal, funnel,
     }
+}
+
+// The intake funnel (#248) of the latest pass and the last 7 days: lib/intake-funnel.ts.
+async function readIntakeFunnel(): Promise<IntakeFunnel> {
+    const now = Date.now()
+    const runs = (await prisma.worker_runs.findMany({ orderBy: [{ started_at: 'asc' }, { id: 'asc' }],
+        select: { started_at: true, status: true, counts_json: true } }))
+        .map((r) => ({ started_at: r.started_at, status: r.status, counts: parseObject(r.counts_json) }))
+    const starts = funnelStarts(runs, now)
+    const rows = starts.length ? await prisma.job_postings.findMany({ where: { created_at: { in: starts } },
+        select: { created_at: true, verdict: true, source_state: true,
+            job_screening: { select: { state: true, result_json: true } } } }) : []
+    return intakeFunnel(runs, rows.map(({ job_screening: s, ...p }) => ({ ...p,
+        result_json: s?.state === 'complete' ? s.result_json : null })), now)
 }
 
 // The worker writes both JSON columns; a value it could not have written reads as empty.

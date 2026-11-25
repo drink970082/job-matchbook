@@ -37,6 +37,10 @@ data before selecting it.
 
 ## Fetch
 
+- **Three watchlist boards answer 404 on their list** (slug changed or board gone); board
+  health names them as `http_404`.
+- **`run_expire` is nearly all inconclusive** (48 of 50 in the 2026-11-24 pass), probably
+  Workday 429s (#273). The pass record keeps totals only, no reason per inconclusive check.
 - **`run_expire` reads smartrecruiters' `active: false` as alive.** Only a 404/410
   closes; smartrecruiters' `fetch_one` returns `None` on an explicitly inactive detail,
   which is recorded inconclusive. Oracle answers a closed or unknown requisition with a

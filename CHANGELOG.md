@@ -9,6 +9,11 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 
 ### Added
 
+- **Intake funnel (#248)**: the Activity page and MCP `get_ats_overview.intake_funnel` show,
+  for the latest pass and the last 7 days, what the passes listed and what each stage
+  removed and why, down to the open and eligible postings. The fetch tally gains
+  `already_stored` and `inactive`, and a board that fails mid-fetch no longer leaves its
+  stub-gate drops in it, so a pass's listings add up.
 - **Per-board fetch health (#231)**: every pass writes each watchlist board's result on
   its `watched_companies` row (`last_fetched_at`, `last_fetch_status` = `ok` or the
   closed error category, `last_fetched` (listed), `last_kept` (stored with a

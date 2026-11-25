@@ -51,7 +51,7 @@ test('the status strip counts postings, JEV work, failures and spend', async () 
     await jev(p1.id, 'complete', '0.0003')
     await jev(p2.id, 'provider_error', '0.0001')
     expect(await getActivityStatus()).toEqual({ lastPass: null, lastFailure: null, new24h: 1, new7d: 1, assessed24h: 1, failures24h: 1,
-        spend7dUsd: 0.0004, agedOut7d: 0, agedOutTotal: 0 })
+        spend7dUsd: 0.0004, agedOut7d: 0, agedOutTotal: 0, funnel: expect.objectContaining({ latest_pass: null }) })
 })
 
 test('the status strip counts postings that left the window unevaluated (PRINCIPLES 5)', async () => {
