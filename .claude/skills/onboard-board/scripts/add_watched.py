@@ -47,7 +47,11 @@ def read_text(path: Path) -> str:
 
 def write_client():
     env = dict(os.environ)
-    if not env.get("ATS_API_KEY", "").strip() and key_file().is_file():
+    try:
+        from_file = not env.get("ATS_API_KEY", "").strip() and key_file().is_file()
+    except OSError as exc:
+        sys.exit(f"error: cannot read {key_file()}: {exc}")
+    if from_file:
         env["ATS_API_KEY"] = read_text(key_file())
     key = env.get("ATS_API_KEY", "").strip()
     if not key.isascii() or len(key.split()) > 1:  # would fail as a header, as "unreachable"
@@ -57,6 +61,13 @@ def write_client():
         sys.exit(f"error: no write key: set ATS_API_KEY or put the web's ATS_API_KEY_READ_WRITE "
                  f"value in {key_file()} (docs/SETUP.md, \"enable writes\")")
     return client
+
+
+def post(client, body) -> dict:
+    board = client.call("POST", "/api/v1/watchlist", body)
+    if not isinstance(board, dict) or not {"source", "slug", "name"} <= board.keys():
+        raise WriteAPIError("the server at ATS_API_URL is not the ATS web app")
+    return board
 
 
 def main(argv=None, has_listings=board_has_listings):
@@ -75,16 +86,17 @@ def main(argv=None, has_listings=board_has_listings):
     try:
         # The web resolves and validates first, so the fetch only ever runs on a board it
         # would accept (an unsafe slug never reaches a fetch URL).
-        board = client.call("POST", "/api/v1/watchlist", {**body, "dry_run": True})
-        if not isinstance(board, dict):
-            raise WriteAPIError("the server at ATS_API_URL is not the ATS web app")
+        board = post(client, {**body, "dry_run": True})
         if board["source"] not in RECIPE_SOURCES:
             reason = verify_board(has_listings, board["source"], board["slug"], board["name"])
             if reason:
                 sys.exit(f"error: {board['source']}/{board['slug']} not added: {reason}")
-        added = client.call("POST", "/api/v1/watchlist", body)
     except WriteAPIError as exc:
         sys.exit(f"error: {args.source}/{args.slug} not added: {exc}")
+    try:
+        added = post(client, body)
+    except WriteAPIError as exc:  # a timeout may come after the web stored the row
+        sys.exit(f"error: {args.source}/{args.slug} not confirmed (run again to see whether it was added): {exc}")
     print(f"added: {added['source']}/{added['slug']} ({added['name']}) - now in the web Sources tab; "
           f"the worker fetches it next cycle")
     if added.get("warning"):

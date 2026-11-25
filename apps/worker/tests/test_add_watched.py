@@ -136,15 +136,46 @@ def test_a_malformed_key_is_named_and_never_sent_or_printed(web, monkeypatch, ke
 def test_a_rejected_second_call_is_not_reported_as_added(web, capsys):
     web.answers += [(200, {"data": {"source": "greenhouse", "slug": "acme", "name": "Acme"}}),
                     (400, {"error": "greenhouse/acme is already on the watchlist"})]
-    with pytest.raises(SystemExit, match="already on the watchlist"):
+    with pytest.raises(SystemExit, match="not confirmed.*already on the watchlist"):
         add_watched.main(ACME, has_listings=lists_one)
     assert capsys.readouterr().out == ""
 
 
-def test_a_server_that_is_not_the_ats_web_is_named(web):
-    web.answers.append((200, ["hello"]))
+@pytest.mark.parametrize("payload", [["hello"], {"data": {}}, {"data": None}])
+def test_a_server_that_is_not_the_ats_web_is_named(web, payload):
+    web.answers.append((200, payload))
     with pytest.raises(SystemExit, match="not the ATS web app"):
         add_watched.main(ACME, has_listings=never)
+
+
+def test_an_add_the_web_did_not_confirm_is_not_called_refused(web, capsys):
+    web.answers += [(200, {"data": {"source": "greenhouse", "slug": "acme", "name": "Acme"}}), (200, {"data": None})]
+    with pytest.raises(SystemExit, match="not confirmed"):
+        add_watched.main(ACME, has_listings=lists_one)
+    assert capsys.readouterr().out == ""
+
+
+def test_the_board_checked_is_the_one_the_web_resolved(web):
+    seen = []
+    web.answers.append((200, {"data": {"source": "lever", "slug": "resolved", "name": "R"}}))
+    add_watched.main(ACME, has_listings=lambda *a: seen.append(a) or True)
+    assert seen == [("lever", "resolved", "R")]
+
+
+def test_an_unreadable_key_file_is_an_error_not_a_traceback(web, monkeypatch, tmp_path):
+    monkeypatch.delenv("ATS_API_KEY")
+    key = tmp_path / ".config/ats-mcp/api-key"
+    key.parent.mkdir(parents=True)
+    key.write_bytes(b"\xff\xfe")
+    with pytest.raises(SystemExit, match="cannot read"):
+        add_watched.main(ACME, has_listings=never)
+
+    def denied(_self):
+        raise PermissionError("denied")
+    monkeypatch.setattr(Path, "is_file", denied)
+    with pytest.raises(SystemExit, match="cannot read"):
+        add_watched.main(ACME, has_listings=never)
+    assert web.calls == []
 
 
 def test_a_missing_recipe_file_is_an_error_not_a_traceback(web, tmp_path):
