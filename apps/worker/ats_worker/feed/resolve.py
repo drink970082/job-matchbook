@@ -121,7 +121,7 @@ _SUBDOMAIN_HOSTS = {"pinpointhq.com": "pinpoint", "icims.com": "icims"}
 # A first path segment that is a route on that source's hosts, not a company slug.
 _ROUTE_SEGMENT = {"greenhouse": "embed", "workable": "j", "smartrecruiters": "oneclick-ui"}
 _LOCALE = re.compile(r"[a-z]{2}(-[A-Za-z]{2})?")
-_HOST_LABEL = re.compile(r"[a-z0-9-]+")
+_HOST_LABEL = re.compile(r"[a-z0-9_-]+")
 _SLUG = re.compile(r"[A-Za-z0-9._-]+")
 # Ashby and SmartRecruiters name boards by company name: single inner spaces allowed.
 _SPACED_SLUG = re.compile(r"[A-Za-z0-9._-]+( [A-Za-z0-9._-]+)*")

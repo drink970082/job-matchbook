@@ -71,13 +71,37 @@ def test_the_probe_finds_scheme_less_and_repeated_embeds_once_each_in_page_order
     ("<a href='https://boards.greenhouse.io/embed/job_board?x=1&amp;for=acme'>", ["acme"]),
     ("https:\\u002F\\u002Fcareers-acme.icims.com", ["careers-acme"]),
     ("https%3a%2f%2fcareers-acme.icims.com", ["careers-acme"]),
+    ("https%253A%252F%252Fcareers-acme.icims.com", ["careers-acme"]), ("u=%2F%2Fcareers-acme.icims.com", ["careers-acme"]),
+    ("https:\\x2F\\x2Fcareers-acme.icims.com", ["careers-acme"]), ("\\u003ecareers-acme.icims.com", ["careers-acme"]),
+    ("\\njobs.lever.co/acme", ["acme"]),
+    ("https://jobs.lever.co/acme%20", ["acme"]), ("https://jobs.lever.co/acme%22", ["acme"]), ("https://jobs.lever.co/acme%3Fx=1", ["acme"]),
+    ("https://jobs.ashbyhq.com/Acme%20Corp", ["Acme Corp"]),
+    ("https://boards.greenhouse.io/embed/job_board?b=https%3A%2F%2Facme.com%2Fcareers&for=acme", ["acme"]),
 ])
 def test_the_probe_reads_a_url_out_of_the_text_around_it(page, want):
     assert [slug for _source, slug in probe.recognize_page(page)] == want
 
 
-def test_a_workday_host_label_must_be_a_host_label():
-    assert resolve_board("https://localhost\\.x.myworkdayjobs.com/site") is None
+@pytest.mark.parametrize("host", ["localhost\\.x", "acme.localhost\\"])
+def test_a_workday_host_label_must_be_a_host_label(host):
+    assert resolve_board(f"https://{host}.myworkdayjobs.com/site") is None
+
+
+@pytest.mark.parametrize("text, want", [
+    ("https://Acme.WD5.myworkdayjobs.com", ["acme/wd5"]), ("https:\\x2F\\x2Facme.wd5.myworkdayjobs.com", ["acme/wd5"]),
+    ("https%253A%252F%252Facme.wd5.myworkdayjobs.com", ["acme/wd5"]),
+    ("acme.wd5.myworkdayjobs.com.evil.com acme.wd5.myworkdayjobs.community", []),
+])
+def test_the_workday_hint_reads_the_tenant_host(text, want):
+    assert probe.workday_hosts(text) == want
+
+
+def test_the_page_scan_is_linear():
+    import time
+    start = time.monotonic()
+    for unit in ("a.", "-", "a.co/b?c=", "%2F", "%25", "\\x2f", "x.y.myworkdayjobs.com/"):
+        probe.recognize_page(unit * (200_000 // len(unit)))
+    assert time.monotonic() - start < 20    # seconds when linear; minutes when not
 
 
 def test_the_probe_checks_at_most_five_embedded_boards():
@@ -113,11 +137,13 @@ def test_the_probe_verifies_through_the_adapters_list_check():
     ("https://acme.wd5.myworkdayjobs.com/wday/cxs/acme/Ext/jobs", "/wp-json/", set(), "platform=workday -> find the site for slug acme/wd5/{site}"),
     ("https://acme.com/careers", '<a href="https://acme.wd5.myworkdayjobs.com/en-US">', set(), "platform=workday -> find"),
     ("https://acme.wd5.myworkdayjobs.com/Ext", "", set(), "platform? -> the URL is workday slug=acme/wd5/Ext"),
+    ("https://acme.wd5.myworkdayjobs.com/wday/cxs/acme/Ext/jobs", "https://zed.wd1.myworkdayjobs.com/X", set(), "platform=workday -> find the site for slug acme/wd5/{site}"),
+    ("https://acme.com/careers", "https://jobs.lever.co/down /wp-json/", set(), "platform? -> the page is lever slug=down, but could not verify"),
     ("https://acme.com/careers", "<p>", set(), "plain-http? ->"),
 ])
 def test_the_probe_verdict(monkeypatch, capsys, url, page, listing, verdict):
     real = probe.verify
-    monkeypatch.setattr(probe, "verify", lambda boards: real(boards, has_listings=lambda _s, slug, _n: slug in listing))
+    monkeypatch.setattr(probe, "verify", lambda boards: real(boards, has_listings=lambda _s, slug, _n: 1 / 0 if slug == "down" else slug in listing))
     monkeypatch.setattr(probe, "get", lambda _url: SimpleNamespace(status_code=200, text=page))
     monkeypatch.setattr(probe.sys, "argv", ["probe.py", url])
     probe.main()
