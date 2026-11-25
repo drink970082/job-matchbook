@@ -49,7 +49,7 @@ async function browserWarning(source: string): Promise<string | null> {
     const on = run ? parseObject(run.config_json).browser_sources : undefined
     if (on === true) return null
     return (on === false ? 'Browser sources were off in the latest worker pass'
-        : 'No worker pass has recorded whether browser sources are on')
+        : 'The latest worker pass did not record whether browser sources are on, or none has run')
         + ': the worker skips this board unless it starts with enable_browser_sources on in config.yaml.'
 }
 
@@ -58,8 +58,8 @@ async function browserWarning(source: string): Promise<string | null> {
 // web add is unverified: the row reads `never_fetched` until the next worker pass
 // records its health. `dryRun` runs every check and returns the resolved board without
 // adding it: MCP add_source calls it, fetches that board through the worker's adapter,
-// and adds only a board that lists postings (#231). A board the worker would skip carries
-// a `warning` in the returned data, dry run included.
+// and adds only a board that lists postings (#231). A browser board carries a
+// `warning` in the returned data, dry run included, unless the flag is known to be on.
 const NEEDS_RECIPE = 'This site needs a custom recipe - set it up from your AI client with the onboard-board skill.'
 
 export async function addWatchedCompany(input: {

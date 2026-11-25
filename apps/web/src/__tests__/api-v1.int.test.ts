@@ -346,12 +346,12 @@ test('adding a browser board warns unless the latest pass recorded browser sourc
     const pass = (started_at: string, config_json: string) =>
         prisma.worker_runs.create({ data: { started_at, status: 'ok', config_json, counts_json: '{}', fetch_only: true, jev_enabled: false } })
 
-    expect((await add('none')).warning).toMatch(/No worker pass has recorded .* skips this board unless it starts with enable_browser_sources/)
+    expect((await add('none')).warning).toMatch(/or none has run: the worker skips this board unless it starts with enable_browser_sources/)
     await pass('2026-11-02T00:00:00.000Z', '{"browser_sources":true}')
     await pass('2026-11-01T00:00:00.000Z', '{"browser_sources":false}')  // an older pass, higher id
     expect(await add('on')).not.toHaveProperty('warning')
     await pass('2026-11-03T00:00:00.000Z', 'not json')
-    expect((await add('unknown')).warning).toMatch(/No worker pass has recorded/)
+    expect((await add('unknown')).warning).toMatch(/latest worker pass did not record/)
     await pass('2026-11-04T00:00:00.000Z', '{"browser_sources":false}')
     expect((await add('off', { dry_run: true })).warning).toMatch(/were off in the latest worker pass/)
     expect((await add('off')).warning).toMatch(/were off in the latest worker pass/)

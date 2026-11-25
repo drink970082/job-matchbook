@@ -41,6 +41,7 @@ test('tells apart a failed fetch, filters keeping none, teasers and a board neve
         row(4, { name: 'Filtered Co', health: 'kept_zero', last_fetched: 40, last_kept: 0, last_new: 0 }),
         row(5, { name: 'Teaser Co', health: 'teaser', last_desc_median: 600 }),
         row(6, { name: 'Fresh Co', ...never }),
+        row(11, { name: 'Fresh Headless Co', source: 'browser', ...never }),
         row(7, { name: 'Headless Co', source: 'browser', ...never, health: 'disabled', last_fetch_status: 'disabled' }),
         row(8, { name: 'Broken Co', health: 'bodyless', last_fetched: 10, last_kept: 0, last_new: 0, last_bodyless: 6 }),
         row(9, { name: 'Throttled Co', health: 'details_failed', last_fetched: 812, last_kept: 0, last_new: 0, last_detail_failed: 812 }),
@@ -53,6 +54,9 @@ test('tells apart a failed fetch, filters keeping none, teasers and a board neve
     expect(cell('Filtered Co')).toHaveTextContent('40 listed, filters kept 0')
     expect(cell('Teaser Co')).toHaveTextContent('Teaser descriptions (median 600 chars)')
     expect(cell('Fresh Co')).toHaveTextContent('Never fetched')
+    const hover = (name: string) => cell(name).querySelector('td:nth-child(3) span')!.getAttribute('title')
+    expect(hover('Fresh Co')).toBe('Fetched on the next worker pass')
+    expect(hover('Fresh Headless Co')).toBe('Fetched on the next worker pass if browser sources are on')
     expect(cell('Headless Co')).toHaveTextContent('Not fetched: browser sources are off')
     expect(cell('Broken Co')).toHaveTextContent('Descriptions missing: 6 of 6')
     expect(cell('Throttled Co')).toHaveTextContent('Detail pages failing: 812 of 812')

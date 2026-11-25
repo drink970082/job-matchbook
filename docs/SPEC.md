@@ -2288,7 +2288,7 @@ Triage evidence with duplicate object members at its root, screen map, or check 
 - **A browser board added while browser sources are off is warned about, not refused
   (#233).** `addWatchedCompany` (Sources tab, `/api/v1/watchlist`, dry run included) reads
   the flag from the latest pass record (`worker_runs.config_json.browser_sources`) and
-  returns a `warning` when it is off or no pass has recorded it. Neither the URL form nor
+  returns a `warning` unless that pass recorded it on. Neither the URL form nor
   MCP `add_source` can add a recipe board today, so the caller that sees it is an
   `/api/v1` add with a recipe.
 
