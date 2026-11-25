@@ -41,8 +41,8 @@ export async function getWatchedCompanies() {
 }
 
 // A browser-recipe board is fetched only while `enable_browser_sources` is on in the
-// worker's config.yaml; the web reads that flag from the latest pass record (#233). An
-// add is never refused for it: the row is valid and waits for the flag.
+// worker's config.yaml; the web reads that flag from the latest pass record (#233). The
+// flag never refuses an add: the row is valid and waits for it.
 async function browserWarning(source: string): Promise<string | null> {
     if (source !== 'browser') return null
     const run = await prisma.worker_runs.findFirst({ orderBy: [{ started_at: 'desc' }, { id: 'desc' }], select: { config_json: true } })
@@ -50,7 +50,7 @@ async function browserWarning(source: string): Promise<string | null> {
     if (on === true) return null
     return (on === false ? 'Browser sources were off in the latest worker pass'
         : 'No worker pass has recorded whether browser sources are on')
-        + ': the worker skips this board unless enable_browser_sources is on in config.yaml.'
+        + ': the worker skips this board unless it starts with enable_browser_sources on in config.yaml.'
 }
 
 // A watchlist add by careers/job URL (resolved by lib/board-url.ts, shared with MCP via

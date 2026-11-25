@@ -346,13 +346,16 @@ test('adding a browser board warns unless the latest pass recorded browser sourc
     const pass = (started_at: string, config_json: string) =>
         prisma.worker_runs.create({ data: { started_at, status: 'ok', config_json, counts_json: '{}', fetch_only: true, jev_enabled: false } })
 
-    expect((await add('none')).warning).toMatch(/No worker pass has recorded .* skips this board unless enable_browser_sources/)
-    await pass('2026-11-01T00:00:00.000Z', '{"browser_sources":true}')
+    expect((await add('none')).warning).toMatch(/No worker pass has recorded .* skips this board unless it starts with enable_browser_sources/)
+    await pass('2026-11-02T00:00:00.000Z', '{"browser_sources":true}')
+    await pass('2026-11-01T00:00:00.000Z', '{"browser_sources":false}')  // an older pass, higher id
     expect(await add('on')).not.toHaveProperty('warning')
-    await pass('2026-11-02T00:00:00.000Z', '{"browser_sources":false}')
+    await pass('2026-11-03T00:00:00.000Z', 'not json')
+    expect((await add('unknown')).warning).toMatch(/No worker pass has recorded/)
+    await pass('2026-11-04T00:00:00.000Z', '{"browser_sources":false}')
     expect((await add('off', { dry_run: true })).warning).toMatch(/were off in the latest worker pass/)
     expect((await add('off')).warning).toMatch(/were off in the latest worker pass/)
-    expect(await prisma.watched_companies.count()).toBe(3)            // warned, never refused
+    expect(await prisma.watched_companies.count()).toBe(4)            // warned, never refused
     // Every other source is fetched whatever the flag says; the audit row holds the row alone.
     const known = (await (await addWatch(req({ source: 'lever', slug: 'acme', name: 'Acme' }, RW))).json()).data
     expect(known).not.toHaveProperty('warning')
