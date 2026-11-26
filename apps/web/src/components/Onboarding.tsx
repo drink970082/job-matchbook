@@ -29,7 +29,8 @@ function Step({ done, title, children }: { done: boolean; title: React.ReactNode
 
 // Setup checklist (#211), shown until the required steps are done. Every step but the
 // first can be done on the web alone; the first is recommended, not required.
-export function Onboarding({ steps, intake, templates }: { steps: Steps; intake: Setup['intake']; templates: Templates }) {
+export function Onboarding({ steps, intake, wouldDiscard = null, templates }:
+    { steps: Steps; intake: Setup['intake']; wouldDiscard?: number | null; templates: Templates }) {
     return (
         <Card>
             <CardHeader className="pb-2"><CardTitle className="text-lg">Get set up</CardTitle></CardHeader>
@@ -75,16 +76,17 @@ export function Onboarding({ steps, intake, templates }: { steps: Steps; intake:
                             Until you confirm, the worker only fetches and applies your title filters and hard
                             requirements, which cost nothing; no model reads a posting. Check what was dropped and
                             why below, then adjust the profile in{' '}
-                            <Link className="underline" href="/settings">Settings</Link>. The next pass applies a
-                            stricter requirement to the postings still waiting too; a posting already discarded stays
-                            discarded (an AI client can rescue one with a keep override). After you confirm, postings
-                            from the last 7 days that are still waiting are evaluated once.
+                            <Link className="underline" href="/settings">Settings</Link>. A requirement you change now discards
+                            nothing until you confirm; a posting already discarded at fetch stays discarded (an AI
+                            client can rescue one with a keep override). After you confirm, postings from the last 7
+                            days that are still waiting are evaluated once, under the profile you confirmed.
                         </p>
                         {intake?.last_7_days.passes ? (
                             <div className="my-3 max-w-md text-foreground">
                                 <p className="mb-2 font-medium">
                                     Your filters and requirements let {waiting(intake.last_7_days).toLocaleString('en-US')} posting(s)
                                     through so far; they are evaluated after you confirm, a capped number per pass.
+                                    {wouldDiscard ? ` Your current requirements would discard ${wouldDiscard.toLocaleString('en-US')} of them for free first.` : ''}
                                 </p>
                                 <Funnel title={`Last 7 days, passes: ${intake.last_7_days.passes}`} window={intake.last_7_days} />
                             </div>

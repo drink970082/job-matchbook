@@ -8,7 +8,7 @@ beforeEach(resetDb)
 afterAll(() => prisma.$disconnect())
 
 test('setup is complete once requirements, a board, a posting and the confirmation exist; AI client and triage are optional', async () => {
-    expect(await getSetupStatus()).toEqual({ complete: false, intake: null,
+    expect(await getSetupStatus()).toEqual({ complete: false, intake: null, wouldDiscard: null,
         steps: { aiClient: false, requirements: false, sources: false, triage: false, first_fetch: false, confirmed: false } })
     expect(await confirmCandidateProfile()).toEqual({ success: false, error: 'Fill in the candidate profile first' })
 
@@ -28,6 +28,10 @@ test('setup is complete once requirements, a board, a posting and the confirmati
     const review = await getSetupStatus()
     expect(review).toMatchObject({ complete: false, steps: { first_fetch: true, confirmed: false } })
     expect(review.intake).toHaveProperty('last_7_days')
+    expect(review.wouldDiscard).toBeNull() // no gated pass recorded yet
+    await prisma.worker_runs.create({ data: { started_at: new Date().toISOString(), status: 'ok', config_json: '{}',
+        counts_json: JSON.stringify({ screen: { skipped: 'profile not confirmed', checked: 3, would_discard: 2 } }) } })
+    expect((await getSetupStatus()).wouldDiscard).toBe(2)
 
     expect(await confirmCandidateProfile()).toEqual({ success: true })
     const confirmedAt = (await prisma.candidate_profile.findUnique({ where: { id: 1 } }))!.confirmed_at
@@ -36,7 +40,7 @@ test('setup is complete once requirements, a board, a posting and the confirmati
     expect((await prisma.candidate_profile.findUnique({ where: { id: 1 } }))!.confirmed_at).toBe(confirmedAt)
     expect(await prisma.audit_log.findMany({ where: { entity: 'candidate_profile', action: 'confirm' },
         select: { actor: true } })).toEqual([{ actor: 'web' }])
-    expect(await getSetupStatus()).toEqual({ complete: true, intake: null,
+    expect(await getSetupStatus()).toEqual({ complete: true, intake: null, wouldDiscard: null,
         steps: { aiClient: false, requirements: true, sources: true, triage: false, first_fetch: true, confirmed: true } })
 
     // An mcp application row counts as a connected client even with no audit row.

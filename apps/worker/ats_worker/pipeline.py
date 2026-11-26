@@ -806,27 +806,21 @@ def _screen_error_category(exc: Exception | None) -> str:
     return "screen_error" if category == "provider_error" else category
 
 
-def run_gate_sweep(conn, *, now: str, candidate, profile_version: int | None) -> dict:
-    """The free deterministic gate over pending in-window postings, for a pass before the
-    profile is confirmed (#227): the same checks as the fetch-time gate, applied to
-    postings fetched under an earlier profile (or none), so the intake summary shows what
-    the current profile discards. Only discards are written, stored like a fetch-time
-    discard; a posting that passes stays pending for the first confirmed pass."""
-    tally = {"checked": 0, "disqualified": 0, "disqualified_by_reason": {}}
+def preview_gate(conn, *, now: str, candidate) -> dict:
+    """For a pass before the profile is confirmed (#227): what the free deterministic gate
+    would discard among the pending in-window postings under the current profile. A dry
+    run: nothing is written. The first confirmed pass applies the same gate for real
+    (run_screen), so a requirement tried out during the review discards nothing."""
+    tally = {"checked": 0, "would_discard": 0, "would_discard_by_reason": {}}
     if not candidate:
         return tally
     for row in db.get_screen_candidates(conn, window_start(now)):
         tally["checked"] += 1
         verdict = screening.deterministic_screen(
             {"screen": {}, "disqualified": False, "disqualification_reason": ""}, row, candidate)
-        if not verdict["disqualified"]:
-            continue
-        if db.save_screening(conn, int(row["id"]), state="complete", result=verdict,
-                             error_category=None, backend=db.DETERMINISTIC_BACKEND, model=None,
-                             effort=None, evaluator_version=SCREEN_EVALUATOR_VERSION, now=now,
-                             profile_version=profile_version):
-            tally["disqualified"] += 1
-            _count_failed_checks(tally["disqualified_by_reason"], verdict)
+        if verdict["disqualified"]:
+            tally["would_discard"] += 1
+            _count_failed_checks(tally["would_discard_by_reason"], verdict)
     return tally
 
 

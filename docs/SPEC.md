@@ -97,11 +97,12 @@ A worker pass fetches postings and screens them against the candidate's hard
 requirements (`--fetch-only` stops before the screen), then, with `--jev`, runs the
 paid JEV keep/skip filter over screened survivors. Until the candidate profile is
 confirmed (`confirmed_at`, set once in the web checklist after the intake summary), a
-pass also stops before the screen: no model stage is built or called. It re-applies
-only the free deterministic gate to pending in-window postings (`run_gate_sweep`, so
-postings fetched under an earlier profile show the current one's discards), the rest
-stay `pending`, and the pass record shows screen (and triage) `skipped: profile not
-confirmed`. The first confirmed pass evaluates the pending postings still in the window.
+pass also stops before the screen: no model stage is built or called and the postings
+stay `pending`. The pass record shows screen (and triage) `skipped: profile not
+confirmed`, plus a dry run of the free deterministic gate over the pending in-window
+postings (`preview_gate`: `would_discard` by reason; nothing is written, so a
+requirement tried out during the review discards nothing). A `--fetch-only` pass
+records no preview. The first confirmed pass evaluates the pending postings still in the window.
 There is no fit scorer and no
 notification stage; the stored fit verdicts in `score_detail` are history the web and
 MCP still read.

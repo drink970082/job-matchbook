@@ -226,11 +226,11 @@ def test_nothing_is_spent_before_the_profile_is_confirmed(tmp_path, board, provi
 
 
 @pytest.mark.real_gate
-def test_before_confirmation_the_free_gate_reruns_on_postings_fetched_earlier(tmp_path, board,
-                                                                            monkeypatch):
-    # Boards watched before the profile existed: the first fetch gated nothing. Setting a
-    # requirement then shows in the intake summary on the next (still unconfirmed) pass,
-    # and nothing is built or called on the way - not even codex's quota GET.
+def test_before_confirmation_the_gate_is_previewed_not_applied(tmp_path, board, monkeypatch):
+    # Boards watched before the profile existed: the first fetch gated nothing. A
+    # requirement tried out during the review is counted, not applied: an intermediate
+    # profile discards nothing. Nothing is built or called - not even codex's quota GET.
+    # The first confirmed pass then applies the gate under the confirmed profile.
     monkeypatch.setattr(run, "make_screener", lambda *_a, **_k: pytest.fail("screener built"))
     monkeypatch.setattr(run, "capture_usage", lambda *_a, **_k: pytest.fail("quota GET"))
     board.append(make_posting("3", job_title="Software Engineering Intern"))
@@ -240,18 +240,23 @@ def test_before_confirmation_the_free_gate_reruns_on_postings_fetched_earlier(tm
         run.run_once(cfgmod.load_config(CFG), db_path=dbfile, env={}, screen_backend="codex",
                      jev_enabled=True, jev_backend="extract")
     gated_pass()
-    assert {v[0] for v in _state(dbfile).values()} == {"pending"}
     _profile(dbfile, exclude_internships=1)
     gated_pass()
-    assert {k: v[0] for k, v in _state(dbfile).items()} == {
-        "1": "pending", "2": "pending", "3": "discarded"}
+    assert {v[0] for v in _state(dbfile).values()} == {"pending"}
     conn = db.connect(dbfile)
     screen = json.loads(conn.execute(
         "SELECT counts_json FROM worker_runs ORDER BY id DESC LIMIT 1").fetchone()[0])["screen"]
-    backend = conn.execute("SELECT backend FROM job_screenings").fetchall()
+    assert conn.execute("SELECT COUNT(*) FROM job_screenings").fetchone()[0] == 0
+    assert (screen["checked"], screen["would_discard"], screen["would_discard_by_reason"]) == (
+        3, 1, {"internships": 1})
+    conn.execute("UPDATE candidate_profile SET confirmed_at='2026-11-25T00:00:00.000Z'")
+    conn.commit()
     conn.close()
-    assert (screen["checked"], screen["disqualified"]) == (3, 1)
-    assert [r[0] for r in backend] == ["deterministic"]
+
+    monkeypatch.setattr(run, "make_screener", lambda *_a, **_k: None)
+    monkeypatch.setattr(run, "capture_usage", lambda *_a, **_k: None)
+    gated_pass()
+    assert _state(dbfile)["3"][0] == "discarded"
 
 
 @pytest.mark.real_gate

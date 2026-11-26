@@ -14,8 +14,9 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
   intake funnel and a "Confirm profile and start evaluating" button (web only); the first
   confirmed pass evaluates the pending postings still in the window. MCP
   `get_setup_status` adds the funnel, `confirmed` and `complete`. Web and MCP setup status
-  share one rule, pinned by shared fixture cases. Before confirmation a pass re-applies the
-  free deterministic gate to postings still waiting. Confirming needs a hard requirement.
+  share one rule, pinned by shared fixture cases. Before confirmation a pass records what the
+  current requirements would discard among the postings waiting (a dry run, shown in the
+  checklist and the pass record). Confirming needs a hard requirement.
   A profile the #224 migration wrote is already confirmed; any other install confirms once
   in the checklist before its next screen.
 - **Unresolved listings (#232)**: MCP `list_sources` groups the listings last seen unresolved

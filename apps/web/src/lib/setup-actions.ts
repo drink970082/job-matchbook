@@ -5,6 +5,7 @@ import path from 'node:path'
 import { prisma } from '@/lib/db'
 import { setupSteps } from '@/lib/candidate-profile'
 import { readIntakeFunnel } from '@/lib/activity-actions'
+import { parseObject } from '@/lib/pass-record'
 
 // Web counterpart of MCP get_setup_status: what a fresh install still needs, by the one
 // shared rule (candidate-profile.ts setupSteps). Until the profile is confirmed, the
@@ -23,7 +24,13 @@ export async function getSetupStatus() {
     // a read-only connection never ticks it (the step is optional).
     const steps = { aiClient: mcpWrite, ...shared }
     const intake = !steps.confirmed && steps.first_fetch ? await readIntakeFunnel() : null
-    return { steps, complete, intake }
+    // The latest gated pass's dry run (#227): what the current profile would discard
+    // among the waiting postings once confirmed.
+    const pass = intake && await prisma.worker_runs.findFirst({ orderBy: [{ started_at: 'desc' }, { id: 'desc' }],
+        select: { counts_json: true } })
+    const preview = pass ? parseObject(pass.counts_json).screen : null
+    const wouldDiscard = Number.isInteger(preview?.would_discard) ? preview.would_discard as number : null
+    return { steps, complete, intake, wouldDiscard }
 }
 
 // The copy-paste MCP templates under apps/web/templates/mcp (plain text, shared with

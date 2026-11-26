@@ -282,10 +282,11 @@ test('after the first fetch the checklist shows the intake summary and confirms 
     expect(screen.queryByRole('button', { name: /Confirm profile/ })).toBeNull()
     expect(screen.getByText('Set at least one hard requirement before you confirm.')).toBeInTheDocument()
     unmount()
-    render(<Onboarding templates={TEMPLATES} intake={{ latest_pass: window, last_7_days: window }} steps={steps} />)
+    render(<Onboarding templates={TEMPLATES} intake={{ latest_pass: window, last_7_days: window }} wouldDiscard={3} steps={steps} />)
     expect(screen.getByText('Last 7 days, passes: 2')).toBeInTheDocument()
     expect(screen.getByText('location 5')).toBeInTheDocument()
-    expect(screen.getByText(/let 4 posting\(s\) through so far/)).toBeInTheDocument()
+    expect(screen.getByText(/let 4 posting\(s\) through so far/)).toHaveTextContent(
+        'Your current requirements would discard 3 of them for free first.')
     const button = screen.getByRole('button', { name: 'Confirm profile and start evaluating' })
     fireEvent.click(button)
     expect(await screen.findByRole('alert')).toHaveTextContent('Fill in the candidate profile first')
