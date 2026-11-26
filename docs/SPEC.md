@@ -1366,8 +1366,8 @@ worker modules are pure and dependency-injected; real services are wired only in
   JD simply yields nothing that cycle — while the `feed_unresolved` record surfaces the
   silently-broken scraper in MCP `list_sources` (dropping, not storing a discard,
   keeps the id re-fetchable so the board self-heals if a later cycle returns the body, which
-  also clears its `empty_description` record: `db.clear_empty_descriptions`, for every URL
-  the board returned with a body. A stub-gate board does not return what its gate drops, and
+  also clears its record: `db.clear_empty_descriptions` deletes every `feed="watchlist"` or
+  `empty_description` row for a URL the board returned with a body. A stub-gate board does not return what its gate drops, and
   no board returns what it delisted: those records stay).
   Gate discards are exempt —
   the stub gate returns those deliberately un-hydrated and they never reach the screen. `screen_posting`
@@ -2242,11 +2242,13 @@ Triage evidence with duplicate object members at its root, screen map, or check 
 - **Unresolvable listings are recorded, not dropped.** A URL the resolver can't map
   to a supported board+slug (an *unparseable* workday URL, embedded greenhouse,
   unsupported host) is upserted into `feed_unresolved` (`host` + `reason`), keyed on
-  `url`. When a later pass successfully (re-)ingests a posting for that URL, its
-  `feed_unresolved` row is cleared (`db.delete_unresolved`), so a transient board failure
-  doesn't permanently pollute the backlog; a watchlist `empty_description` row is cleared
-  once its board returns that URL with a description. One bad board never aborts the batch (per-group
-  try/except, mirroring `run_fetch`).
+  `url`. A watchlist record outranks a feed's: it takes the row over, and a feed write to a
+  watchlist row refreshes only `updated_at` (run_fetch writes before run_feed in a pass);
+  between two feeds the last writer wins. When a later pass successfully (re-)ingests a
+  posting for that URL, its `feed_unresolved` row is cleared (`db.delete_unresolved`), so a
+  transient board failure doesn't permanently pollute the backlog; any watchlist or
+  `empty_description` row is cleared once a board returns that URL with a description. One
+  bad board never aborts the batch (per-group try/except, mirroring `run_fetch`).
 - **Detail-fetch sources fetch one job per surfaced id.** A source with no public
   board-list endpoint (`fetch.DETAIL_SOURCES`, e.g. `oracle`, `jobvite`) is ingested by
   fetching each surfaced id directly via `fetch_one` (per-id try/except → one bad

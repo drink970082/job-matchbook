@@ -1050,12 +1050,18 @@ def test_list_sources_groups_recent_unresolved_listings(tmp_path):
     conn = sqlite3.connect(path)
     now = datetime(2026, 11, 24, tzinfo=timezone.utc)
     for url, feed, host, reason, created, updated in (
-            ("https://a.co/1?token=s3cret", "simplify", "a.co", "unsupported_host",
-             "2026-08-01T00:00:00.000Z", "2026-11-23T00:00:00.000Z"),   # newest: first, smallest URL
+            # The group's newest row has the larger URL: the example is the newest, not MIN(url).
+            ("https://a.co/9?token=s3cret", "simplify", "a.co", "unsupported_host",
+             "2026-08-01T00:00:00.000Z", "2026-11-23T00:00:00.000Z"),
             ("https://a.co/2", "simplify", "a.co", "unsupported_host", "2026-11-01T00:00:00.000Z", None),
+            # Older than every h* group: ordered by last seen, it falls outside the cap.
             ("https://a.co/3", "simplify", "a.co", "detail_fetch_failed", "2026-11-02T00:00:00.000Z", None),
             ("https://b.co/4", "watchlist", "b.co", "empty_description", "2026-11-03T00:00:00.000Z", None),
-            ("https://old.co/5", "simplify", "old.co", "unsupported_host", "2026-08-01T00:00:00.000Z", None)):
+            ("https://old.co/5", "simplify", "old.co", "unsupported_host", "2026-08-01T00:00:00.000Z", None),
+            # Seen after a.co's pair, but one row: count orders before recency.
+            ("https://c.co/6", "simplify", "c.co", "detail_fetch_failed", "2026-11-24T00:00:00.000Z", None),
+            # Same reason and host as a.co's pair, another feed: its own group.
+            ("https://a.co/7", "other", "a.co", "unsupported_host", "2026-11-05T00:00:00.000Z", None)):
         conn.execute("INSERT INTO feed_unresolved (feed,url,company_name,job_title,host,reason,created_at,"
                      "updated_at) VALUES (?,?,'C','T',?,?,?,?)", (feed, url, host, reason, created, updated))
     for i in range(60):
@@ -1065,11 +1071,14 @@ def test_list_sources_groups_recent_unresolved_listings(tmp_path):
     conn.commit()
     conn.close()
     out = ReadOnlyATSRepository(path, clock=lambda: now).list_sources()["unresolved"]
-    assert out["listings"] == 64 and out["groups_total"] == 63 and len(out["groups"]) == 50
-    # A one-row broken scraper leads, so the cap cannot hide it.
-    assert (out["groups"][0]["reason"], out["groups"][0]["host"]) == ("empty_description", "b.co")
+    assert out["listings"] == 66 and out["groups_total"] == 65 and len(out["groups"]) == 50
+    # A one-row broken scraper leads, so the cap cannot hide it; then count, then recency.
+    assert [(g["feed"], g["reason"], g["host"], g["count"]) for g in out["groups"][:4]] == [
+        ("watchlist", "empty_description", "b.co", 1), ("simplify", "unsupported_host", "a.co", 2),
+        ("simplify", "detail_fetch_failed", "c.co", 1), ("other", "unsupported_host", "a.co", 1)]
     first = out["groups"][1]
-    assert (first["feed"], first["reason"], first["host"], first["count"], first["last_seen_at"]) == (
-        "simplify", "unsupported_host", "a.co", 2, "2026-11-23T00:00:00.000Z")
-    assert first["example_url"].startswith("https://a.co/1") and "s3cret" not in first["example_url"]
+    assert first["last_seen_at"] == "2026-11-23T00:00:00.000Z"
+    assert first["example_url"].startswith("https://a.co/9") and "s3cret" not in first["example_url"]
+    # Equal count and recency fall back to feed, reason, host: h00..h45 fill the cap.
+    assert [g["host"] for g in out["groups"][4:]] == [f"h{i:02}.co" for i in range(46)]
     assert "old.co" not in {g["host"] for g in out["groups"]}

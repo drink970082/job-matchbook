@@ -7,6 +7,15 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 
 ## [Unreleased]
 
+### Fixed
+
+- **A feed no longer overwrites a watchlist unresolved row (#229)**: when the watchlist and a
+  feed recorded the same URL in one pass, the feed's reason replaced the board's
+  `empty_description`, and the row was never cleared. A watchlist record now outranks a
+  feed's, and a board that returns the URL with a body clears any watchlist or
+  `empty_description` row, so a row left wrong by the old upsert heals on its board's next
+  pass if the board still lists the URL.
+
 ### Added
 
 - **Unresolved listings (#232)**: MCP `list_sources` groups the listings last seen unresolved

@@ -325,12 +325,23 @@ def record_unresolved(conn: sqlite3.Connection, *, feed: str, url: str,
                       now: str) -> None:
     """Record a feed listing whose URL couldn't be mapped to a supported board.
     Upsert on `url` so repeated passes refresh `updated_at` instead of piling up.
+
+    One row per URL, so the writers rank: a watchlist finding (the board's own scraper
+    returned no JD) takes the row over, and a feed never overwrites it. run_fetch writes
+    before run_feed in a pass; without the rank the feed's reason landed on a watchlist
+    row, which clear_empty_descriptions then never removed. Between two feeds the last
+    writer wins, feed and reason together.
     """
     conn.execute(
         "INSERT INTO feed_unresolved "
         "(feed, url, company_name, job_title, host, reason, created_at) "
         "VALUES (:feed, :url, :company_name, :job_title, :host, :reason, :now) "
-        "ON CONFLICT(url) DO UPDATE SET updated_at=:now, reason=:reason, host=:host",
+        "ON CONFLICT(url) DO UPDATE SET updated_at=excluded.created_at, "
+        "feed=CASE WHEN feed='watchlist' THEN feed ELSE excluded.feed END, "
+        "reason=CASE WHEN feed='watchlist' AND excluded.feed<>'watchlist' THEN reason "
+        "ELSE excluded.reason END, "
+        "host=CASE WHEN feed='watchlist' AND excluded.feed<>'watchlist' THEN host "
+        "ELSE excluded.host END",
         {"feed": feed, "url": url, "company_name": company_name,
          "job_title": job_title, "host": host, "reason": reason, "now": now},
     )
@@ -347,9 +358,11 @@ def delete_unresolved(conn: sqlite3.Connection, url: str) -> None:
 
 
 def clear_empty_descriptions(conn: sqlite3.Connection, urls) -> None:
-    """Clear the `empty_description` rows of URLs that came back with a body. Only that
-    reason: a feed's unsupported_host row for the same URL is still true of the feed."""
-    conn.executemany("DELETE FROM feed_unresolved WHERE url = ? AND reason='empty_description'",
+    """Clear the rows of URLs the board returned with a body that the body disproves: any
+    watchlist row, and any `empty_description`. A feed's unsupported_host row for the same
+    URL is still true of the feed (it re-records it every pass), so it stays."""
+    conn.executemany("DELETE FROM feed_unresolved WHERE url = ? "
+                     "AND (feed='watchlist' OR reason='empty_description')",
                      [(u,) for u in urls])
     conn.commit()
 
