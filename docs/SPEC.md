@@ -663,9 +663,9 @@ worker modules are pure and dependency-injected; real services are wired only in
   (`json`, `next-data`, browser), and reject any other key, so a misspelled `item_pth` is refused
   naming the key. A `browser` `fields` map is the one open map (helper fields feed a `url`
   template), so only its value shapes are checked. It is validated at every entry point: the web
-  add path (`addWatchedCompany`, so the Sources tab and `POST /api/v1/watchlist`; MCP
-  `add_source` sends no recipe, known-ATS boards only, until #239) via zod's `fromJSONSchema` (`lib/recipe-schema.ts`); the `config.yaml` seed
-  (`ConfigError`), onboard-board's `add_watched.py`, and `fetch_company` before any request via
+  add path (`addWatchedCompany`, so the Sources tab and `POST /api/v1/watchlist`, which
+  onboard-board's `add_watched.py` calls; MCP `add_source` sends no recipe, known-ATS boards only, until #239) via zod's `fromJSONSchema` (`lib/recipe-schema.ts`); the `config.yaml` seed
+  (`ConfigError`) and `fetch_company` before any request via
   `jsonschema` (`ats_worker/recipe_schema.py`). An invalid stored recipe therefore fails only its
   own board: `run_fetch` logs `skipped after error: invalid custom recipe: ...` and the pass
   goes on. `worker/tests/fixtures/recipe-cases.json` runs through both validators, so they cannot
@@ -1699,7 +1699,9 @@ worker modules are pure and dependency-injected; real services are wired only in
     host-injection metacharacters while still allowing multi-part slugs like
     workday's `tenant/dc/site`; `dryRun` returns the resolved `{source, slug, name,
     recipe}` after every check and adds nothing, for MCP `add_source`'s verify; a web add
-    is not fetched, the row reading `never_fetched` until the next worker pass) and
+    is not fetched, the row reading `never_fetched` until the next worker pass; a
+    `browser` add carries `warning` in the returned data unless the latest pass record
+    says browser sources are on) and
     `removeWatchedCompany` back the Sources tab and the
     MCP write API. `lib/board-url.ts` (`resolveBoardUrl`) maps board and job URLs on
     greenhouse, lever, ashby, smartrecruiters, workable, workday, pinpoint and icims to
@@ -2280,10 +2282,19 @@ Triage evidence with duplicate object members at its root, screen map, or check 
   — in the worker (`db.board_health`, for MCP `list_sources`) and
   the web (`lib/board-health.ts`, for the Sources tab), pinned by
   `worker/tests/fixtures/board-health-cases.json` in both suites.
-- **Adds are verified where a fetch can run.** MCP `add_source` (on the host) reads
-  the board's list once and adds it only if it lists a posting, never making a
-  per-posting detail call; the web add cannot fetch, so its
+- **Adds are verified where a fetch can run.** MCP `add_source` and onboard-board's
+  `add_watched.py` (on the host; the latter reads the key from `ATS_API_KEY` or
+  `~/.config/ats-mcp/api-key` and never opens the DB) read
+  a known-ATS board's list once and add it only if it lists a posting, never making a
+  per-posting detail call; the script adds a recipe board unfetched (the skill validates
+  the recipe first); the web add cannot fetch, so its
   row reads `never_fetched` until the next pass records it.
+- **A browser board added while browser sources are off is warned about, not refused
+  (#233).** `addWatchedCompany` (Sources tab, `/api/v1/watchlist`, dry run included) reads
+  the flag from the latest pass record (`worker_runs.config_json.browser_sources`) and
+  returns a `warning` unless that pass recorded it on. Neither the URL form nor
+  MCP `add_source` can add a recipe board today, so the caller that sees it is an
+  `/api/v1` add with a recipe.
 
 **Web ↔ pipeline seam** (`lib/job-actions.ts`):
 
@@ -2542,7 +2553,7 @@ automated coverage — those rely on code review or the human in the loop, not a
 | Embedded-greenhouse enriching resolver (token scrape → greenhouse ingest) | `test_embedded_gh.py` |
 | SSRF guard (`is_safe_public_url` / `get_redirect_safe` re-validates every redirect hop) + util helpers | `test_util.py` |
 | Config load/validate (sources, slugs, recipes, candidate block, and screen-only fit-profile skip) | `test_config.py` |
-| `add_watched` CLI watchlist write boundary | `test_add_watched.py` |
+| onboard-board `add_watched.py` adds through `/api/v1/watchlist` (dry run, platform verify, add; no key or no web fails with the reason, no DB write) | `test_add_watched.py` |
 | Cross-service sync guard (source enums + low-context threshold + SPEC's source-coverage matrix) | `test_source_enums_sync.py` |
 | Quota telemetry is one HTTP GET per pass against the ACTIVE backend's usage endpoint (codex `/backend-api/codex/usage`, Claude Code `/api/oauth/usage`), **retried up to `_ATTEMPTS` (4) on a retryable failure — 403/429/5xx and transport errors — while a 401/404 is a verdict and is not retried**; `capture_usage` never raises and keeps the last-good snapshot on a failed fetch | `test_usage.py` (`test_which_statuses_are_worth_retrying`, `test_a_retryable_failure_is_retried_and_the_recovery_is_kept`, `test_a_verdict_status_is_not_retried`, `test_the_attempt_bound_and_the_sleep_schedule_are_the_module_defaults`, `test_fetch_codex_usage_normalizes_the_window`, `test_codex_usage_sends_a_non_default_user_agent`, `test_fetch_claude_usage_prefers_the_limits_array_and_keeps_the_model_scope`, `test_claude_usage_falls_back_to_the_flat_buckets`, `test_capture_usage_keeps_the_last_good_snapshot_when_the_fetch_fails`, `test_capture_usage_never_raises`), `test_run.py`  |
 | A failed quota capture is announced **with its cause**, not swallowed — every route to a `False` return names what happened (status+reason, exception type, or which precondition failed — including a 200 whose body is not an object, and on the claude path as well as codex), including `http.client.HTTPException`, which subclasses neither `OSError` nor `ValueError`; plus the `[quota] WARNING` on the `False` return, and an offset-aware `as_of` in every written snapshot so a stale reading is legible without an mtime check | `test_usage.py` (`test_get_json_names_the_http_status_when_the_provider_raises`, `test_get_json_names_the_exception_when_the_connection_fails`, `test_a_truncated_body_is_caught_and_named`, `test_a_200_with_no_usable_window_says_so_instead_of_going_quiet`, `test_a_200_that_is_not_the_expected_shape_says_so`, `test_a_200_whose_body_is_not_an_object_says_so`, `test_an_unanticipated_failure_cannot_colour_the_pass_and_still_says_why`, `test_capture_usage_stamps_as_of_so_a_stale_reading_is_legible`), `test_run.py`  |
@@ -2558,7 +2569,7 @@ automated coverage — those rely on code review or the human in the loop, not a
 | Integration-harness self-check (real Prisma round-trip on the temp DB) | `web/src/__tests__/harness.int.test.ts` |
 | Dead-link sweep: 404/410 → `source_state='closed'` (lifecycle untouched), every other error, a missing recheck key or an adapter `None` records `inconclusive`, a served posting records `found` (clearing an earlier category), every check rotates the row, workday is fetched by the `/job/...` path from the stored `job_url` (never the GUID), closed rows not rechecked | `test_pipeline.py` (`run_expire`), `test_fetch_new.py` (`recheck_id`, `test_stored_workday_row_rechecks_at_a_well_formed_job_url`) |
 | Board absence closes: 3rd consecutive successful non-empty list without the id closes it, a failed or empty fetch never counts, relisting reopens; filter- and stub-gate-dropped ids still stamped seen; board-scoped stamp and count; workday/smartrecruiters/phenom/browser/icims/custom never close by absence; closed rows leave the screen and JEV queues | `test_closure.py` |
-| Per-board last-pass record: run_fetch writes `ok` + figures or the error category (NULL counts) and fetches the next board, a failed record write is logged and neither stops the pass nor fails a fetched board; a skipped browser row reads `disabled`; `kept` excludes gate discards and bodyless; detail failures are counted per board (workday, smartrecruiters through the real adapter); details_failed / bodyless / kept_zero tell nothing-kept apart, and a majority of failures or bodyless is not ok; a stub-gate board counts the stubs it listed; MCP `list_sources` and web `getWatchedCompanies` read the same columns and `health` from one shared fixture; the Sources tab tells never fetched / failed / empty / kept 0 / teaser apart; MCP `add_source` adds only a board whose list (no detail call; smartrecruiters and icims read one list page; recipe boards refused) verifies (404, empty or error rejected, the web dry run first), a web add is not fetched | `test_smartrecruiters.py::test_fetch_skips_the_detail_get_of_a_dropped_stub_and_hydrates_the_rest`, `test_fetch.py` (`test_board_has_listings_*`), `test_run.py` (`test_run_once_gates_browser_sources`, `test_a_failed_disabled_write_does_not_stop_the_pass`), `test_pipeline.py` (`test_run_fetch_records_each_boards_health_on_its_watchlist_row`, `test_a_failing_board_records_its_error_category_and_the_pass_goes_on`, `test_a_health_write_that_fails_does_not_stop_the_pass`, `test_a_failed_health_write_after_a_good_fetch_keeps_the_board_ok`, `test_a_gate_discard_is_not_kept_and_not_measured`, `test_phenom_whose_hydrated_postings_all_came_back_bodyless_is_not_ok`, `test_workday_whose_every_detail_get_was_throttled_reads_details_failed`, `test_smartrecruiters_listing_812_with_every_detail_failing_reads_details_failed`, `test_a_board_mostly_losing_its_details_is_not_healthy`, `test_a_board_whose_every_posting_came_back_bodyless_is_not_kept_zero`, `test_a_stub_gate_board_counts_what_it_listed_not_what_it_returned`), `test_mcp_write.py` (`test_list_sources_returns_each_boards_last_pass_health`, `test_add_source_rejects_a_board_its_fetch_cannot_verify`, `test_add_source_verifies_a_smartrecruiters_board_from_its_list_page_alone`, `test_add_source_without_a_fetcher_refuses_rather_than_adding_unverified`), `web/src/__tests__/watchlist.int.test.ts`, `api-v1.int.test.ts`, `web/src/components/__tests__/SourcesTab.test.tsx` |
+| Per-board last-pass record: run_fetch writes `ok` + figures or the error category (NULL counts) and fetches the next board, a failed record write is logged and neither stops the pass nor fails a fetched board; a skipped browser row reads `disabled`; `kept` excludes gate discards and bodyless; detail failures are counted per board (workday, smartrecruiters through the real adapter); details_failed / bodyless / kept_zero tell nothing-kept apart, and a majority of failures or bodyless is not ok; a stub-gate board counts the stubs it listed; MCP `list_sources` and web `getWatchedCompanies` read the same columns and `health` from one shared fixture; the Sources tab tells never fetched / failed / empty / kept 0 / teaser apart; MCP `add_source` adds only a board whose list (no detail call; smartrecruiters and icims read one list page; recipe boards refused) verifies (404, empty or error rejected, the web dry run first), a web add is not fetched; a browser add warns unless the latest pass recorded browser sources on | `test_smartrecruiters.py::test_fetch_skips_the_detail_get_of_a_dropped_stub_and_hydrates_the_rest`, `test_fetch.py` (`test_board_has_listings_*`), `test_run.py` (`test_run_once_gates_browser_sources`, `test_a_failed_disabled_write_does_not_stop_the_pass`), `test_pipeline.py` (`test_run_fetch_records_each_boards_health_on_its_watchlist_row`, `test_a_failing_board_records_its_error_category_and_the_pass_goes_on`, `test_a_health_write_that_fails_does_not_stop_the_pass`, `test_a_failed_health_write_after_a_good_fetch_keeps_the_board_ok`, `test_a_gate_discard_is_not_kept_and_not_measured`, `test_phenom_whose_hydrated_postings_all_came_back_bodyless_is_not_ok`, `test_workday_whose_every_detail_get_was_throttled_reads_details_failed`, `test_smartrecruiters_listing_812_with_every_detail_failing_reads_details_failed`, `test_a_board_mostly_losing_its_details_is_not_healthy`, `test_a_board_whose_every_posting_came_back_bodyless_is_not_kept_zero`, `test_a_stub_gate_board_counts_what_it_listed_not_what_it_returned`), `test_mcp_write.py` (`test_list_sources_returns_each_boards_last_pass_health`, `test_add_source_rejects_a_board_its_fetch_cannot_verify`, `test_add_source_verifies_a_smartrecruiters_board_from_its_list_page_alone`, `test_add_source_without_a_fetcher_refuses_rather_than_adding_unverified`), `web/src/__tests__/watchlist.int.test.ts`, `api-v1.int.test.ts`, `web/src/components/__tests__/SourcesTab.test.tsx` |
 | Explicit one-shot source refresh stays within 1–25 SmartRecruiters requests without following redirects, selects only unscored/unlinked rows without fit assessment, validates identity and visible core JD content, preserves state on inconclusive/closed results, reopens source availability without relabeling detail-check time, and skips concurrent eligibility changes | `test_source_lifecycle.py`, `test_run.py::test_run_once_unscored_refresh_runs_as_an_isolated_source_only_mode`, `test_smartrecruiters.py` |
 | Explicitly inactive SmartRecruiters details cannot insert or reopen a source observation on normal feed/watchlist ingestion; missing `active` remains compatible and normal ingest never records closure | `test_smartrecruiters.py` (`test_fetch_one_rejects_an_explicitly_inactive_detail`, `test_fetch_skips_explicitly_inactive_detail_but_keeps_missing_active_compatibility`), `test_feed_pipeline.py` (`test_run_feed_does_not_insert_smartrecruiters_explicitly_inactive_detail`, `test_run_fetch_does_not_reopen_closed_smartrecruiters_row_from_inactive_detail`), `test_source_lifecycle.py` |
 | Complete source content is hashed/revisioned; duplicate listings only advance seen time; completed fit and standalone assessments capture the source revision; changed content never triggers a provider rerun | `test_source_lifecycle.py`, `test_db.py`, `test_screen_pipeline.py` |
@@ -2643,8 +2654,8 @@ automated coverage — those rely on code review or the human in the loop, not a
 - **Security:** the JOB text is marked as *data, not instructions* in the screen
   prompt (a posting can't inject directives); secrets live only in the gitignored
   `.env`, read by `run.py`.
-  Watchlist **slugs** are structurally validated at all three write boundaries
-  (`watchlist-actions.ts`, `config.py`, `add_watched.py`); the two sources that pack a hostname
+  Watchlist **slugs** are structurally validated at both write boundaries
+  (`watchlist-actions.ts`, `config.py`; onboard-board's `add_watched.py` writes through the first); the two sources that pack a hostname
   in the slug additionally run the built host through `is_safe_public_url` in their
   `_parts` (`phenom` — the segment *is* the host; `workday` — belt-and-braces, its
   `.myworkdayjobs.com` suffix is hardcoded), so an internal-IP slug raises instead

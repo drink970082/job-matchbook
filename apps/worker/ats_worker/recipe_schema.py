@@ -3,8 +3,8 @@
 The schema is web-owned (apps/web/src/lib/recipe.schema.json, beside the TS validator
 the web add path uses), the same way Prisma owns the table schema; the worker reads it
 from the checkout. Entry points on this side: `fetch_company` before any request (an
-invalid stored row is a per-board error the pass logs and skips), the config.yaml seed,
-and onboard-board's add_watched.py.
+invalid stored row is a per-board error the pass logs and skips) and the config.yaml
+seed.
 """
 from __future__ import annotations
 

@@ -42,6 +42,11 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
   or a fetch error with the reason; a web add stays unverified until the next
   pass. **Operator step:** `make db-push` (eight new nullable columns), then restart
   ats-web and the MCP server.
+- **Browser boards warn at add time (#233)**: adding a `browser` board while the latest
+  worker pass did not record browser sources on returns a
+  `warning` naming `enable_browser_sources`; the board is still added. The check is in the
+  shared add action; of its callers, only an `/api/v1/watchlist` add with a recipe can
+  carry a `browser` board today.
 - **The Activity strip reads the pass record (#249)**: it shows the latest `worker_runs`
   row (when it started, finished in how long or still running, what it ran with, one
   line per stage: fetch board failures, feeds, closures, aged out, screen errors and
@@ -123,6 +128,12 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 
 ### Changed
 
+- **onboard-board adds go through `/api/v1` (#235)**: `add_watched.py` calls
+  `POST /api/v1/watchlist` with the MCP write key (`ATS_API_KEY`, else
+  `~/.config/ats-mcp/api-key`) instead of inserting into `watched_companies`, so a skill
+  add gets the web's validation and an `audit_log` row (`actor='mcp'`). A platform board
+  is verified from its list first, as in `add_source`; no key or no reachable web app
+  fails with the reason. `--db` is gone.
 - **One effective status, read from the stored verdict (#226)**: web and MCP read a
   posting's status as the operator override decision if one exists, else
   `job_postings.verdict`, one `CASE` on each side pinned by the shared

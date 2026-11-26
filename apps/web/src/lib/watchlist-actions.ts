@@ -6,6 +6,7 @@ import { checkedActor } from '@/lib/action-helpers'
 import { resolveBoardUrl, SLUG_OK } from '@/lib/board-url'
 import { recipeErrors } from '@/lib/recipe-schema'
 import { boardHealth } from '@/lib/board-health'
+import { parseObject } from '@/lib/pass-record'
 
 // --- Watchlist (DB-backed; the worker fetches these companies in full) ------
 // The watchlist moved out of the worker's config.yaml into the DB. The Sources tab and
@@ -39,12 +40,26 @@ export async function getWatchedCompanies() {
     })), total }
 }
 
+// A browser-recipe board is fetched only while `enable_browser_sources` is on in the
+// worker's config.yaml; the web reads that flag from the latest pass record (#233). The
+// flag never refuses an add: the row is valid and waits for it.
+async function browserWarning(source: string): Promise<string | null> {
+    if (source !== 'browser') return null
+    const run = await prisma.worker_runs.findFirst({ orderBy: [{ started_at: 'desc' }, { id: 'desc' }], select: { config_json: true } })
+    const on = run ? parseObject(run.config_json).browser_sources : undefined
+    if (on === true) return null
+    return (on === false ? 'Browser sources were off in the latest worker pass'
+        : 'The latest worker pass did not record whether browser sources are on, or none has run')
+        + ': the worker skips this board unless it starts with enable_browser_sources on in config.yaml.'
+}
+
 // A watchlist add by careers/job URL (resolved by lib/board-url.ts, shared with MCP via
 // /api/v1/watchlist) or by explicit source + slug. The web cannot fetch a board, so a
 // web add is unverified: the row reads `never_fetched` until the next worker pass
 // records its health. `dryRun` runs every check and returns the resolved board without
 // adding it: MCP add_source calls it, fetches that board through the worker's adapter,
-// and adds only a board that lists postings (#231).
+// and adds only a board that lists postings (#231). A browser board carries a
+// `warning` in the returned data, dry run included, unless the flag is known to be on.
 const NEEDS_RECIPE = 'This site needs a custom recipe - set it up from your AI client with the onboard-board skill.'
 
 export async function addWatchedCompany(input: {
@@ -107,7 +122,9 @@ export async function addWatchedCompany(input: {
         if (existing) {
             return { success: false, error: `${source}/${slug} is already on the watchlist` }
         }
-        if (input.dryRun) return { success: true, data: { source, slug, name, recipe } }
+        const warning = await browserWarning(source)
+        const warned = warning ? { warning } : {}
+        if (input.dryRun) return { success: true, data: { source, slug, name, recipe, ...warned } }
 
         const created = await prisma.$transaction(async (tx) => {
             const row = await tx.watched_companies.create({
@@ -116,7 +133,7 @@ export async function addWatchedCompany(input: {
             await tx.audit_log.create({ data: watchlistAudit(actor, 'add', row) })
             return row
         })
-        return { success: true, data: created }
+        return { success: true, data: { ...created, ...warned } }
     } catch (error: any) {
         return { success: false, error: error.message }
     }
