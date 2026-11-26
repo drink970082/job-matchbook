@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import {
     Dialog,
     DialogContent,
@@ -39,14 +39,18 @@ export function ApplyCategoryDialog({ open, categories, companyName, jobTitle, m
     const [category, setCategory] = useState<string>(categories[0] ?? '')
     const [date, setDate] = useState(todayISO())
     const [busy, setBusy] = useState(false)
+    // The latest call: a reply from an earlier opening (another job) must not re-enable
+    // the buttons while this opening's call is still in flight.
+    const latest = useRef(0)
 
     // One call at a time.
     const run = async (call: () => void | Promise<void>) => {
+        const mine = ++latest.current
         setBusy(true)
         try {
             await call()
         } finally {
-            setBusy(false)
+            if (latest.current === mine) setBusy(false)
         }
     }
 

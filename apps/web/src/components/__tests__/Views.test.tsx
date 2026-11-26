@@ -140,6 +140,50 @@ test('a late success leaves the dialog of another job open', async () => {
     expect(screen.getByRole('dialog')).toHaveTextContent('Ops')
 })
 
+test("a late reply does not re-enable another job's button while its own call is in flight", async () => {
+    const late = deferred<any>()
+    const own = deferred<any>()
+    ;(jobActions.markJobApplied as jest.Mock).mockReset().mockReturnValueOnce(late.promise).mockReturnValueOnce(own.promise)
+    const other = { ...applyRow, id: 8, job_title: 'Ops', job_url: 'https://x.test/8' }
+    render(<JobsView {...jobProps} initialJobPostings={[applyRow, other]} totalJobPostings={2} />)
+    fireEvent.click(screen.getByRole('button', { name: 'Mark applied: Eng' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Mark Applied' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Mark applied: Ops' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Mark Applied' }))
+    await act(async () => { late.resolve({ success: true }) })
+    expect(screen.getByRole('button', { name: 'Mark Applied' })).toBeDisabled()
+    fireEvent.click(screen.getByRole('button', { name: 'Mark Applied' }))
+    expect(jobActions.markJobApplied).toHaveBeenCalledTimes(2)
+    await act(async () => { own.resolve({ success: true }) })
+})
+
+test("a late success leaves another job's detail open", async () => {
+    const late = deferred<any>()
+    ;(jobActions.markJobApplied as jest.Mock).mockReset().mockReturnValueOnce(late.promise)
+    const other = { ...applyRow, id: 8, job_title: 'Ops', job_url: 'https://x.test/8' }
+    render(<JobsView {...jobProps} initialJobPostings={[applyRow, other]} totalJobPostings={2} />)
+    fireEvent.click(screen.getByRole('button', { name: 'Mark applied: Eng' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Mark Applied' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
+    fireEvent.click(screen.getByRole('button', { name: 'View JD: Ops' }))
+    expect(screen.getByRole('dialog')).toHaveTextContent('Ops')
+    await act(async () => { late.resolve({ success: true }) })
+    expect(screen.getByRole('dialog')).toHaveTextContent('Ops')
+})
+
+test('Link is disabled while the link call is in flight: a double click links once', async () => {
+    const late = deferred<any>()
+    ;(linkActions.linkApplication as jest.Mock).mockReset().mockReturnValueOnce(late.promise)
+    render(<JobsView {...jobProps} initialJobPostings={[{ ...applyRow, applied_match: MATCH }]} totalJobPostings={1} />)
+    fireEvent.click(screen.getByRole('button', { name: 'Mark applied: Eng' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Link to application #9' }))
+    expect(screen.getByRole('button', { name: 'Link to application #9' })).toBeDisabled()
+    fireEvent.click(screen.getByRole('button', { name: 'Link to application #9' }))
+    expect(linkActions.linkApplication).toHaveBeenCalledTimes(1)
+    await act(async () => { late.resolve({ success: true }) })
+})
+
 test('cancelling Mark Applied while it is in flight: a late match does not reopen the dialog', async () => {
     const late = deferred<any>()
     ;(jobActions.markJobApplied as jest.Mock).mockReturnValueOnce(late.promise)
