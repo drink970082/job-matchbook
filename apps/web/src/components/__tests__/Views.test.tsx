@@ -4,7 +4,9 @@ import { JobsView } from '@/components/JobsView'
 import { ActivityTab } from '@/components/ActivityTab'
 import { Onboarding } from '@/components/Onboarding'
 import * as applicationActions from '@/lib/application-actions'
+import * as analyticsActions from '@/lib/analytics-actions'
 import * as jobActions from '@/lib/job-actions'
+import * as linkActions from '@/lib/link-actions'
 import * as watchlistActions from '@/lib/watchlist-actions'
 import * as activityActions from '@/lib/activity-actions'
 
@@ -16,6 +18,7 @@ jest.mock('@/lib/analytics-actions')
 jest.mock('@/lib/csv-actions')
 jest.mock('@/lib/watchlist-actions')
 jest.mock('@/lib/job-actions')
+jest.mock('@/lib/link-actions')
 jest.mock('@/lib/profile-actions')
 jest.mock('@/lib/category-actions')
 jest.mock('@/lib/activity-actions')
@@ -78,6 +81,100 @@ test('Not interested writes a skip override and offers Undo', async () => {
     await waitFor(() => expect(jobActions.getJobPostings).toHaveBeenCalled())
     expect(jobActions.setTriageOverride).toHaveBeenCalledTimes(1)
     expect(jobActions.setTriageOverride).toHaveBeenCalledWith(7, 'skip', 'Not interested (web)')
+})
+
+const MATCH = { id: 9, tier: 2 as const, company_name: 'ACME', job_title: 'eng', date_applied: '2026-11-02' }
+const applyRow = { id: 7, source: 's', company_name: 'Acme', job_title: 'Eng', job_url: 'https://x.test/7', pipeline_status: 'new' }
+
+test('a posting that matches an application says so and offers to link it', async () => {
+    ;(linkActions.linkApplication as jest.Mock).mockResolvedValue({ success: true })
+    render(<JobsView {...jobProps} initialJobPostings={[{ ...applyRow, applied_match: MATCH }]} totalJobPostings={1} />)
+    expect(screen.getByText('You may have applied already (application #9)')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Mark applied: Eng' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Link to application #9' }))
+    await waitFor(() => expect(linkActions.linkApplication).toHaveBeenCalledWith(9, 7))
+    expect(jobActions.markJobApplied).not.toHaveBeenCalled()
+})
+
+test('a match found at write time turns the dialog into the same choice; New keeps the chosen date', async () => {
+    ;(jobActions.markJobApplied as jest.Mock).mockResolvedValueOnce({ success: false, error: 'x', match: MATCH }).mockResolvedValueOnce({ success: true })
+    render(<JobsView {...jobProps} initialJobPostings={[applyRow]} totalJobPostings={1} />)
+    fireEvent.click(screen.getByRole('button', { name: 'Mark applied: Eng' }))
+    fireEvent.change(screen.getByLabelText('Date applied'), { target: { value: '2026-11-03' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Mark Applied' }))
+    await waitFor(() => expect(screen.getByRole('button', { name: 'It is a new application' })).toBeEnabled())
+    expect(screen.getByRole('alert')).toHaveTextContent('application #9')
+    fireEvent.click(screen.getByRole('button', { name: 'It is a new application' }), { detail: 2 }) // a double click's second
+    expect(jobActions.markJobApplied).toHaveBeenCalledTimes(1)
+    fireEvent.click(screen.getByRole('button', { name: 'It is a new application' }))
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+    await waitFor(() => expect(jobActions.markJobApplied).toHaveBeenCalledTimes(2))
+    const calls = (jobActions.markJobApplied as jest.Mock).mock.calls
+    expect(calls.map((c) => [c[0], c[1], c[4]])).toEqual([
+        [7, 'SWE', { date: '2026-11-03', createNew: false }], [7, 'SWE', { date: '2026-11-03', createNew: true }]])
+})
+
+test('a second click while Mark Applied is in flight writes nothing more', async () => {
+    const late = deferred<any>()
+    ;(jobActions.markJobApplied as jest.Mock).mockReset().mockReturnValueOnce(late.promise)
+    render(<JobsView {...jobProps} initialJobPostings={[applyRow]} totalJobPostings={1} />)
+    fireEvent.click(screen.getByRole('button', { name: 'Mark applied: Eng' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Mark Applied' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Mark Applied' }))
+    expect(jobActions.markJobApplied).toHaveBeenCalledTimes(1)
+    await act(async () => { late.resolve({ success: true }) })
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+})
+
+test('a late success leaves the dialog of another job open', async () => {
+    const late = deferred<any>()
+    ;(jobActions.markJobApplied as jest.Mock).mockReturnValueOnce(late.promise)
+    const other = { ...applyRow, id: 8, job_title: 'Ops', job_url: 'https://x.test/8' }
+    render(<JobsView {...jobProps} initialJobPostings={[applyRow, other]} totalJobPostings={2} />)
+    fireEvent.click(screen.getByRole('button', { name: 'Mark applied: Eng' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Mark Applied' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Mark applied: Ops' }))
+    expect(screen.getByRole('button', { name: 'Mark Applied' })).toBeEnabled()
+    await act(async () => { late.resolve({ success: true }) })
+    expect(screen.getByRole('dialog')).toHaveTextContent('Ops')
+})
+
+test('cancelling Mark Applied while it is in flight: a late match does not reopen the dialog', async () => {
+    const late = deferred<any>()
+    ;(jobActions.markJobApplied as jest.Mock).mockReturnValueOnce(late.promise)
+    render(<JobsView {...jobProps} initialJobPostings={[applyRow]} totalJobPostings={1} />)
+    fireEvent.click(screen.getByRole('button', { name: 'Mark applied: Eng' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Mark Applied' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
+    await act(async () => { late.resolve({ success: false, error: 'x', match: MATCH }) })
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+})
+
+test('adding an application opens its candidates when it has any, and only then', async () => {
+    const add = async () => {
+        fireEvent.change(screen.getByPlaceholderText('Company Name'), { target: { value: 'Acme' } })
+        fireEvent.change(screen.getByPlaceholderText('Job Title'), { target: { value: 'Eng' } })
+        fireEvent.click(screen.getByRole('button', { name: /Add Application/ }))
+        await waitFor(() => expect(linkActions.getLinkSuggestions).toHaveBeenCalledWith({ applicationId: 5 }))
+    }
+    ;(analyticsActions.getKPIs as jest.Mock).mockResolvedValue(appProps.initialKpis)
+    for (const read of [analyticsActions.getStatusFlow, analyticsActions.getTimelineData, analyticsActions.getCategoryData]) {
+        ;(read as jest.Mock).mockResolvedValue({ success: true, data: [] })
+    }
+    ;(applicationActions.addApplication as jest.Mock).mockResolvedValue({ success: true, data: { id: 5 } })
+    const application = { id: 5, company_name: 'Acme', job_title: 'Eng', application_url: '', date_applied: '2026-11-02', status: 'Applied' }
+    ;(linkActions.getLinkSuggestions as jest.Mock).mockResolvedValue({ success: true, data: [{ application, suggestions: [], more: 0 }] })
+    const { unmount } = render(<ApplicationsView {...appProps} />)
+    await add()
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    unmount()
+
+    ;(linkActions.getLinkSuggestions as jest.Mock).mockReset().mockResolvedValue({ success: true, data: [{ application, more: 0, suggestions: [
+        { tier: 2, job_id: 7, company_name: 'Acme', job_title: 'Eng', job_url: 'https://x.test/7', location: null, posted_at: null, source_state: 'available' }] }] })
+    render(<ApplicationsView {...appProps} />)
+    await add()
+    expect(await screen.findByRole('button', { name: /^Link Acme - Eng to Eng/ })).toBeInTheDocument()
 })
 
 test('overlapping inventory requests never show stale rows under newer filters', async () => {

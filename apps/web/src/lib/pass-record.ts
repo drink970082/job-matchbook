@@ -38,6 +38,16 @@ const FAILURE_HINT: Record<string, string> = {
     abandoned: 'it died before finishing and the next pass marked it',
 }
 
+// The worker writes both JSON columns (`config_json`, `counts_json`); a value it could not have written reads as empty.
+export function parseObject(raw: string): Record<string, any> {
+    try {
+        const v = JSON.parse(raw)
+        return v && typeof v === 'object' && !Array.isArray(v) ? v : {}
+    } catch {
+        return {}
+    }
+}
+
 export function duration(ms: number): string {
     const s = Math.max(0, Math.floor(ms / 1000))
     return s < 3600 ? `${Math.floor(s / 60)}m ${s % 60}s` : `${Math.floor(s / 3600)}h ${Math.floor((s % 3600) / 60)}m`

@@ -55,6 +55,20 @@ export async function write(
     }
 }
 
+// The read routes: the same auth at read scope, {success:false} -> 400.
+export async function read(req: Request, run: () => Promise<Result>): Promise<NextResponse> {
+    const denied = authorize(req, 'read')
+    if (denied) return denied
+    try {
+        const res = await run()
+        return res.success
+            ? NextResponse.json({ data: res.data ?? null })
+            : NextResponse.json({ error: res.error }, { status: 400 })
+    } catch (e: any) {
+        return NextResponse.json({ error: e.message }, { status: 400 })
+    }
+}
+
 export function idParam(id: string): number {
     if (!/^\d+$/.test(id)) throw new Error('id must be a positive integer')
     return Number(id)
@@ -65,5 +79,19 @@ export function str(body: Record<string, unknown>, key: string): string | undefi
     const v = body[key]
     if (v === undefined || v === null) return undefined
     if (typeof v !== 'string') throw new Error(`${key} must be a string`)
+    return v
+}
+
+export function int(body: Record<string, unknown>, key: string): number | undefined {
+    const v = body[key]
+    if (v === undefined || v === null) return undefined
+    if (!Number.isInteger(v) || (v as number) < 1) throw new Error(`${key} must be a positive integer`)
+    return v as number
+}
+
+export function bool(body: Record<string, unknown>, key: string): boolean | undefined {
+    const v = body[key]
+    if (v === undefined || v === null) return undefined
+    if (typeof v !== 'boolean') throw new Error(`${key} must be a boolean`)
     return v
 }

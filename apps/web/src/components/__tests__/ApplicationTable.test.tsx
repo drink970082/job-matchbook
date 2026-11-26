@@ -20,6 +20,7 @@ function renderTable(overrides: Partial<ComponentProps<typeof ApplicationTable>>
     onStatusChange: jest.fn(),
     onDelete: jest.fn(),
     onHistory: jest.fn(),
+    onLink: jest.fn(),
     ...overrides,
   }
   render(<ApplicationTable {...props} />)
@@ -31,6 +32,14 @@ describe('ApplicationTable', () => {
     renderTable()
     expect(screen.getByText('Google')).toBeInTheDocument()
     expect(screen.getByText('Meta')).toBeInTheDocument()
+  })
+
+  it('offers Link only on an application with no posting', async () => {
+    const { onLink } = renderTable({ data: [{ ...mockApps[0], job_postings: [] }, { ...mockApps[1], job_postings: [{ id: 5 }] }] })
+    const buttons = screen.getAllByRole('button', { name: /Link to a posting/ })
+    expect(buttons).toHaveLength(1)
+    await userEvent.click(buttons[0])
+    expect(onLink).toHaveBeenCalledWith(1)
   })
 
   it('should handle pagination', async () => {

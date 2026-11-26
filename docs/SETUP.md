@@ -121,7 +121,8 @@ from `apps/worker`, or with `PYTHONPATH` pointing there, so the module resolves.
 
 **2. Optional: enable writes.** Set `ATS_API_KEY_READ_WRITE` (and optionally
 `ATS_API_KEY_READ`) to long random values in the root `.env` and restart the web app;
-then give the MCP server the same read-write value as `ATS_API_KEY`. `ATS_API_URL`
+then give the MCP server the same read-write value as `ATS_API_KEY` (the onboard-board
+skill's add script reads that variable too, else the file `~/.config/ats-mcp/api-key`). `ATS_API_URL`
 overrides the web address (default `http://127.0.0.1:3000`). With no key the API answers
 `503` and the server offers only its read tools.
 

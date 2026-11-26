@@ -18,7 +18,7 @@ from ats_worker.mcp.read_repository import ReadOnlyATSRepository  # noqa: E402
 from ats_worker.mcp.server import create_server  # noqa: E402
 
 WRITE_TOOLS = {"set_candidate_profile", "record_application", "mark_job_applied", "update_application_status", "override_triage",
-               "update_application_notes"}
+               "update_application_notes", "link_application"}
 
 
 @pytest.fixture
@@ -121,7 +121,7 @@ async def test_no_writer_means_no_write_tools(tmp_path):
     server = create_server(ReadOnlyATSRepository(bootstrap_db(tmp_path / "m.db")))
     async with Client(server, raise_exceptions=True) as client:
         names = {t.name for t in (await client.list_tools()).tools}
-    assert names and not names & WRITE_TOOLS
+    assert names and not names & (WRITE_TOOLS | {"suggest_application_links"})
 
 
 @pytest.mark.anyio
@@ -158,6 +158,35 @@ async def test_write_tools_call_the_api_and_are_not_read_only(tmp_path):
                                         "date_applied": "2026-11-18", "status": "Applied"}
     assert session.calls[1]["json"] == {"category": "SWE"}
     assert session.calls[2]["json"] == {"status": "Offer"}
+
+
+@pytest.mark.anyio
+async def test_link_tools_call_the_web_matcher(tmp_path):
+    writer, session = _client(*[FakeResponse(200, {"data": []})] * 6)
+    server = create_server(ReadOnlyATSRepository(bootstrap_db(tmp_path / "m.db")), writer)
+    async with Client(server, raise_exceptions=True) as client:
+        ann = {t.name: t for t in (await client.list_tools()).tools}["suggest_application_links"]
+        assert ann.model_dump(by_alias=True)["annotations"]["readOnlyHint"] is True
+        listed = await client.call_tool("suggest_application_links", {})
+        assert listed.structured_content == {"applications": []}
+        await client.call_tool("suggest_application_links", {"application_id": 3})
+        await client.call_tool("suggest_application_links", {"job_id": 4})
+        await client.call_tool("link_application", {"application_id": 3, "job_id": 4})
+        await client.call_tool("mark_job_applied", {"job_id": 4, "date": "2026-11-02", "create_new": True})
+        await client.call_tool("record_application", {
+            "company_name": "A", "job_title": "B", "date_applied": "2026-11-02", "job_id": 4})
+        bad = await client.call_tool("mark_job_applied", {"job_id": 4, "date": "Nov 2"})
+    assert bad.is_error is True
+    base = "http://web.test/api/v1"
+    assert [(c["method"], c["url"].removeprefix(base), c["json"]) for c in session.calls] == [
+        ("GET", "/link-suggestions", None),
+        ("GET", "/link-suggestions?application_id=3", None),
+        ("GET", "/link-suggestions?job_id=4", None),
+        ("POST", "/applications/3/link", {"job_id": 4}),
+        ("POST", "/jobs/4/applied", {"date": "2026-11-02", "create_new": True}),
+        ("POST", "/applications", {"company_name": "A", "job_title": "B", "date_applied": "2026-11-02",
+                                   "status": "Applied", "job_id": 4}),
+    ]
 
 
 @pytest.mark.anyio
@@ -254,7 +283,7 @@ async def test_prompts_follow_the_write_mode(tmp_path):
     assert "'job 42'" in log.messages[0].content.text and "mark_job_applied" in log.messages[0].content.text
     assert "the last 7 days" in mail.messages[0].content.text
     assert "untrusted" in mail.messages[0].content.text
-    assert "mark_job_applied(N)" in instructions
+    assert "mark_job_applied(N, date)" in instructions and "link_application" in instructions
     assert "remove_source" in instructions and "re-added" in instructions
 
 
