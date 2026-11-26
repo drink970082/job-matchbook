@@ -346,6 +346,14 @@ def delete_unresolved(conn: sqlite3.Connection, url: str) -> None:
     conn.commit()
 
 
+def clear_empty_descriptions(conn: sqlite3.Connection, urls) -> None:
+    """Clear the `empty_description` rows of URLs that came back with a body. Only that
+    reason: a feed's unsupported_host row for the same URL is still true of the feed."""
+    conn.executemany("DELETE FROM feed_unresolved WHERE url = ? AND reason='empty_description'",
+                     [(u,) for u in urls])
+    conn.commit()
+
+
 def existing_external_ids(conn: sqlite3.Connection, source: str, ids) -> set[str]:
     """The subset of `ids` already present for `source` — lets run_feed skip a
     board fetch when every surfaced posting is already ingested."""

@@ -756,7 +756,7 @@ worker modules are pure and dependency-injected; real services are wired only in
     `("greenhouse", token, gh_jid)` — then the normal greenhouse list path ingests it
     (dedups with direct greenhouse). Wired only in `run.py` (DI). Recovers only the
     subset that embeds the token server-side; JS-injected embeds return None and stay
-    on the unresolved board. **SSRF guard:** `resolve_embedded` fetches via
+    in `feed_unresolved`. **SSRF guard:** `resolve_embedded` fetches via
     `util.get_redirect_safe`, which re-validates `util.is_safe_public_url` on the initial
     URL **and every redirect hop** before issuing it — only public `http(s)` hosts are
     contacted; `localhost` and private/loopback/link-local/reserved IP literals (incl.
@@ -1364,8 +1364,11 @@ worker modules are pure and dependency-injected; real services are wired only in
   (`upsert_postings` is `ON CONFLICT DO NOTHING`, so a later cycle never back-fills it)
   and would be screened blind, so a board whose list endpoint carries no
   JD simply yields nothing that cycle — while the `feed_unresolved` record surfaces the
-  silently-broken scraper on the Unresolved board (dropping, not storing a discard,
-  keeps the id re-fetchable so the board self-heals if a later cycle returns the body).
+  silently-broken scraper in MCP `list_sources` (dropping, not storing a discard,
+  keeps the id re-fetchable so the board self-heals if a later cycle returns the body, which
+  also clears its `empty_description` record: `db.clear_empty_descriptions`, for every URL
+  the board returned with a body. A stub-gate board does not return what its gate drops, and
+  no board returns what it delisted: those records stay).
   Gate discards are exempt —
   the stub gate returns those deliberately un-hydrated and they never reach the screen. `screen_posting`
   still runs `deterministic_screen` again post-LLM (preserving any degree/auth/
@@ -1572,8 +1575,11 @@ worker modules are pure and dependency-injected; real services are wired only in
   removal; it is audited in web and re-addable through `add_source` (the Activity tab shows the removed row). `list_sources` (a read tool, always
   present) returns every watchlist row with `has_recipe`, `postings_30d` (postings with
   that `source` + `company_slug` created in 30 days), the eight `last_*` last-pass columns
-  as stored and `health` (`db.board_health`, the web's rule too), and a global
-  `unresolved_30d`.
+  as stored and `health` (`db.board_health`, the web's rule too), a global
+  `unresolved_30d` (rows first recorded in 30 days) and `unresolved`: the rows last seen in
+  30 days grouped by feed, reason and host (`count`, `last_seen_at`, newest `example_url`,
+  secrets redacted), the first 50 of `groups_total`
+  groups, `empty_description` first, then largest.
   `get_candidate_profile` returns the profile (or null) with the derived
   `highest_degree` and `total_years`, `custom_triage_context`, `triage` (`configured`,
   `packs` default|custom and the packs' question ids; never the pack texts); an edit
@@ -2238,7 +2244,8 @@ Triage evidence with duplicate object members at its root, screen map, or check 
   unsupported host) is upserted into `feed_unresolved` (`host` + `reason`), keyed on
   `url`. When a later pass successfully (re-)ingests a posting for that URL, its
   `feed_unresolved` row is cleared (`db.delete_unresolved`), so a transient board failure
-  doesn't permanently pollute the backlog. One bad board never aborts the batch (per-group
+  doesn't permanently pollute the backlog; a watchlist `empty_description` row is cleared
+  once its board returns that URL with a description. One bad board never aborts the batch (per-group
   try/except, mirroring `run_fetch`).
 - **Detail-fetch sources fetch one job per surfaced id.** A source with no public
   board-list endpoint (`fetch.DETAIL_SOURCES`, e.g. `oracle`, `jobvite`) is ingested by
@@ -2247,7 +2254,7 @@ Triage evidence with duplicate object members at its root, screen map, or check 
   resolved id, so no keep-filter is needed.
 - **Silently-broken scrapers are made visible, and the record says which break it was.**
   A detail-fetch failure is recorded in `feed_unresolved` like an unresolvable URL, so it
-  shows on the unresolved board rather than vanishing into the swallowed per-listing
+  shows in MCP `list_sources` rather than vanishing into the swallowed per-listing
   exception — a raise or a `None` as `reason="detail_fetch_failed"` (usually a dead req),
   a posting that came back and failed `_valid_posting` as `reason="empty_description"` (a
   broken parser). Filing both under one string is what made the collapse warning unable to
@@ -2567,6 +2574,7 @@ automated coverage — those rely on code review or the human in the loop, not a
 | An unreadable lock fails loud; a contender never names a dead pid as the holder, but does name a live one | `test_run.py` (`test_an_unreadable_lock_fails_loud_instead_of_degrading`, `test_a_contender_never_names_a_dead_pid_as_the_holder`, `test_a_contender_names_the_holder_when_the_pid_is_live`) |
 | `run_feed` keeps only surfaced ids, records unresolved, skips existing, isolates a bad board, stamps `company_slug` | `test_feed_pipeline.py`, `test_feed_simplify.py` |
 | Board URL -> `(source, slug)`: web and worker resolvers agree on one fixture; add by URL, unresolvable message, pending/dead flags, remove with confirm | `web/src/lib/__tests__/board-url.test.ts`, `worker/tests/test_board_url_cases.py`, `api-v1.int.test.ts`, `watchlist.int.test.ts`, `SourcesTab.test.tsx`, `web/e2e/sources-activity.spec.ts` |
+| A watchlist `empty_description` row clears once the board returns the body; MCP `list_sources` groups the unresolved rows last seen in 30 days | `test_pipeline.py` (`test_run_fetch_clears_the_unresolved_row_once_the_board_returns_the_body`), `test_mcp_repository.py` (`test_list_sources_groups_recent_unresolved_listings`) |
 | Watchlist DB helpers (import idempotent, record_unresolved upsert, existing ids) | `test_watchlist_db.py` |
 | Watchlist auto-seed-on-empty + feed wiring in `run_once` | `test_run.py` |
 | `feeds:` config parsing + defaults | `test_feed_config.py` |

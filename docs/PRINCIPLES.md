@@ -69,7 +69,8 @@ nothing is silently swallowed.
 - *In this repo:* unresolvable feed listings land in `feed_unresolved` with a
   `reason`; detail-fetch failures are recorded as `detail_fetch_failed`, board-list
   failures as `list_fetch_failed`; a source that resolves ids but keeps none prints
-  a collapse warning; the web app's Sources tab lists them.
+  a collapse warning; MCP `list_sources` groups them, and the web's Sources tab shows each
+  board's last-pass health (a scraper returning no description included).
 - *Smell:* `except: pass`; dropping an item because handling its failure is awkward;
   a failure path with no row, log line, or counter a human will ever see.
 

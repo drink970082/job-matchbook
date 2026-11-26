@@ -9,6 +9,9 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 
 ### Added
 
+- **Unresolved listings (#232)**: MCP `list_sources` groups the listings last seen unresolved
+  in 30 days by feed, reason and host with a newest example URL. A watchlist
+  `empty_description` row is cleared once its board returns that URL with a description.
 - **Normalized duplicate check (#244)**: "Acme Inc" / "software engineer" is a duplicate of
   "ACME" / "Software Engineer" when adding, editing or importing applications; two
   applications linked to different postings may share company and title.

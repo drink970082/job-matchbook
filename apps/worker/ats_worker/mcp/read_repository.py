@@ -24,6 +24,7 @@ DEFAULT_BUSY_TIMEOUT_MS = 5_000
 DEFAULT_PAGE_SIZE = 25
 MAX_PAGE_SIZE = 100
 TEXT_CHUNK_SIZE = 16_000
+MAX_UNRESOLVED_GROUPS = 50
 MAX_SEARCH_CHARS = 200
 MAX_FILTER_CHARS = 200
 MAX_CURSOR_CHARS = 1_024
@@ -838,8 +839,9 @@ class ReadOnlyATSRepository:
                  "known": row["value"] in known} for row in rows]
 
     def list_sources(self) -> dict[str, Any]:
-        """The whole watchlist with each board's 30-day posting count, plus how many feed
-        listings went unresolved in the same window."""
+        """The whole watchlist with each board's 30-day posting count, plus the listings
+        that went unresolved in the same window: how many are new, and those still seen
+        grouped by feed, reason and host."""
         # ponytail: unpaged (the watchlist is ~200 rows); page it if it grows past MAX_PAGE_SIZE-ish.
         cutoff = (self._clock() - timedelta(days=30)).astimezone(timezone.utc).isoformat(
             timespec="milliseconds").replace("+00:00", "Z")
@@ -855,12 +857,27 @@ class ReadOnlyATSRepository:
             unresolved = conn.execute(
                 "SELECT COUNT(*) FROM feed_unresolved WHERE ats_instant_cmp(created_at, ?) >= 0",
                 (cutoff,)).fetchone()[0]
+            # SQLite takes `url` from the row that holds the MAX: the newest example.
+            groups = conn.execute(
+                "SELECT feed,reason,host,COUNT(*) AS count,"
+                "MAX(COALESCE(updated_at,created_at)) AS last_seen_at,url AS example_url "
+                "FROM feed_unresolved WHERE ats_instant_cmp(COALESCE(updated_at,created_at), ?) >= 0 "
+                "GROUP BY feed,reason,host "
+                # A broken scraper is a few rows; it must not fall off behind feed hosts.
+                "ORDER BY reason='empty_description' DESC,count DESC,last_seen_at DESC,feed,reason,host",
+                (cutoff,)).fetchall()
         from ..db import board_health  # the one health rule, shared with the worker's log
 
         return {
             "sources": [{**dict(r), "has_recipe": bool(r["has_recipe"]), "health": board_health(r)}
                         for r in rows],
             "unresolved_30d": int(unresolved),
+            "unresolved": {
+                "listings": sum(g["count"] for g in groups),
+                "groups_total": len(groups),
+                "groups": [{**dict(g), "example_url": redact_url(g["example_url"])}
+                           for g in groups[:MAX_UNRESOLVED_GROUPS]],
+            },
         }
 
     def get_candidate_profile(self) -> dict[str, Any]:
