@@ -1,7 +1,9 @@
 # Runtime settings store (#252): design note
 
-Status: proposal, nothing built. Every fork below waits for the operator.
-Parent: epic #251 (decisions of 2026-11-20: DB > env > default, write-only keys).
+Status: forks decided by the operator on 2026-11-25; nothing built. One question stays open
+("Open" at the end).
+Parent: epic #251 (write-only keys; precedence DB > flag > default, which replaces the
+epic's DB > env > default).
 Consumers: #253 (providers), #254 (feeds, browser, interval), #255 (container).
 
 ## Today
@@ -20,13 +22,14 @@ Consumers: #253 (providers), #254 (feeds, browser, interval), #255 (container).
   whose key is not in `SAFE_SETTING_VALUE_KEYS`.
 - `doctor.py` resolves env on its own (`{**os.environ, **.env}`).
 
-## Recommendation
+## Decided
 
 1. One typed row `runtime_settings` (id = 1, every column nullable, NULL = not set).
 2. A separate table `runtime_secrets (name PK, value, base_url, updated_at)`.
-3. One pure function, `settings.resolve(row, secrets, env, config, args) -> Settings`, called
-   by `run.py` at the start of every pass. `doctor` calls the same function.
-4. `config.yaml` is a resolution layer, not a one-time seed.
+3. One pure function, `settings.resolve(row, secrets, args) -> Settings`, called by `run.py`
+   at the start of every pass. `doctor` calls the same function.
+4. The DB is the only source of these settings: no `config.yaml` layer and no seed. Every
+   setting is set in the web (onboarding and Settings), and only there.
 5. An invalid combination fails that pass loudly; the daemon stays up.
 
 ## Forks
@@ -66,7 +69,7 @@ Recommended: split the flags.
 
 - Run shape stays CLI only: `--once`, `--run-now`, `--fetch-only`, `--db`, `--config`,
   `--env`, `--refresh-*`, `--import-companies`.
-- Settings flags keep working as the fallback layer (DB > flag > env > config > default). When a DB
+- Settings flags keep working as the fallback layer (DB > flag > default). When a DB
   value overrides a flag that was typed, print one line naming the setting.
 - Add `--ignore-db-settings` for measured runs: EVALUATION needs a run whose model is the
   one on the command line.
@@ -77,15 +80,12 @@ value until the web sets one.
 `--jev` is a `store_true`, which cannot say "off". Triage becomes one setting:
 `off | openrouter-native | extract`; `--jev` means "on with the configured backend".
 
-### 4. `config.yaml`: seed or layer
+### 4. No `config.yaml` layer, no seed
 
-The issue says seed the DB once. A seed conflicts with the acceptance line "removing it
-falls back to env": after a user clears a value the next pass must know it was already
-seeded, which needs a marker, and the file and the DB then both hold the value.
-
-Recommended instead: DB > flag > env > `config.yaml` > default. Same effective value on an
-existing install, no seed write, no marker. The web shows the effective value and its
-source from the last pass record.
+The issue says seed the DB once; the note proposed a `config.yaml` layer instead. Decided:
+neither. The settings in scope live only in the DB and are set only in the web, so no
+config file holds a second copy. The web shows the effective value and its source from
+the last pass record.
 
 ### 5. Invalid combinations
 
@@ -104,7 +104,7 @@ The skipped hours write no pass record. The misfire grace becomes a constant 180
 ### 7. What each pass records
 
 `worker_runs.config_json` already records the effective values. Add `sources`:
-`{"screen.model": "db", ...}` with `db | flag | env | config | default`. No secret and no
+`{"screen.model": "db", ...}` with `db | flag | default`. No secret and no
 base URL query string. This is what #253 reads to show what the last pass used.
 
 ## Settings in scope
@@ -129,8 +129,8 @@ column until a second one is measured.
 
 ## Proof
 
-- Worker: DB beats env; clearing it falls back to env; neither gives the default (issue
-  acceptance). Two consecutive passes in one process with a DB change between them.
+- Worker: DB beats a typed flag; clearing it falls back to the flag; neither gives the
+  default (the issue's acceptance with env replaced by the flag). Two consecutive passes in one process with a DB change between them.
 - Leak test: store a sentinel secret, then call every MCP read tool, every web route
   and read action, and dump `audit_log` and `worker_runs`; the sentinel appears nowhere. Also
   assert it is not in `os.environ` during a pass.
@@ -149,10 +149,10 @@ column until a second one is measured.
 About 10 h, so the issue's 1 day holds only if the forms stay in #253 and #254. No data
 migration: an empty table changes nothing for an existing install.
 
-## Questions for the operator
+## Open
 
-1. Typed row (A) or `app_settings` keys (B)?
-2. `config.yaml` as a layer instead of a seed (differs from the issue)?
-3. DB over a typed CLI flag, with a printed line and `--ignore-db-settings`?
-4. Changing the base URL clears the key: agreed?
-5. `settings_invalid` fails the pass instead of falling back: agreed?
+- **An existing install's values.** With no seed and no file layer, a deployed install's
+  current `.env` / `config.yaml` values (screen backend and model, feeds, browser
+  sources, interval) fall back to defaults on the first pass after the change, unless
+  they are entered in the web first. Whether env vars stay a fallback during that
+  cutover, or the operator re-enters them before deploying, is the operator's call.
