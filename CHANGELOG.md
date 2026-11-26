@@ -121,6 +121,12 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 
 ### Changed
 
+- **onboard-board adds go through `/api/v1` (#235)**: `add_watched.py` calls
+  `POST /api/v1/watchlist` with the MCP write key (`ATS_API_KEY`, else
+  `~/.config/ats-mcp/api-key`) instead of inserting into `watched_companies`, so a skill
+  add gets the web's validation and an `audit_log` row (`actor='mcp'`). A platform board
+  is verified from its list first, as in `add_source`; no key or no reachable web app
+  fails with the reason. `--db` is gone.
 - **One effective status, read from the stored verdict (#226)**: web and MCP read a
   posting's status as the operator override decision if one exists, else
   `job_postings.verdict`, one `CASE` on each side pinned by the shared

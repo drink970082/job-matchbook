@@ -663,9 +663,9 @@ worker modules are pure and dependency-injected; real services are wired only in
   (`json`, `next-data`, browser), and reject any other key, so a misspelled `item_pth` is refused
   naming the key. A `browser` `fields` map is the one open map (helper fields feed a `url`
   template), so only its value shapes are checked. It is validated at every entry point: the web
-  add path (`addWatchedCompany`, so the Sources tab and `POST /api/v1/watchlist`; MCP
-  `add_source` sends no recipe, known-ATS boards only, until #239) via zod's `fromJSONSchema` (`lib/recipe-schema.ts`); the `config.yaml` seed
-  (`ConfigError`), onboard-board's `add_watched.py`, and `fetch_company` before any request via
+  add path (`addWatchedCompany`, so the Sources tab and `POST /api/v1/watchlist`, which
+  onboard-board's `add_watched.py` calls; MCP `add_source` sends no recipe, known-ATS boards only, until #239) via zod's `fromJSONSchema` (`lib/recipe-schema.ts`); the `config.yaml` seed
+  (`ConfigError`) and `fetch_company` before any request via
   `jsonschema` (`ats_worker/recipe_schema.py`). An invalid stored recipe therefore fails only its
   own board: `run_fetch` logs `skipped after error: invalid custom recipe: ...` and the pass
   goes on. `worker/tests/fixtures/recipe-cases.json` runs through both validators, so they cannot
@@ -2281,9 +2281,12 @@ Triage evidence with duplicate object members at its root, screen map, or check 
   — in the worker (`db.board_health`, for MCP `list_sources`) and
   the web (`lib/board-health.ts`, for the Sources tab), pinned by
   `worker/tests/fixtures/board-health-cases.json` in both suites.
-- **Adds are verified where a fetch can run.** MCP `add_source` (on the host) reads
-  the board's list once and adds it only if it lists a posting, never making a
-  per-posting detail call; the web add cannot fetch, so its
+- **Adds are verified where a fetch can run.** MCP `add_source` and onboard-board's
+  `add_watched.py` (on the host; the latter reads the key from `ATS_API_KEY` or
+  `~/.config/ats-mcp/api-key` and never opens the DB) read
+  a known-ATS board's list once and add it only if it lists a posting, never making a
+  per-posting detail call; the script adds a recipe board unfetched (the skill validates
+  the recipe first); the web add cannot fetch, so its
   row reads `never_fetched` until the next pass records it.
 - **A browser board added while browser sources are off is warned about, not refused
   (#233).** `addWatchedCompany` (Sources tab, `/api/v1/watchlist`, dry run included) reads
@@ -2549,7 +2552,7 @@ automated coverage — those rely on code review or the human in the loop, not a
 | Embedded-greenhouse enriching resolver (token scrape → greenhouse ingest) | `test_embedded_gh.py` |
 | SSRF guard (`is_safe_public_url` / `get_redirect_safe` re-validates every redirect hop) + util helpers | `test_util.py` |
 | Config load/validate (sources, slugs, recipes, candidate block, and screen-only fit-profile skip) | `test_config.py` |
-| `add_watched` CLI watchlist write boundary | `test_add_watched.py` |
+| onboard-board `add_watched.py` adds through `/api/v1/watchlist` (dry run, platform verify, add; no key or no web fails with the reason, no DB write) | `test_add_watched.py` |
 | Cross-service sync guard (source enums + low-context threshold + SPEC's source-coverage matrix) | `test_source_enums_sync.py` |
 | Quota telemetry is one HTTP GET per pass against the ACTIVE backend's usage endpoint (codex `/backend-api/codex/usage`, Claude Code `/api/oauth/usage`), **retried up to `_ATTEMPTS` (4) on a retryable failure — 403/429/5xx and transport errors — while a 401/404 is a verdict and is not retried**; `capture_usage` never raises and keeps the last-good snapshot on a failed fetch | `test_usage.py` (`test_which_statuses_are_worth_retrying`, `test_a_retryable_failure_is_retried_and_the_recovery_is_kept`, `test_a_verdict_status_is_not_retried`, `test_the_attempt_bound_and_the_sleep_schedule_are_the_module_defaults`, `test_fetch_codex_usage_normalizes_the_window`, `test_codex_usage_sends_a_non_default_user_agent`, `test_fetch_claude_usage_prefers_the_limits_array_and_keeps_the_model_scope`, `test_claude_usage_falls_back_to_the_flat_buckets`, `test_capture_usage_keeps_the_last_good_snapshot_when_the_fetch_fails`, `test_capture_usage_never_raises`), `test_run.py`  |
 | A failed quota capture is announced **with its cause**, not swallowed — every route to a `False` return names what happened (status+reason, exception type, or which precondition failed — including a 200 whose body is not an object, and on the claude path as well as codex), including `http.client.HTTPException`, which subclasses neither `OSError` nor `ValueError`; plus the `[quota] WARNING` on the `False` return, and an offset-aware `as_of` in every written snapshot so a stale reading is legible without an mtime check | `test_usage.py` (`test_get_json_names_the_http_status_when_the_provider_raises`, `test_get_json_names_the_exception_when_the_connection_fails`, `test_a_truncated_body_is_caught_and_named`, `test_a_200_with_no_usable_window_says_so_instead_of_going_quiet`, `test_a_200_that_is_not_the_expected_shape_says_so`, `test_a_200_whose_body_is_not_an_object_says_so`, `test_an_unanticipated_failure_cannot_colour_the_pass_and_still_says_why`, `test_capture_usage_stamps_as_of_so_a_stale_reading_is_legible`), `test_run.py`  |
@@ -2650,8 +2653,8 @@ automated coverage — those rely on code review or the human in the loop, not a
 - **Security:** the JOB text is marked as *data, not instructions* in the screen
   prompt (a posting can't inject directives); secrets live only in the gitignored
   `.env`, read by `run.py`.
-  Watchlist **slugs** are structurally validated at all three write boundaries
-  (`watchlist-actions.ts`, `config.py`, `add_watched.py`); the two sources that pack a hostname
+  Watchlist **slugs** are structurally validated at both write boundaries
+  (`watchlist-actions.ts`, `config.py`; onboard-board's `add_watched.py` writes through the first); the two sources that pack a hostname
   in the slug additionally run the built host through `is_safe_public_url` in their
   `_parts` (`phenom` — the segment *is* the host; `workday` — belt-and-braces, its
   `.myworkdayjobs.com` suffix is hardcoded), so an internal-IP slug raises instead
