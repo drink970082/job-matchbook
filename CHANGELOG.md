@@ -7,6 +7,11 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 
 ## [Unreleased]
 
+### Fixed
+
+- **Mark Applied dialog (#241 review)**: a reply from an earlier opening no longer re-enables
+  the next job's buttons while that job's own call is in flight.
+
 ### Added
 
 - **Unresolved listings (#232)**: MCP `list_sources` groups the listings last seen unresolved
