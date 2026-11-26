@@ -128,6 +128,10 @@ data before selecting it.
   slugs (a live board belonging to another company) and render cost are the hazards
   `onboard-board` does not cover at scale.
 - A README screenshot of the read-only jobs view, from a seeded throwaway DB.
+- **No web rescue for a wrong discard.** The web's only override is Not interested (skip);
+  a `discarded` posting is rescued to keep only over MCP `override_triage`. Setup is meant
+  to be web-only, so the intake review before confirming (#227) cannot act on a wrong
+  discard without an AI client.
 
 ## Monitoring
 

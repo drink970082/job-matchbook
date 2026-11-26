@@ -222,7 +222,8 @@ model app_settings {
 // derived from the background rows, never stored. Seeded once (config.yaml or the
 // legacy-table migration) when absent; after that this row wins. `version` bumps on
 // every actual change; `changed_at` is the last change after the seed (null = still
-// the seeded values). `confirmed_at` is reserved for the confirmation gate (#227).
+// the seeded values). `confirmed_at` is the confirmation gate (#227): until the web
+// checklist sets it, a pass runs no screen or triage.
 model candidate_profile {
   id                    Int     @id
   title_include         String  @default("[]") // JSON string array; empty = keep every title

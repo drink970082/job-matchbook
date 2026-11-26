@@ -95,7 +95,11 @@ and serves a key-scoped loopback write API (`/api/v1`).
 
 A worker pass fetches postings and screens them against the candidate's hard
 requirements (`--fetch-only` stops before the screen), then, with `--jev`, runs the
-paid JEV keep/skip filter over screened survivors. There is no fit scorer and no
+paid JEV keep/skip filter over screened survivors. Until the candidate profile is
+confirmed (`confirmed_at`, set once in the web checklist after the intake summary), a
+pass also stops before the screen: no model stage is built or called, postings stay
+`pending`, and the pass record shows screen (and triage) `skipped: profile not
+confirmed`. The first confirmed pass evaluates the pending postings still in the window. There is no fit scorer and no
 notification stage; the stored fit verdicts in `score_detail` are history the web and
 MCP still read.
 
@@ -1583,8 +1587,10 @@ worker modules are pure and dependency-injected; real services are wired only in
   `get_candidate_profile` returns the profile (or null) with the derived
   `highest_degree` and `total_years`, `custom_triage_context`, `triage` (`configured`,
   `packs` default|custom and the packs' question ids; never the pack texts); an edit
-  re-queues nothing, so there is no re-assessment count; `get_setup_status` returns `missing` (no hard requirement set, no sources),
-  the profile `version`, `triage_configured`, and `new_postings_screened_before_change`
+  re-queues nothing, so there is no re-assessment count; `get_setup_status` returns `missing` (no hard requirement set, no sources,
+  no posting fetched, profile not confirmed), `complete`, the `intake_funnel` (#248) the
+  operator reviews before confirming, the profile `version`, `triage_configured`,
+  `confirmed`/`confirmed_at` (no MCP tool confirms), and `new_postings_screened_before_change`
   — `new` postings whose completed screen predates the profile's `changed_at`; they keep
   that verdict (look forward only). Web's error text becomes the `ToolError`;
   401/403, 503 and an unreachable web map to fixed operator-facing messages. With writes
@@ -1760,9 +1766,13 @@ worker modules are pure and dependency-injected; real services are wired only in
   inside `AppShell` (product title, tab nav, and the Jobs badge = keep postings first
   fetched in the last 24h, `getNewJobsCount`). `AppShell` also shows the `Onboarding`
   checklist while setup is incomplete (`lib/setup-actions.ts` `getSetupStatus`, the web
-  counterpart of MCP `get_setup_status`: a hard requirement set in the candidate
-  profile, a board watched, a posting fetched; connecting an AI client — any `mcp` audit
-  row — and triage (a target role or custom context) are optional steps). The checklist carries copy-paste MCP client configs and starter prompts read
+  counterpart of MCP `get_setup_status`, one rule — `setupSteps` / `setup_steps`, both run
+  the `setup` cases of `candidate-profile-cases.json`: a hard requirement set in the
+  candidate profile, a board watched, a posting fetched, the profile confirmed; connecting an AI client — any `mcp` audit
+  row — and triage (a target role or custom context) are optional steps). After the first
+  fetch the confirm step shows the last 7 days' intake funnel and a "Confirm profile and
+  start evaluating" button (`confirmCandidateProfile`: refuses without a profile row,
+  sets `confirmed_at` once, audited as `confirm`; later edits leave it set). The checklist carries copy-paste MCP client configs and starter prompts read
   from `apps/web/templates/mcp/` (plain text, placeholder keys only; the Docker image
   copies the directory).
 - **`components/`** — `ApplicationsView` (KPI grid, Export/Import CSV, Link postings, the
@@ -2030,7 +2040,7 @@ model candidate_profile {        // the one candidate input (§7.1 "Candidate pr
   version               Int     @default(1)    // +1 per actual change
   actor                 String                 // config | migration (seeds) | web | mcp
   changed_at            String?                // last change after the seed; null = seeded values
-  confirmed_at          String?                // reserved for the confirmation gate (#227)
+  confirmed_at          String?                // the confirmation gate (#227): null = no model stage runs
   updated_at            String
 }
 

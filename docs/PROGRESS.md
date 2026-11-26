@@ -10,7 +10,8 @@ behavior. Completed work belongs in CHANGELOG, not this queue.
 
 - **One candidate profile; evaluate each posting once** `[WORKER+WEB+MCP · L]` (epic
   #223). [Spec](superpowers/specs/2026-11-20-candidate-profile-design.md). #224 (#270)
-  and #225 (#276) are merged and deployed, and so is #226 (#281); #227 remains.
+  and #225 (#276) are merged and deployed, and so is #226 (#281); #227 (the confirmation
+  gate) is in review on `worktree-227-profile-confirmation-gate`.
 
 These references reserve unfinished work; they do not claim the branches are currently
 executing or establish merge readiness. Inspect actual refs/worktrees and coordinate

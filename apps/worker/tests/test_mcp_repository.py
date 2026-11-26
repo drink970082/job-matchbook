@@ -962,9 +962,11 @@ def test_setup_status_on_a_fresh_install_lists_what_is_missing(tmp_path):
     assert repo.get_candidate_profile() == {"candidate_profile": None}
     status = repo.get_setup_status()
     assert status["candidate_profile"] == {
-        "configured": False, "triage_configured": False, "version": None, "changed_at": None,
-        "new_postings_screened_before_change": None}
-    assert status["sources"] == 0 and len(status["missing"]) == 2
+        "configured": False, "triage_configured": False, "confirmed": False, "version": None,
+        "changed_at": None, "confirmed_at": None, "new_postings_screened_before_change": None}
+    assert status["sources"] == 0 and len(status["missing"]) == 4
+    assert status["complete"] is False
+    assert status["intake_funnel"]["latest_pass"] is None
 
 
 def test_setup_status_counts_new_postings_screened_before_the_last_change(tmp_path):
@@ -992,7 +994,14 @@ def test_setup_status_counts_new_postings_screened_before_the_last_change(tmp_pa
     assert status["candidate_profile"]["configured"] is True
     assert status["candidate_profile"]["triage_configured"] is False
     assert status["candidate_profile"]["new_postings_screened_before_change"] == 1
-    assert status["missing"] == []
+    assert [m.split(":")[0] for m in status["missing"]] == ["confirmation"]
+
+    # #227: confirming the profile (the web does it) is the last step.
+    conn.execute("UPDATE candidate_profile SET confirmed_at='2026-11-12T00:00:00.000Z'")
+    conn.commit()
+    status = repo.get_setup_status()
+    assert status["candidate_profile"]["confirmed_at"] == "2026-11-12T00:00:00.000Z"
+    assert status["missing"] == [] and status["complete"] is True
 
 
 def test_get_candidate_profile_derives_background_and_reports_no_reassessment(tmp_path):

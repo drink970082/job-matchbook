@@ -5,3 +5,5 @@ state I will work in, whether remote counts, internships, contract roles), my ed
 and experience, and the roles I want, am open to, and do not want. Save them with
 set_candidate_profile. Ask which companies I want watched and add their boards with
 add_source. Do not assume anything about me; leave a field blank if I do not give one.
+After the first fetch, walk me through the intake_funnel from get_setup_status; I confirm
+the profile myself in the web's setup checklist before anything is evaluated.

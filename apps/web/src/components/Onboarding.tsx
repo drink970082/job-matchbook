@@ -1,9 +1,12 @@
 import Link from 'next/link'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { CopyBlock } from './CopyBlock'
+import { Funnel } from './ActivityTab'
+import { ConfirmProfileButton } from './ConfirmProfileButton'
 import type { getMcpTemplates, getSetupStatus } from '@/lib/setup-actions'
 
-type Steps = Awaited<ReturnType<typeof getSetupStatus>>['steps']
+type Setup = Awaited<ReturnType<typeof getSetupStatus>>
+type Steps = Setup['steps']
 type Templates = Awaited<ReturnType<typeof getMcpTemplates>>
 
 function Step({ done, title, children }: { done: boolean; title: React.ReactNode; children?: React.ReactNode }) {
@@ -22,7 +25,7 @@ function Step({ done, title, children }: { done: boolean; title: React.ReactNode
 
 // Setup checklist (#211), shown until the required steps are done. Every step but the
 // first can be done on the web alone; the first is recommended, not required.
-export function Onboarding({ steps, templates }: { steps: Steps; templates: Templates }) {
+export function Onboarding({ steps, intake, templates }: { steps: Steps; intake: Setup['intake']; templates: Templates }) {
     return (
         <Card>
             <CardHeader className="pb-2"><CardTitle className="text-lg">Get set up</CardTitle></CardHeader>
@@ -60,8 +63,25 @@ export function Onboarding({ steps, templates }: { steps: Steps; templates: Temp
                     <Step done={steps.triage} title={<>Optional: set up triage in <Link className="underline" href="/settings">Settings</Link></>}>
                         Add target roles to your profile; a paid model (JEV, metered) then reads each new posting against them and marks it keep or skip.
                     </Step>
-                    <Step done={steps.firstFetch} title="Wait for the first fetch">
+                    <Step done={steps.first_fetch} title="Wait for the first fetch">
                         The worker fetches your boards on its next pass; postings then show under Jobs.
+                    </Step>
+                    <Step done={steps.confirmed} title="Review what your profile lets through, then confirm it">
+                        <p>
+                            Until you confirm, the worker only fetches and applies your title filters and hard
+                            requirements, which cost nothing; no model reads a posting. Check what was dropped and
+                            why below. If a requirement removes postings you want, fix the profile in{' '}
+                            <Link className="underline" href="/settings">Settings</Link>: the fix applies to postings
+                            fetched from then on, and a posting already discarded stays discarded (an AI client can
+                            rescue one with a keep override). After you confirm, postings from the last 7 days that
+                            are still waiting are evaluated once.
+                        </p>
+                        {intake?.last_7_days.passes ? (
+                            <div className="my-3 max-w-md text-foreground">
+                                <Funnel title={`Last 7 days, passes: ${intake.last_7_days.passes}`} window={intake.last_7_days} />
+                            </div>
+                        ) : null}
+                        {steps.first_fetch && <ConfirmProfileButton />}
                     </Step>
                 </ol>
             </CardContent>

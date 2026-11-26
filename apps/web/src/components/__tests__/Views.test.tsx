@@ -3,6 +3,7 @@ import { ApplicationsView } from '@/components/ApplicationsView'
 import { JobsView } from '@/components/JobsView'
 import { ActivityTab } from '@/components/ActivityTab'
 import { Onboarding } from '@/components/Onboarding'
+import type { FunnelWindow } from '@/lib/intake-funnel'
 import * as applicationActions from '@/lib/application-actions'
 import * as analyticsActions from '@/lib/analytics-actions'
 import * as jobActions from '@/lib/job-actions'
@@ -20,6 +21,8 @@ jest.mock('@/lib/watchlist-actions')
 jest.mock('@/lib/job-actions')
 jest.mock('@/lib/link-actions')
 jest.mock('@/lib/profile-actions')
+const refresh = jest.fn()
+jest.mock('next/navigation', () => ({ useRouter: () => ({ refresh }) }))
 jest.mock('@/lib/category-actions')
 jest.mock('@/lib/activity-actions')
 jest.mock('@/components/QuotaBar', () => ({ QuotaBar: () => <div data-testid="quota" /> }))
@@ -253,11 +256,32 @@ const TEMPLATES = Object.fromEntries(['claude-code.txt', 'claude-desktop.json', 
     'prompt-set-me-up.txt', 'prompt-log-application.txt', 'prompt-update-from-email.txt'].map((f) => [f, `template ${f}`])) as any
 
 test('onboarding ticks done steps and hides their help; open steps link to their page', () => {
-    render(<Onboarding templates={TEMPLATES}
-        steps={{ aiClient: false, requirements: true, sources: false, triage: false, firstFetch: false }} />)
+    render(<Onboarding templates={TEMPLATES} intake={null}
+        steps={{ aiClient: false, requirements: true, sources: false, triage: false, first_fetch: false, confirmed: false }} />)
     expect(screen.getByText('template claude-code.txt')).toBeInTheDocument()
     expect(screen.getByText('template prompt-set-me-up.txt')).toBeInTheDocument()
     expect(screen.getAllByLabelText('done')).toHaveLength(1)
     expect(screen.queryByText(/discarded for free/)).toBeNull()
     expect(screen.getByRole('link', { name: 'Sources' })).toHaveAttribute('href', '/sources')
+    // No confirm button before the first fetch: there is nothing to review yet.
+    expect(screen.queryByRole('button', { name: /Confirm profile/ })).toBeNull()
+})
+
+test('after the first fetch the checklist shows the intake summary and confirms the profile (#227)', async () => {
+    const profileActions = jest.requireMock('@/lib/profile-actions')
+    profileActions.confirmCandidateProfile.mockResolvedValueOnce({ success: false, error: 'Fill in the candidate profile first' })
+        .mockResolvedValueOnce({ success: true })
+    const window: FunnelWindow = { passes: 2, passes_without_intake: 0, since: 'x', open: 5, stages: [
+        { stage: 'filters', input: 40, removed: 30, reasons: { title: 30 }, output: 10 },
+        { stage: 'requirements', input: 10, removed: 5, reasons: { location: 5 }, output: 5 }] }
+    render(<Onboarding templates={TEMPLATES} intake={{ latest_pass: window, last_7_days: window }}
+        steps={{ aiClient: true, requirements: true, sources: true, triage: false, first_fetch: true, confirmed: false }} />)
+    expect(screen.getByText('Last 7 days, passes: 2')).toBeInTheDocument()
+    expect(screen.getByText('location 5')).toBeInTheDocument()
+    const button = screen.getByRole('button', { name: 'Confirm profile and start evaluating' })
+    fireEvent.click(button)
+    expect(await screen.findByRole('alert')).toHaveTextContent('Fill in the candidate profile first')
+    expect(refresh).not.toHaveBeenCalled()
+    fireEvent.click(button)
+    await waitFor(() => expect(refresh).toHaveBeenCalledTimes(1))
 })

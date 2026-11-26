@@ -9,6 +9,13 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 
 ### Added
 
+- **Confirmation gate (#227)**: a pass runs no screen or triage call until the candidate
+  profile is confirmed. After the first fetch the setup checklist shows the last 7 days'
+  intake funnel and a "Confirm profile and start evaluating" button (web only); the first
+  confirmed pass evaluates the pending postings still in the window. MCP
+  `get_setup_status` adds the funnel, `confirmed` and `complete`. Web and MCP setup status
+  share one rule, pinned by shared fixture cases. An existing install is already
+  confirmed by the #224 migration.
 - **Unresolved listings (#232)**: MCP `list_sources` groups the listings last seen unresolved
   in 30 days by feed, reason and host with a newest example URL. A watchlist
   `empty_description` row is cleared once its board returns that URL with a description.

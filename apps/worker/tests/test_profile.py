@@ -19,6 +19,13 @@ def test_derived_fields_match_the_shared_fixture(case):
     assert profile.total_years(case["experience"]) == case["total_years"]
 
 
+@pytest.mark.parametrize("case", CASES["setup"], ids=lambda c: c["name"])
+def test_setup_steps_match_the_shared_fixture(case):
+    from ats_worker.mcp.read_repository import setup_steps
+    assert setup_steps(case["row"], sources=case["sources"],
+                       has_posting=case["has_posting"]) == case["steps"]
+
+
 @pytest.mark.parametrize("case", CASES["invalid"], ids=lambda c: c["name"])
 def test_from_row_refuses_what_the_web_refuses(case):
     value = case["value"] if isinstance(case["value"], str) else json.dumps(case["value"])

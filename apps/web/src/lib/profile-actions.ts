@@ -20,6 +20,23 @@ export async function getCandidateProfile() {
 // The audit snapshot: the custom pack texts are private and long, so only their presence.
 const snapshot = (row: Record<string, unknown>) => ({ ...row, custom_packs: row.custom_packs ? '(custom)' : null })
 
+// The confirmation gate (#227): no screen or triage call runs until the operator confirms
+// the profile here, after reading the intake summary. Web only (no MCP tool, no route):
+// the human who pays confirms. Once set it stays set; later edits apply look-forward.
+export async function confirmCandidateProfile() {
+    const now = new Date().toISOString()
+    const done = await prisma.$transaction(async (tx) => {
+        const { count } = await tx.candidate_profile.updateMany({ where: { id: 1, confirmed_at: null },
+            data: { confirmed_at: now } })
+        if (count) {
+            await tx.audit_log.create({ data: { at: now, actor: 'web', action: 'confirm',
+                entity: 'candidate_profile', entity_id: 1, payload: JSON.stringify({ confirmed_at: now }) } })
+        }
+        return count === 1 || !!(await tx.candidate_profile.findUnique({ where: { id: 1 }, select: { id: true } }))
+    })
+    return done ? { success: true } : { success: false, error: 'Fill in the candidate profile first' }
+}
+
 export async function setCandidateProfile(input: Record<string, unknown>, actor: Actor = 'web') {
     checkedActor(actor)
     try {

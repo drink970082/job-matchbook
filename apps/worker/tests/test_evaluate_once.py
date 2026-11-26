@@ -193,3 +193,44 @@ def test_the_daemon_refuses_to_start_while_legacy_discards_remain(monkeypatch, t
     with pytest.raises(SystemExit, match="migrate_evaluate_once"):
         run.main(["--config", str(cfg), "--db", dbfile, "--env", str(tmp_path / "none.env")])
     assert started == []
+
+
+@pytest.mark.real_gate
+def test_nothing_is_spent_before_the_profile_is_confirmed(tmp_path, board, provider, monkeypatch):
+    # #227: a fresh install fetches and runs the free gates, but no model stage is built
+    # or called until the operator confirms; the first confirmed pass then evaluates the
+    # pending postings once.
+    monkeypatch.setattr(run, "_run_jev", lambda *_a, **_k: pytest.fail("paid triage before confirmation"))
+    dbfile = bootstrap_db(tmp_path / "a.db")
+    _profile(dbfile)  # confirmed_at NULL, as the web form and set_candidate_profile write it
+    _pass(dbfile)
+    run.run_once(cfgmod.load_config(CFG), db_path=dbfile, env={}, screen_backend="ollama",
+                 jev_enabled=True, jev_backend="openrouter-native")
+    assert provider == []
+    assert {v[0] for v in _state(dbfile).values()} == {"pending"}
+    conn = db.connect(dbfile)
+    counts = json.loads(conn.execute(
+        "SELECT counts_json FROM worker_runs ORDER BY id DESC LIMIT 1").fetchone()[0])
+    assert counts["screen"] == counts["triage"] == {"skipped": "profile not confirmed"}
+    conn.execute("UPDATE candidate_profile SET confirmed_at='2026-11-25T00:00:00.000Z'")
+    conn.commit()
+    conn.close()
+
+    _pass(dbfile)
+    assert provider.count("screen") == 2 and "triage" in provider
+    assert {v[0] for v in _state(dbfile).values()} <= {"keep", "skip"}
+    spent = len(provider)
+    _pass(dbfile)
+    assert len(provider) == spent
+
+
+@pytest.mark.real_gate
+def test_profile_confirmed_reads_the_stored_stamp(tmp_path):
+    dbfile = bootstrap_db(tmp_path / "a.db")
+    conn = db.connect(dbfile)
+    assert db.profile_confirmed(conn) is False  # no row
+    conn.execute("INSERT INTO candidate_profile (id, actor, updated_at) VALUES (1, 'web', 'x')")
+    assert db.profile_confirmed(conn) is False
+    conn.execute("UPDATE candidate_profile SET confirmed_at='2026-11-25T00:00:00.000Z'")
+    assert db.profile_confirmed(conn) is True
+    conn.close()

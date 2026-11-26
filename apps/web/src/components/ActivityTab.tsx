@@ -29,7 +29,7 @@ function Stat({ label, value, warn }: { label: string; value: string; warn?: boo
 }
 
 // One window of the intake funnel (#248): what came in, what each stage removed, what is left.
-function Funnel({ title, window: w }: { title: string; window: FunnelWindow }) {
+export function Funnel({ title, window: w }: { title: string; window: FunnelWindow }) {
     const count = (v: number) => v.toLocaleString('en-US')
     return (
         <table className="w-full text-sm">

@@ -10,6 +10,7 @@ addopts = "-q"
 pythonpath = ["."]
 markers = [
     "integration: full run_once end-to-end over a temp SQLite (deselect with -m 'not integration')",
+    "real_gate: reads the stored confirmed_at instead of the suite-wide confirmed install (#227)",
 ]
 
 [tool.coverage.run]

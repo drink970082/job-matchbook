@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs'
 import path from 'node:path'
 import { DEGREES } from '@/lib/constants'
-import { highestDegree, profileView, requirementsConfigured, toColumn, totalYears, validateProfilePatch } from '@/lib/candidate-profile'
+import { highestDegree, profileView, requirementsConfigured, setupSteps, toColumn, totalYears, validateProfilePatch } from '@/lib/candidate-profile'
 
 // Shared with the worker (tests/test_profile.py): the derived fields and what both refuse.
 const CASES = JSON.parse(readFileSync(
@@ -14,6 +14,10 @@ test('the degree vocabulary is the worker one', () => {
 test.each<[string, any]>(CASES.derived.map((c: any) => [c.name, c]))('derived fields: %s', (_name, c: any) => {
     expect(highestDegree(c.education)).toBe(c.highest_degree)
     expect(totalYears(c.experience)).toBe(c.total_years)
+})
+
+test.each<[string, any]>(CASES.setup.map((c: any) => [c.name, c]))('setup steps: %s', (_name, c: any) => {
+    expect(setupSteps(c.row, { sources: c.sources, hasPosting: c.has_posting })).toEqual(c.steps)
 })
 
 test.each<[string, any]>(CASES.invalid.map((c: any) => [c.name, c]))('refused like the worker: %s', (_name, c: any) => {
