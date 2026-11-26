@@ -211,7 +211,8 @@ def test_nothing_is_spent_before_the_profile_is_confirmed(tmp_path, board, provi
     conn = db.connect(dbfile)
     counts = json.loads(conn.execute(
         "SELECT counts_json FROM worker_runs ORDER BY id DESC LIMIT 1").fetchone()[0])
-    assert counts["screen"] == counts["triage"] == {"skipped": "profile not confirmed"}
+    assert counts["triage"] == {"skipped": "profile not confirmed"}
+    assert counts["screen"]["skipped"] == "profile not confirmed"
     conn.execute("UPDATE candidate_profile SET confirmed_at='2026-11-25T00:00:00.000Z'")
     conn.commit()
     conn.close()
@@ -222,6 +223,35 @@ def test_nothing_is_spent_before_the_profile_is_confirmed(tmp_path, board, provi
     spent = len(provider)
     _pass(dbfile)
     assert len(provider) == spent
+
+
+@pytest.mark.real_gate
+def test_before_confirmation_the_free_gate_reruns_on_postings_fetched_earlier(tmp_path, board,
+                                                                            monkeypatch):
+    # Boards watched before the profile existed: the first fetch gated nothing. Setting a
+    # requirement then shows in the intake summary on the next (still unconfirmed) pass,
+    # and nothing is built or called on the way - not even codex's quota GET.
+    monkeypatch.setattr(run, "make_screener", lambda *_a, **_k: pytest.fail("screener built"))
+    monkeypatch.setattr(run, "capture_usage", lambda *_a, **_k: pytest.fail("quota GET"))
+    board.append(make_posting("3", job_title="Software Engineering Intern"))
+    dbfile = bootstrap_db(tmp_path / "a.db")
+
+    def gated_pass():
+        run.run_once(cfgmod.load_config(CFG), db_path=dbfile, env={}, screen_backend="codex",
+                     jev_enabled=True, jev_backend="extract")
+    gated_pass()
+    assert {v[0] for v in _state(dbfile).values()} == {"pending"}
+    _profile(dbfile, exclude_internships=1)
+    gated_pass()
+    assert {k: v[0] for k, v in _state(dbfile).items()} == {
+        "1": "pending", "2": "pending", "3": "discarded"}
+    conn = db.connect(dbfile)
+    screen = json.loads(conn.execute(
+        "SELECT counts_json FROM worker_runs ORDER BY id DESC LIMIT 1").fetchone()[0])["screen"]
+    backend = conn.execute("SELECT backend FROM job_screenings").fetchall()
+    conn.close()
+    assert (screen["checked"], screen["disqualified"]) == (3, 1)
+    assert [r[0] for r in backend] == ["deterministic"]
 
 
 @pytest.mark.real_gate

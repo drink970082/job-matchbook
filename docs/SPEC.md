@@ -97,9 +97,12 @@ A worker pass fetches postings and screens them against the candidate's hard
 requirements (`--fetch-only` stops before the screen), then, with `--jev`, runs the
 paid JEV keep/skip filter over screened survivors. Until the candidate profile is
 confirmed (`confirmed_at`, set once in the web checklist after the intake summary), a
-pass also stops before the screen: no model stage is built or called, postings stay
-`pending`, and the pass record shows screen (and triage) `skipped: profile not
-confirmed`. The first confirmed pass evaluates the pending postings still in the window. There is no fit scorer and no
+pass also stops before the screen: no model stage is built or called. It re-applies
+only the free deterministic gate to pending in-window postings (`run_gate_sweep`, so
+postings fetched under an earlier profile show the current one's discards), the rest
+stay `pending`, and the pass record shows screen (and triage) `skipped: profile not
+confirmed`. The first confirmed pass evaluates the pending postings still in the window.
+There is no fit scorer and no
 notification stage; the stored fit verdicts in `score_detail` are history the web and
 MCP still read.
 
@@ -1768,11 +1771,14 @@ worker modules are pure and dependency-injected; real services are wired only in
   checklist while setup is incomplete (`lib/setup-actions.ts` `getSetupStatus`, the web
   counterpart of MCP `get_setup_status`, one rule — `setupSteps` / `setup_steps`, both run
   the `setup` cases of `candidate-profile-cases.json`: a hard requirement set in the
-  candidate profile, a board watched, a posting fetched, the profile confirmed; connecting an AI client — any `mcp` audit
-  row — and triage (a target role or custom context) are optional steps). After the first
-  fetch the confirm step shows the last 7 days' intake funnel and a "Confirm profile and
-  start evaluating" button (`confirmCandidateProfile`: refuses without a profile row,
-  sets `confirmed_at` once, audited as `confirm`; later edits leave it set). The checklist carries copy-paste MCP client configs and starter prompts read
+  candidate profile, a board watched, a posting fetched, the profile confirmed;
+  connecting an AI client — any `mcp` audit row — and triage (a target role or custom
+  context) are optional steps). After the first fetch the confirm step shows how many
+  postings are still waiting, the last 7 days' intake funnel and, once a hard requirement
+  is set, a "Confirm profile and start evaluating" button (`confirmCandidateProfile`:
+  refuses without a profile row or a hard requirement, sets `confirmed_at` once, audited
+  as `confirm`; later edits leave it set). The checklist carries copy-paste MCP client
+  configs and starter prompts read
   from `apps/web/templates/mcp/` (plain text, placeholder keys only; the Docker image
   copies the directory).
 - **`components/`** — `ApplicationsView` (KPI grid, Export/Import CSV, Link postings, the

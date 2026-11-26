@@ -4,9 +4,13 @@ import { CopyBlock } from './CopyBlock'
 import { Funnel } from './ActivityTab'
 import { ConfirmProfileButton } from './ConfirmProfileButton'
 import type { getMcpTemplates, getSetupStatus } from '@/lib/setup-actions'
+import type { FunnelWindow } from '@/lib/intake-funnel'
 
 type Setup = Awaited<ReturnType<typeof getSetupStatus>>
 type Steps = Setup['steps']
+
+// The #203 guard "your filters let N through": the postings still waiting for evaluation.
+const waiting = (w: FunnelWindow) => w.stages.find((s) => s.stage === 'evaluated')?.reasons.pending ?? 0
 type Templates = Awaited<ReturnType<typeof getMcpTemplates>>
 
 function Step({ done, title, children }: { done: boolean; title: React.ReactNode; children?: React.ReactNode }) {
@@ -70,18 +74,23 @@ export function Onboarding({ steps, intake, templates }: { steps: Steps; intake:
                         <p>
                             Until you confirm, the worker only fetches and applies your title filters and hard
                             requirements, which cost nothing; no model reads a posting. Check what was dropped and
-                            why below. If a requirement removes postings you want, fix the profile in{' '}
-                            <Link className="underline" href="/settings">Settings</Link>: the fix applies to postings
-                            fetched from then on, and a posting already discarded stays discarded (an AI client can
-                            rescue one with a keep override). After you confirm, postings from the last 7 days that
-                            are still waiting are evaluated once.
+                            why below, then adjust the profile in{' '}
+                            <Link className="underline" href="/settings">Settings</Link>. The next pass applies a
+                            stricter requirement to the postings still waiting too; a posting already discarded stays
+                            discarded (an AI client can rescue one with a keep override). After you confirm, postings
+                            from the last 7 days that are still waiting are evaluated once.
                         </p>
                         {intake?.last_7_days.passes ? (
                             <div className="my-3 max-w-md text-foreground">
+                                <p className="mb-2 font-medium">
+                                    Your filters and requirements let {waiting(intake.last_7_days).toLocaleString('en-US')} posting(s)
+                                    through so far; they are evaluated after you confirm, a capped number per pass.
+                                </p>
                                 <Funnel title={`Last 7 days, passes: ${intake.last_7_days.passes}`} window={intake.last_7_days} />
                             </div>
                         ) : null}
-                        {steps.first_fetch && <ConfirmProfileButton />}
+                        {steps.first_fetch && !steps.requirements && <p>Set at least one hard requirement before you confirm.</p>}
+                        {steps.first_fetch && steps.requirements && <ConfirmProfileButton />}
                     </Step>
                 </ol>
             </CardContent>

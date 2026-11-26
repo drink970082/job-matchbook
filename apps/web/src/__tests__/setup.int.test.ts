@@ -16,6 +16,9 @@ test('setup is complete once requirements, a board, a posting and the confirmati
     // as MCP get_setup_status); target roles alone configure triage.
     await prisma.candidate_profile.create({ data: { id: 1, title_include: '["eng"]', target_roles: '["Backend"]', actor: 'web', updated_at: 'x' } })
     expect((await getSetupStatus()).steps).toMatchObject({ requirements: false, triage: true })
+    // Confirming without a requirement would send every title-filter survivor to triage.
+    expect(await confirmCandidateProfile()).toEqual({ success: false, error: 'Set at least one hard requirement first' })
+    expect((await prisma.candidate_profile.findUnique({ where: { id: 1 } }))!.confirmed_at).toBeNull()
     await prisma.candidate_profile.update({ where: { id: 1 }, data: { education: '[{"degree":"phd","field":""}]', target_roles: '[]' } })
     expect((await getSetupStatus()).steps).toMatchObject({ requirements: true, triage: false })
     await prisma.candidate_profile.update({ where: { id: 1 }, data: { education: '[]', locations: '["Canada"]' } })

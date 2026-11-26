@@ -273,11 +273,19 @@ test('after the first fetch the checklist shows the intake summary and confirms 
         .mockResolvedValueOnce({ success: true })
     const window: FunnelWindow = { passes: 2, passes_without_intake: 0, since: 'x', open: 5, stages: [
         { stage: 'filters', input: 40, removed: 30, reasons: { title: 30 }, output: 10 },
-        { stage: 'requirements', input: 10, removed: 5, reasons: { location: 5 }, output: 5 }] }
-    render(<Onboarding templates={TEMPLATES} intake={{ latest_pass: window, last_7_days: window }}
-        steps={{ aiClient: true, requirements: true, sources: true, triage: false, first_fetch: true, confirmed: false }} />)
+        { stage: 'evaluated', input: 10, removed: 4, reasons: { pending: 4, not_evaluated: 0 }, output: 6 },
+        { stage: 'requirements', input: 6, removed: 5, reasons: { location: 5 }, output: 1 }] }
+    const steps = { aiClient: true, requirements: true, sources: true, triage: false, first_fetch: true, confirmed: false }
+    // No requirement yet: no button, and the step says why.
+    const { unmount } = render(<Onboarding templates={TEMPLATES} intake={{ latest_pass: window, last_7_days: window }}
+        steps={{ ...steps, requirements: false }} />)
+    expect(screen.queryByRole('button', { name: /Confirm profile/ })).toBeNull()
+    expect(screen.getByText('Set at least one hard requirement before you confirm.')).toBeInTheDocument()
+    unmount()
+    render(<Onboarding templates={TEMPLATES} intake={{ latest_pass: window, last_7_days: window }} steps={steps} />)
     expect(screen.getByText('Last 7 days, passes: 2')).toBeInTheDocument()
     expect(screen.getByText('location 5')).toBeInTheDocument()
+    expect(screen.getByText(/let 4 posting\(s\) through so far/)).toBeInTheDocument()
     const button = screen.getByRole('button', { name: 'Confirm profile and start evaluating' })
     fireEvent.click(button)
     expect(await screen.findByRole('alert')).toHaveTextContent('Fill in the candidate profile first')
