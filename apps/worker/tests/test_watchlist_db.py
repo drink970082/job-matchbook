@@ -79,6 +79,28 @@ def test_a_watchlist_finding_takes_over_a_feed_row(db_path):
     assert _row(conn) == ("watchlist", "empty_description", "acme.example")
 
 
+def test_a_watchlist_write_heals_a_legacy_watchlist_row(db_path):
+    # The old upsert left ('watchlist', 'unsupported_host'); the board still serves no body.
+    conn = db.connect(db_path)
+    url = "https://acme.example/jobs/1"
+    conn.execute("INSERT INTO feed_unresolved (feed, url, company_name, job_title, host, reason, "
+                 "created_at) VALUES ('watchlist', ?, 'A', 'E', 'other.example', 'unsupported_host', ?)",
+                 (url, NOW))
+    db.record_unresolved(conn, feed="watchlist", url=url, company_name="Acme", job_title="SWE",
+                         host="acme.example", reason="empty_description", now=LATER)
+    assert _row(conn) == ("watchlist", "empty_description", "acme.example")
+
+
+def test_between_two_feeds_the_last_writer_wins(db_path):
+    conn = db.connect(db_path)
+    url = "https://acme.example/jobs/1"
+    db.record_unresolved(conn, feed="simplify", url=url, company_name="Acme", job_title="SWE",
+                         host="a.example", reason="unsupported_host", now=NOW)
+    db.record_unresolved(conn, feed="other", url=url, company_name="Acme", job_title="SWE",
+                         host="b.example", reason="detail_fetch_failed", now=LATER)
+    assert _row(conn) == ("other", "detail_fetch_failed", "b.example")
+
+
 def test_clearing_a_served_url_removes_any_watchlist_row_but_not_a_feed_row(db_path):
     # A row the old upsert left as ('watchlist', 'unsupported_host') is cleared too.
     conn = db.connect(db_path)
@@ -87,7 +109,10 @@ def test_clearing_a_served_url_removes_any_watchlist_row_but_not_a_feed_row(db_p
                  (NOW,))
     db.record_unresolved(conn, feed="simplify", url="https://a/2", company_name="A", job_title="E",
                          host="a", reason="unsupported_host", now=NOW)
-    db.clear_empty_descriptions(conn, ["https://a/1", "https://a/2"])
+    # A feed's own empty_description is disproved by the body too.
+    db.record_unresolved(conn, feed="simplify", url="https://a/3", company_name="A", job_title="E",
+                         host="a", reason="empty_description", now=NOW)
+    db.clear_empty_descriptions(conn, ["https://a/1", "https://a/2", "https://a/3"])
     assert [r[0] for r in conn.execute("SELECT url FROM feed_unresolved")] == ["https://a/2"]
 
 

@@ -329,7 +329,8 @@ def record_unresolved(conn: sqlite3.Connection, *, feed: str, url: str,
     One row per URL, so the writers rank: a watchlist finding (the board's own scraper
     returned no JD) takes the row over, and a feed never overwrites it. run_fetch writes
     before run_feed in a pass; without the rank the feed's reason landed on a watchlist
-    row, which clear_empty_descriptions then never removed.
+    row, which clear_empty_descriptions then never removed. Between two feeds the last
+    writer wins, feed and reason together.
     """
     conn.execute(
         "INSERT INTO feed_unresolved "
@@ -357,9 +358,11 @@ def delete_unresolved(conn: sqlite3.Connection, url: str) -> None:
 
 
 def clear_empty_descriptions(conn: sqlite3.Connection, urls) -> None:
-    """Clear the watchlist rows of URLs the board returned with a body. Only the
-    watchlist's: a feed's unsupported_host row for the same URL is still true of the feed."""
-    conn.executemany("DELETE FROM feed_unresolved WHERE url = ? AND feed='watchlist'",
+    """Clear the rows of URLs the board returned with a body that the body disproves: any
+    watchlist row, and any `empty_description`. A feed's unsupported_host row for the same
+    URL is still true of the feed (it re-records it every pass), so it stays."""
+    conn.executemany("DELETE FROM feed_unresolved WHERE url = ? "
+                     "AND (feed='watchlist' OR reason='empty_description')",
                      [(u,) for u in urls])
     conn.commit()
 
