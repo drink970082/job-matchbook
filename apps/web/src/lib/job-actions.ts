@@ -7,7 +7,8 @@ import { todayISO } from '@/lib/utils'
 import { legacyScreenEvidence, SCREEN_OUTCOMES, standaloneScreenSummary, type ScreenOutcome } from '@/lib/screen-summary'
 import { sourceLifecycleSummary } from '@/lib/source-lifecycle'
 import { jobTriageSummary } from '@/lib/triage-summary'
-import { applicationAudit, checkedActor, writeInitialHistory, CATEGORY_FALLBACK } from '@/lib/action-helpers'
+import { applicationAudit, checkedActor, checkedDate, duplicateError, findDuplicate, unlinkedApplications, writeInitialHistory, CATEGORY_FALLBACK } from '@/lib/action-helpers'
+import { bestApplication } from '@/lib/application-match'
 import { JOB_STAGES, type JobStage, type JobStageFilter } from '@/lib/job-stages'
 
 export type { JobStage, JobStageFilter }
@@ -255,6 +256,8 @@ export async function getJobPostings(params: JobPostingsFilter = {}) {
             SELECT COUNT(*) AS total ${Prisma.raw(FROM_SQL)} WHERE ${where}
         `),
     ])
+    // A posting that matches an unlinked application (#241): shown, never linked.
+    const open = rows.some((r) => r.application_id == null) ? await unlinkedApplications(prisma) : []
     const data = rows.map((row) => {
         const {
             screening_id, screening_state, screening_result_json, screening_error_message,
@@ -284,6 +287,7 @@ export async function getJobPostings(params: JobPostingsFilter = {}) {
             triage_summary: jobTriageSummary(posting.pipeline_status, screening),
             source_lifecycle: sourceLifecycleSummary({ ...posting, score_detail }, screening),
             profile_version: profile_version == null ? null : Number(profile_version),
+            applied_match: row.application_id == null ? bestApplication(row, open) : null,
             jev: {
                 reasons: jev_state === 'complete' ? jevReasons(jev_reasons_json) : [],
                 override: override_decision == null ? null : {
@@ -320,9 +324,14 @@ async function findPostingInView(client: JobScopeClient, id: number, scope: JobV
     return client.job_postings.findUnique({ where: { id } })
 }
 
-export async function markJobApplied(id: number, category: string | undefined, scope: JobViewScope, actor: Actor = 'web') {
+// When an unlinked application already matches the posting (tier 1 or 2, #241), nothing is
+// written: the answer carries that application as `match`, to link it or to mark again
+// with `createNew`.
+export async function markJobApplied(id: number, category: string | undefined, scope: JobViewScope, actor: Actor = 'web',
+    opts: { date?: string; createNew?: boolean } = {}) {
     try {
         checkedActor(actor)
+        const date = opts.date === undefined ? todayISO() : checkedDate(opts.date)
         validateJobPostingsFilter(scope, false)
         return await prisma.$transaction(async (tx) => {
             const posting = await findPostingInView(tx, id, scope)
@@ -339,27 +348,23 @@ export async function markJobApplied(id: number, category: string | undefined, s
             // Category is a free-form user label chosen at apply time; keep whatever's
             // given, falling back to 'Others' only when blank.
             const cat = category?.trim() || CATEGORY_FALLBACK
-            const today = todayISO()
 
-            const existing = await tx.applications.findFirst({
-                where: {
-                    company_name: posting.company_name,
-                    job_title: posting.job_title,
-                },
-            })
-            if (existing) {
-                // Throw to roll back the transaction; surfaced as a failure below.
-                throw new Error(
-                    `Application for ${posting.company_name} - ${posting.job_title} already exists`
-                )
+            const match = opts.createNew ? null : bestApplication(posting, await unlinkedApplications(tx))
+            if (match) {
+                return { success: false, match, error: `Not marked: application #${match.id} (${match.date_applied}, not linked to a posting) `
+                    + `looks like this job. Link it to job ${id}, or mark again as a new application.` }
             }
+
+            // #244. Only names with no letter or digit, which never match, get this far.
+            const dup = opts.createNew ? null : await findDuplicate(tx, posting, true)
+            if (dup) throw duplicateError(dup)
 
             const newApp = await tx.applications.create({
                 data: {
                     company_name: posting.company_name,
                     job_title: posting.job_title,
                     application_url: posting.job_url || '',
-                    date_applied: today,
+                    date_applied: date,
                     category: cat,
                     status: 'Applied',
                     notes: '',

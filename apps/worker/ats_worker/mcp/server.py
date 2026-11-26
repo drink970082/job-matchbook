@@ -75,9 +75,10 @@ _WRITE_NOTE = (
     "set_candidate_profile with what the operator states (search scope, hard requirements, "
     "background, what they want from a job) and add_source per company. Confirm the target "
     "application or job id from a read tool before writing. Workflows: 'I applied to job "
-    "N' -> get_job(N), then mark_job_applied(N) (it dates the application today; if the "
-    "operator applied on another day, use record_application with that date and the job "
-    "URL instead). An application with no ATS posting -> list_applications search to rule "
+    "N' -> get_job(N), then mark_job_applied(N, date) (date defaults to today). "
+    "If it names an existing unlinked application, ask, then link_application or create_new. "
+    "'Link my applications' -> suggest_application_links, confirm each pair with the "
+    "operator, then link_application. An application with no ATS posting -> list_applications search to rule "
     "out the same company and title, then record_application. A status change (e.g. from an email the operator shows you) -> "
     "find the application, update_application_status with the date it happened, then "
     "update_application_notes with a one-line dated summary. Prompts log_application, "
@@ -107,10 +108,12 @@ def _log_application_prompt(what: str) -> str:
 
 1. If it names a job id, get_job(id); otherwise list_jobs search on the company/title.
 2. list_applications search on the company: if an application with the same company AND
-   title exists, say so and stop. Other titles at that company are not duplicates.
-3. If a posting matches and the operator applied today, mark_job_applied(job_id,
-   category); it always dates the application today. Otherwise (no posting, or another
-   day) record_application(company_name, job_title, date_applied, category,
+   title exists, say so; stop unless this is a different posting of that title (step 3) or
+   the same job recorded without its posting (step 3 offers the link). Other titles at
+   that company are not duplicates.
+3. If a posting matches, mark_job_applied(job_id, category, date); if it names an
+   existing unlinked application, ask whether to link_application or create_new.
+   Otherwise record_application(company_name, job_title, date_applied, category,
    application_url). Ask for a category only if the operator gave none and you cannot
    infer one.
 4. Confirm what was recorded (application id, company, title, date)."""
@@ -412,24 +415,57 @@ def _add_write_tools(server: MCPServer, repo: ReadOnlyATSRepository, writer: ATS
         category: Text = None,
         application_url: Text = None,
         notes: Annotated[str | None, Field(max_length=20_000)] = None,
+        job_id: Annotated[int | None, Field(ge=1, description="The ATS posting it was made for.")] = None,
     ) -> dict[str, Any]:
         """Log an application the operator made outside the discovered-jobs queue. For a job
-        already in the ATS, use mark_job_applied instead. date_applied defaults to today.
-        Fails if the same company and title is already recorded."""
+        already in the ATS, use mark_job_applied instead (or give its job_id here, to record
+        fields mark_job_applied does not take). date_applied defaults to today.
+        Fails if the same company and title is already recorded, unless both that
+        application and this one have a posting."""
         return {"application": write("POST", "/api/v1/applications", drop_none(
             company_name=company_name, job_title=job_title,
             date_applied=date_applied or datetime.date.today().isoformat(),
-            status=status, category=category, application_url=application_url, notes=notes,
+            status=status, category=category, application_url=application_url, notes=notes, job_id=job_id,
         ))}
 
     @server.tool(annotations=_WRITE)
     def mark_job_applied(
         job_id: Annotated[int, Field(ge=1)],
         category: Text = None,
+        date: Date = None,
+        create_new: Annotated[bool, Field(
+            description="True only after the operator said the matching application is a different one.")] = False,
     ) -> dict[str, Any]:
         """Record that the operator applied to a discovered job: creates the application
-        (status Applied, dated today) and links the posting to it."""
-        return {"application": write("POST", f"/api/v1/jobs/{job_id}/applied", drop_none(category=category))}
+        (status Applied, dated `date`, default today) and links the posting to it. When an
+        unlinked application already looks like this job, nothing is written and the error
+        names it: ask the operator, then link_application(its id, job_id), or call again
+        with create_new=true."""
+        return {"application": write("POST", f"/api/v1/jobs/{job_id}/applied", drop_none(
+            category=category, date=date, create_new=create_new or None))}
+
+    @server.tool(annotations=_READ_ONLY)
+    def suggest_application_links(
+        application_id: Annotated[int | None, Field(ge=1, description="One unlinked application.")] = None,
+        job_id: Annotated[int | None, Field(ge=1, description="One posting: which applications it may already be.")] = None,
+    ) -> dict[str, Any]:
+        """Postings an unlinked application may belong to, for the operator to confirm; with no
+        argument, every unlinked application that has a candidate. tier 1 = the same posting
+        URL, 2 = same company and title, 3 = same company, another title (a picker, not a
+        suggestion: usually a different role). `more` counts tier-3 candidates left out.
+        Nothing is linked by this; link_application does that."""
+        query = "&".join(f"{k}={v}" for k, v in drop_none(application_id=application_id, job_id=job_id).items())
+        return {"applications": write("GET", "/api/v1/link-suggestions" + (f"?{query}" if query else ""))}
+
+    @server.tool(annotations=_WRITE)
+    def link_application(
+        application_id: Annotated[int, Field(ge=1)],
+        job_id: Annotated[int, Field(ge=1)],
+    ) -> dict[str, Any]:
+        """Link an application to the posting it was made for, after the operator confirmed
+        that pair: the posting becomes applied. Neither may already be linked elsewhere; no
+        tool unlinks them."""
+        return {"linked": write("POST", f"/api/v1/applications/{application_id}/link", {"job_id": job_id})}
 
     @server.tool(annotations=_WRITE)
     def update_application_status(

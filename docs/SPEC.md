@@ -663,9 +663,9 @@ worker modules are pure and dependency-injected; real services are wired only in
   (`json`, `next-data`, browser), and reject any other key, so a misspelled `item_pth` is refused
   naming the key. A `browser` `fields` map is the one open map (helper fields feed a `url`
   template), so only its value shapes are checked. It is validated at every entry point: the web
-  add path (`addWatchedCompany`, so the Sources tab and `POST /api/v1/watchlist`; MCP
-  `add_source` sends no recipe, known-ATS boards only, until #239) via zod's `fromJSONSchema` (`lib/recipe-schema.ts`); the `config.yaml` seed
-  (`ConfigError`), onboard-board's `add_watched.py`, and `fetch_company` before any request via
+  add path (`addWatchedCompany`, so the Sources tab and `POST /api/v1/watchlist`, which
+  onboard-board's `add_watched.py` calls; MCP `add_source` sends no recipe, known-ATS boards only, until #239) via zod's `fromJSONSchema` (`lib/recipe-schema.ts`); the `config.yaml` seed
+  (`ConfigError`) and `fetch_company` before any request via
   `jsonschema` (`ats_worker/recipe_schema.py`). An invalid stored recipe therefore fails only its
   own board: `run_fetch` logs `skipped after error: invalid custom recipe: ...` and the pass
   goes on. `worker/tests/fixtures/recipe-cases.json` runs through both validators, so they cannot
@@ -1464,8 +1464,8 @@ worker modules are pure and dependency-injected; real services are wired only in
   `list_application_history`, `list_ats_records`, `get_ats_record`, `list_sources`,
   `get_setup_status`, `get_candidate_profile`. They carry read-only/
   closed-world annotations, and the connection-level SQLite settings enforce the
-  boundary. With `ATS_API_KEY` set, eight write tools are added, each a call to the web's
-  loopback `/api/v1` (never a DB write): `record_application`, `mark_job_applied`,
+  boundary. With `ATS_API_KEY` set, nine write tools and one read (`suggest_application_links`) are added, each a call to the web's
+  loopback `/api/v1` (never a DB write): `record_application`, `mark_job_applied`, `link_application`,
   `update_application_status`, `update_application_notes`, `override_triage`,
   `set_candidate_profile`, `add_source` (known-ATS boards only) and
   `remove_source`. The seven entity names are a closed enum, identifiers are selected
@@ -1542,8 +1542,11 @@ worker modules are pure and dependency-injected; real services are wired only in
   `read_write` key, §7.2); without it the tool list is the read tools above and the
   instructions say the server cannot change state. They call web's `/api/v1` over
   `ATS_API_URL` (default `http://127.0.0.1:3000`) and never open a writable DB handle:
-  `record_application` (date defaults to today, status from the `STATUSES` enum),
-  `mark_job_applied(job_id, category?)`, `update_application_status(application_id,
+  `record_application` (date defaults to today, status from the `STATUSES` enum, optional
+  `job_id` to link), `mark_job_applied(job_id, category?, date?, create_new?)`,
+  `suggest_application_links(application_id? | job_id?)` and
+  `link_application(application_id, job_id)` (§9 "Linking applications to postings"; the
+  matcher runs in the web only), `update_application_status(application_id,
   status, date?)` (returns `{application_id, status, recorded}`: `status` is the current
   status, which a backdated `recorded` change does not move), `add_source(name, url? | source + slug)` (known-ATS boards; a
   `url` is resolved by the web's `lib/board-url.ts`, the Sources tab's resolver; web's
@@ -1589,7 +1592,8 @@ worker modules are pure and dependency-injected; real services are wired only in
   because stored text says so. `list_applications`, `get_application` and
   `list_application_history` report `actor` (`web`/`mcp`).
   **Workflow text** lives in the server, not in a client skill: with writes enabled the
-  instructions map "I applied to job N" -> `get_job` + `mark_job_applied`, an
+  instructions map "I applied to job N" -> `get_job` + `mark_job_applied`, "link my
+  applications" -> suggestions, a confirmed pair, `link_application`, an
   off-ATS application -> duplicate search + `record_application`, and a status change
   -> `update_application_status` + a dated note. MCP prompts: `daily_brief` (always;
   read-only, no write tools), and with writes `log_application(what)` and
@@ -1629,11 +1633,13 @@ worker modules are pure and dependency-injected; real services are wired only in
   `200`), since the worker may not have run a subscription screen pass yet.
 - **`app/api/v1/*`** — the key-scoped loopback write API the MCP server calls, so write
   validation exists once in the `lib/*-actions.ts` Server Actions. Each route is a
-  thin wrapper over one action; every write stamps `actor='mcp'`: `POST applications` (`addApplication`; an
-  unknown `status` is a `400`, where the UI falls back to `Applied`), `PATCH
+  thin wrapper over one action; every write stamps `actor='mcp'`: `POST applications` (`addApplication`, optional `job_id`; an
+  unknown `status` is a `400`, where the UI falls back to `Applied`), `POST
+  applications/{id}/link` `{job_id}` (`linkApplication`), `GET link-suggestions`
+  `?application_id=` / `?job_id=` (`getLinkSuggestions`, read key), `PATCH
   applications/{id}` (`updateApplicationDetails`; omitted fields unchanged), `POST
   applications/{id}/status` `{status, date?}` (`updateApplicationStatus`), `POST
-  jobs/{id}/applied` `{category?}` (`markJobApplied`, scope `{stage: 'all'}`), `POST
+  jobs/{id}/applied` `{category?, date?, create_new?}` (`markJobApplied`, scope `{stage: 'all'}`), `POST
   watchlist` / `DELETE watchlist/{id}` (`addWatchedCompany` / `removeWatchedCompany`;
   a `recipe` that fails the recipe schema is a `400` listing each violation; the delete
   returns the removed row), `POST jobs/{id}/triage` `{decision, reason?}` /
@@ -1678,13 +1684,15 @@ worker modules are pure and dependency-injected; real services are wired only in
     through the stored description, without a provider call. Postings are
     filtered by the default "for you" view or one funnel `stage` (§9 "Discovered Jobs
     funnel"); all views page with `page`/`size`. The pipeline-status mutation is
-    `markJobApplied(id, category, scope)`
+    `markJobApplied(id, category, scope, actor, {date?, createNew?})`
     (category chosen at apply time from the user-configured vocabulary — free-form,
     default `Others` when blank); `getCategories`/`setCategories` edit the category list
     in `app_settings`.
     Each row also carries a source-lifecycle summary: source state, last seen/check times,
     safe inconclusive category, current content revision, and independent screen
     freshness. Unknown legacy revisions and provider errors stay explicitly unknown/error.
+    A row with no application carries `applied_match`, the unlinked application it matches at
+    tier 1 or 2 (§9), shown as "You may have applied already (application #N)".
     Rows and job detail also carry a derived `triage_summary`: rule-based rejection,
     standalone screening rejection, candidate retained for fit research, or needs review.
     Triage feeds the funnel stage, filtered in bound SQL before pagination and count; MCP overview separately reports four disjoint counts that partition all postings. A rule-only standalone result
@@ -1705,12 +1713,15 @@ worker modules are pure and dependency-injected; real services are wired only in
     host-injection metacharacters while still allowing multi-part slugs like
     workday's `tenant/dc/site`; `dryRun` returns the resolved `{source, slug, name,
     recipe}` after every check and adds nothing, for MCP `add_source`'s verify; a web add
-    is not fetched, the row reading `never_fetched` until the next worker pass) and
+    is not fetched, the row reading `never_fetched` until the next worker pass; a
+    `browser` add carries `warning` in the returned data unless the latest pass record
+    says browser sources are on) and
     `removeWatchedCompany` back the Sources tab and the
     MCP write API. `lib/board-url.ts` (`resolveBoardUrl`) maps board and job URLs on
     greenhouse, lever, ashby, smartrecruiters, workable, workday, pinpoint and icims to
     `(source, slug)`; `worker/tests/fixtures/board-url-cases.json` runs in both suites, and
-    the worker's `feed/resolve.py` must agree on its job-URL cases. `feed_unresolved` is
+    the worker's `feed/resolve.py` resolves every case alike (`resolve_board`, which onboard-board's
+    `probe.py` recognizes URLs and page embeds with; `resolve_url` agrees on the job-URL cases). `feed_unresolved` is
     read through MCP only.
   - *Activity* (`lib/activity-actions.ts`, #210): `getActivityStatus` (the latest
     `worker_runs` row by `started_at`, its JSON columns parsed (unparseable reads as
@@ -1754,7 +1765,7 @@ worker modules are pure and dependency-injected; real services are wired only in
   row — and triage (a target role or custom context) are optional steps). The checklist carries copy-paste MCP client configs and starter prompts read
   from `apps/web/templates/mcp/` (plain text, placeholder keys only; the Docker image
   copies the directory).
-- **`components/`** — `ApplicationsView` (KPI grid, Export/Import CSV, the
+- **`components/`** — `ApplicationsView` (KPI grid, Export/Import CSV, Link postings, the
   Applications table/form/charts and history modal) and `JobsView` (Discovered Jobs, the
   Mark Applied flow and Not interested); only Applications, Settings, Mark Applied and Not
   interested write;
@@ -1763,7 +1774,7 @@ worker modules are pure and dependency-injected; real services are wired only in
   blank state and a remote checkbox writing the `remote` entry, internship and contract
   checkboxes, education rows with a `DEGREES` select; built from `ProfileEditors`
   `ListEditor` and `CustomContextEditor`) and `CategoriesEditor` (the category
-  vocabulary) make up `/settings`; `ApplicationTable` (inline status edit; job title links to `application_url`; Details opens the history/edit modal; dates show the year outside the current one; Company / Date / Status headers sort server-side via `getApplications` `sort`/`dir`, default date desc), `KPIGrid`,
+  vocabulary) make up `/settings`; `ApplicationTable` (inline status edit; job title links to `application_url`; Details opens the history/edit modal; dates show the year outside the current one; Company / Date / Status headers sort server-side via `getApplications` `sort`/`dir`, default date desc; an application with no posting has a Link button), `LinkPostingsDialog` (the candidates of one application, or of every unlinked one, each with its own Link click; opens by itself after adding an application that has candidates), `KPIGrid`,
   `StatusHistoryModal`, `AddApplicationForm`, `DiscoveredJobsTable` (a job-board list of "postings for you", #207: title link,
   company, location, posted age ("3d ago"); actions Apply (the `job_url` via `safeHref`,
   new tab), Mark applied, Not interested and View JD; filters search, Search in JD and
@@ -1771,7 +1782,7 @@ worker modules are pure and dependency-injected; real services are wired only in
   cells. `JobsView` controls the filters with request-version checks, states the active
   mode and triage's 7-day window in one line, and makes Not interested a triage `skip`
   override (actor `web`) with an Undo toast that clears it), `Pagination` (reusable: first/last, numbered pages, go-to), `ApplyCategoryDialog`
-  (category picker on Mark Applied), `ImportCSVDialog` (drag-and-drop or browse file
+  (category and date on Mark Applied; when an unlinked application matches, link it or mark as new), `ImportCSVDialog` (drag-and-drop or browse file
   picker behind the Import CSV button, with the column contract — required columns,
   `YYYY-MM-DD` dates, the exact `status` vocabulary, dedup-skips-never-overwrites —
   stated inline; guards on the `.csv` extension, not the MIME type, since Excel on
@@ -2286,10 +2297,19 @@ Triage evidence with duplicate object members at its root, screen map, or check 
   — in the worker (`db.board_health`, for MCP `list_sources`) and
   the web (`lib/board-health.ts`, for the Sources tab), pinned by
   `worker/tests/fixtures/board-health-cases.json` in both suites.
-- **Adds are verified where a fetch can run.** MCP `add_source` (on the host) reads
-  the board's list once and adds it only if it lists a posting, never making a
-  per-posting detail call; the web add cannot fetch, so its
+- **Adds are verified where a fetch can run.** MCP `add_source` and onboard-board's
+  `add_watched.py` (on the host; the latter reads the key from `ATS_API_KEY` or
+  `~/.config/ats-mcp/api-key` and never opens the DB) read
+  a known-ATS board's list once and add it only if it lists a posting, never making a
+  per-posting detail call; the script adds a recipe board unfetched (the skill validates
+  the recipe first); the web add cannot fetch, so its
   row reads `never_fetched` until the next pass records it.
+- **A browser board added while browser sources are off is warned about, not refused
+  (#233).** `addWatchedCompany` (Sources tab, `/api/v1/watchlist`, dry run included) reads
+  the flag from the latest pass record (`worker_runs.config_json.browser_sources`) and
+  returns a `warning` unless that pass recorded it on. Neither the URL form nor
+  MCP `add_source` can add a recipe board today, so the caller that sees it is an
+  `/api/v1` add with a recipe.
 
 **Web ↔ pipeline seam** (`lib/job-actions.ts`):
 
@@ -2298,12 +2318,28 @@ Triage evidence with duplicate object members at its root, screen map, or check 
   gate nothing and are not shown; `bucket`, `minScore`, `cause`, `triageStatus` and the
   `score` sort are rejected filter keys. Every row carries `stage`, `status` (effective),
   `verdict` (stored), `profile_version` and `jev {reasons, override}`.
-- **`markJobApplied(id, category?)`** runs in a `$transaction`: it refuses if an
-  application with the same `(company_name, job_title)` exists, else creates the
-  application (`status='Applied'`, `category` chosen by the user at apply time from the
+- **`markJobApplied(id, category?)`** runs in a `$transaction`: when an unlinked application
+  matches the posting at tier 1 or 2 (below) it writes nothing and returns it as `match`,
+  unless `createNew`; else it creates the
+  application (`status='Applied'`, dated `date`, default today, `category` chosen by the user at apply time from the
   configured vocabulary — free-form, default `Others` when blank — url from `job_url`) and atomically
   sets the posting to `pipeline_status='applied'` + `application_id`. Application and
   back-link are created together or not at all.
+- **Linking applications to postings** (`lib/application-match.ts`, `lib/link-actions.ts`,
+  #241). Nothing links by itself: a match is a suggestion, a link is one call naming both
+  ids. Tiers: **1** same posting URL (host and path, plus a fragment and the query
+  values that hold a digit and are not tracking parameters: many boards keep the posting id
+  there, where dropping it makes hundreds of postings one URL); **2** same company and same title,
+  normalized (company: case, punctuation and legal suffixes dropped, one name may contain
+  the other on word boundaries; title: case, dashes and punctuation, with parentheticals,
+  `+` and `#` kept); **3** same company, another title: a picker only. Title similarity
+  orders tier 3 and is never a match; there is no date gate. Only unlinked applications and
+  unlinked postings not `removed` are matched; tiers 1 and 2 are never cut, tier 3 is (5 per
+  application in the whole list, 50 for one) with the rest counted in `more`.
+  `linkApplication` (and `job_id` on `addApplication`, in the same transaction) sets
+  `application_id` and `pipeline_status='applied'` and refuses a missing or `removed`
+  posting and either side already linked elsewhere; the same pair again changes nothing.
+  There is no unlink action.
 
 **Application invariants:**
 
@@ -2327,11 +2363,17 @@ Triage evidence with duplicate object members at its root, screen map, or check 
   order by when they were made.
   It returns `{ status, recorded }`: the current status after the write and the one
   requested. The UI says when they differ; `/api/v1` and MCP return both.
-- **Dedup on `(company_name, job_title)`** for `addApplication`, `markJobApplied`,
-  and CSV import — all three run their existence-check + create in a `$transaction`
-  (findFirst-then-throw-to-rollback if a match exists), closing the TOCTOU window
-  between the check and the write. There is no DB-level `@@unique` on the pair
-  (deferred — see PROGRESS.md); dedup is enforced entirely in application code.
+- **Duplicate = same normalized company and title** (`duplicateKey`, the #241 normalizers,
+  equality, no containment), unless both applications have a posting: then the posting is
+  the identity, and a posting links once. `addApplication` and an `updateApplicationDetails`
+  that changes the key check it (`findDuplicate`) and reject, naming the existing id; CSV
+  import, whose rows have no posting, skips. `markJobApplied` offers an
+  unlinked application with the same names as its `match` and, with `createNew`, records
+  another; a name with no letters or digits never matches by name, so there,
+  without `createNew`, it rejects the duplicate.
+  A company or title with no letters or digits is compared as written, trimmed. Check and
+  write share a `$transaction`, closing the TOCTOU window. There is no DB-level `@@unique` on the pair
+  (two applications to different postings may share it); dedup is enforced entirely in application code.
 - **`deleteHistoryItem`** deletes the row and recomputes the status by the same rule
   in one `$transaction`.
 - **`deleteApplication` frees its postings.** In one `$transaction` with the cascade
@@ -2343,7 +2385,7 @@ Triage evidence with duplicate object members at its root, screen map, or check 
   (`web` | `mcp`) and write one `audit_log` row (`entity='applications'`, `entity_id` =
   application id) in the same transaction: action `add` (payload: the row), `update` /
   `status` / `remove_history` (`{before, after}`, plus `history` or `removed` for the
-  history row), `remove` (the row with its `status_history` and `job_posting_ids`). CSV
+  history row), `remove` (the row with its `status_history` and `job_posting_ids`), `link` (the row and the posting as it was). CSV
   import audits one `add` (actor `web`) per imported row. A rejected write writes none.
 - **KPIs** (`getKPIs`): `total` = every application; `active` = not Offer / Accepted /
   Rejected / Withdrew and the latest status-history date (else `date_applied`) within
@@ -2351,12 +2393,14 @@ Triage evidence with duplicate object members at its root, screen map, or check 
   counts Offer + Accepted.
 - **CSV import** requires columns `company_name, job_title, date_applied`; a pre-#205
   status name is mapped through `LEGACY_STATUS_MAP`; other unknown
-  `status`/`category` values fall back to `Applied`/`Others`; existing
-  `(company, title)` rows are skipped (reported in `{added, skipped, errors}`).
+  `status`/`category` values fall back to `Applied`/`Others`; duplicates of stored or
+  earlier rows are skipped (reported in `{added, skipped, errors}`).
   The per-row loop runs in **chunked** `$transaction`s (100 rows each), so a large
   import doesn't hold SQLite's single write lock long enough to starve a concurrent
   worker pass; a mid-import DB error rolls back only the current chunk, and re-import is
-  idempotent (per-`(company, title)` dedup) so it completes the rest. Import also
+  idempotent (the duplicate check above) so it completes the rest; of two exported applications
+  with the same company and title, each linked to its own posting, only one is imported
+  into an empty table (the CSV carries no posting). Import also
   **reverses the export formula-injection guard** — it strips a leading `'` that precedes
   a formula-lead char (`= + - @`, tab, CR) — so an export→import round-trip is lossless.
   Per-row validation `continue`s (missing field, duplicate) are unaffected.
@@ -2508,8 +2552,10 @@ automated coverage — those rely on code review or the human in the loop, not a
 | A **blind** live backend (nothing usable: not a dict, or neither a `screen` object nor any requirement key) is a `provider_error`, not a verdict; the FLAT shape the 4B emits ~1 call in 100 is a real verdict and is honoured, byte-identical to the nested shape — so it cannot discard on the phrase floor and cannot record breaker successes; the narrow scope is pinned on the other side, where an empty `screen` dict is an answer and keeps the floor | `test_screen.py` (`test_a_blind_response_is_a_provider_error_not_a_verdict`, `test_an_empty_screen_object_is_a_verdict_and_keeps_the_floor`, `test_the_flat_shape_is_a_verdict_and_is_honoured`, `test_the_flat_shape_and_the_schema_shape_agree`, `test_the_observed_flat_response_is_kept_not_discarded`) |
 | `mark_failed` → terminal `failed` + `attempts+1` (fetch/score paths) | `test_db.py` |
 | Effective status (#226) = override decision, else the stored verdict, identical in Web and MCP for every shared case; an override survives a content change and `keep` rescues a requirements discard into "for you" and the MCP default view; each posting in exactly one funnel stage, a closed one only in `closed` and hidden by default from MCP `list_jobs`; each row shows its profile version; Mark Applied scoped to its view; retired stages and filter keys rejected | `web/src/__tests__/effective-status-parity.int.test.ts`, `worker/tests/test_effective_status_parity.py` (shared `effective-status-cases.json`), `test_mcp_repository.py::test_override_holds_across_reassessment_and_content_change`, `web/src/__tests__/inventory-contract.int.test.ts` |
-| Discovered Jobs and Activity are read-only except Mark Applied and Not interested, Sources writes only board add/remove (no server-action import in their display components; `JobsView` wires only reads plus `markJobApplied` and the triage override set/clear; no discard/reopen/bulk export); Sources `postings_30d`; Activity's status strip and merged plain-English timeline with paging | `web/src/__tests__/readonly-dashboard.test.ts`, `watchlist.int.test.ts`, `activity.int.test.ts`, `web/e2e/discovered.spec.ts`, `web/e2e/sources-activity.spec.ts` |
-| `markJobApplied` atomic create + back-link + dedup | `actions.test.ts`, `actions.int.test.ts` (real-Prisma tx) |
+| Discovered Jobs and Activity are read-only except Mark Applied and Not interested, Sources writes only board add/remove (no server-action import in their display components; `JobsView` wires only reads plus `markJobApplied`, `linkApplication` and the triage override set/clear; no discard/reopen/bulk export); Sources `postings_30d`; Activity's status strip and merged plain-English timeline with paging | `web/src/__tests__/readonly-dashboard.test.ts`, `watchlist.int.test.ts`, `activity.int.test.ts`, `web/e2e/discovered.spec.ts`, `web/e2e/sources-activity.spec.ts` |
+| Duplicate check: normalized names; posting identity; on edit; CSV | `duplicate-check.int.test.ts` |
+| `markJobApplied` atomic create + back-link + match | `actions.test.ts`, `actions.int.test.ts` (real-Prisma tx) |
+| Link tiers; a similar title is never tier 1-2; suggestions write nothing; web and `/api/v1` link alike; refusals; Mark Applied offers the match; MCP calls the web matcher | `application-match.test.ts`, `link.int.test.ts`, `LinkPostingsDialog.test.tsx`, `Views.test.tsx`, `test_mcp_write.py` |
 | `updateApplicationStatus` validates `STATUSES`, appends history | `actions.test.ts`, `actions.int.test.ts` |
 | Status = latest history row (timestamp, ties by id) on write and `deleteHistoryItem`; creation writes the initial `Applied` row; the #243 backfill | `actions.int.test.ts`, `history-backfill.int.test.ts` |
 | `deleteApplication` resets linked `applied` postings to `new`; every application write leaves one audit row (web and `/api/v1`) | `application-audit.int.test.ts` |
@@ -2549,7 +2595,7 @@ automated coverage — those rely on code review or the human in the loop, not a
 | Embedded-greenhouse enriching resolver (token scrape → greenhouse ingest) | `test_embedded_gh.py` |
 | SSRF guard (`is_safe_public_url` / `get_redirect_safe` re-validates every redirect hop) + util helpers | `test_util.py` |
 | Config load/validate (sources, slugs, recipes, candidate block, and screen-only fit-profile skip) | `test_config.py` |
-| `add_watched` CLI watchlist write boundary | `test_add_watched.py` |
+| onboard-board `add_watched.py` adds through `/api/v1/watchlist` (dry run, platform verify, add; no key or no web fails with the reason, no DB write) | `test_add_watched.py` |
 | Cross-service sync guard (source enums + low-context threshold + SPEC's source-coverage matrix) | `test_source_enums_sync.py` |
 | Quota telemetry is one HTTP GET per pass against the ACTIVE backend's usage endpoint (codex `/backend-api/codex/usage`, Claude Code `/api/oauth/usage`), **retried up to `_ATTEMPTS` (4) on a retryable failure — 403/429/5xx and transport errors — while a 401/404 is a verdict and is not retried**; `capture_usage` never raises and keeps the last-good snapshot on a failed fetch | `test_usage.py` (`test_which_statuses_are_worth_retrying`, `test_a_retryable_failure_is_retried_and_the_recovery_is_kept`, `test_a_verdict_status_is_not_retried`, `test_the_attempt_bound_and_the_sleep_schedule_are_the_module_defaults`, `test_fetch_codex_usage_normalizes_the_window`, `test_codex_usage_sends_a_non_default_user_agent`, `test_fetch_claude_usage_prefers_the_limits_array_and_keeps_the_model_scope`, `test_claude_usage_falls_back_to_the_flat_buckets`, `test_capture_usage_keeps_the_last_good_snapshot_when_the_fetch_fails`, `test_capture_usage_never_raises`), `test_run.py`  |
 | A failed quota capture is announced **with its cause**, not swallowed — every route to a `False` return names what happened (status+reason, exception type, or which precondition failed — including a 200 whose body is not an object, and on the claude path as well as codex), including `http.client.HTTPException`, which subclasses neither `OSError` nor `ValueError`; plus the `[quota] WARNING` on the `False` return, and an offset-aware `as_of` in every written snapshot so a stale reading is legible without an mtime check | `test_usage.py` (`test_get_json_names_the_http_status_when_the_provider_raises`, `test_get_json_names_the_exception_when_the_connection_fails`, `test_a_truncated_body_is_caught_and_named`, `test_a_200_with_no_usable_window_says_so_instead_of_going_quiet`, `test_a_200_that_is_not_the_expected_shape_says_so`, `test_a_200_whose_body_is_not_an_object_says_so`, `test_an_unanticipated_failure_cannot_colour_the_pass_and_still_says_why`, `test_capture_usage_stamps_as_of_so_a_stale_reading_is_legible`), `test_run.py`  |
@@ -2565,7 +2611,7 @@ automated coverage — those rely on code review or the human in the loop, not a
 | Integration-harness self-check (real Prisma round-trip on the temp DB) | `web/src/__tests__/harness.int.test.ts` |
 | Dead-link sweep: 404/410 → `source_state='closed'` (lifecycle untouched), every other error, a missing recheck key or an adapter `None` records `inconclusive`, a served posting records `found` (clearing an earlier category), every check rotates the row, workday is fetched by the `/job/...` path from the stored `job_url` (never the GUID), closed rows not rechecked | `test_pipeline.py` (`run_expire`), `test_fetch_new.py` (`recheck_id`, `test_stored_workday_row_rechecks_at_a_well_formed_job_url`) |
 | Board absence closes: 3rd consecutive successful non-empty list without the id closes it, a failed or empty fetch never counts, relisting reopens; filter- and stub-gate-dropped ids still stamped seen; board-scoped stamp and count; workday/smartrecruiters/phenom/browser/icims/custom never close by absence; closed rows leave the screen and JEV queues | `test_closure.py` |
-| Per-board last-pass record: run_fetch writes `ok` + figures or the error category (NULL counts) and fetches the next board, a failed record write is logged and neither stops the pass nor fails a fetched board; a skipped browser row reads `disabled`; `kept` excludes gate discards and bodyless; detail failures are counted per board (workday, smartrecruiters through the real adapter); details_failed / bodyless / kept_zero tell nothing-kept apart, and a majority of failures or bodyless is not ok; a stub-gate board counts the stubs it listed; MCP `list_sources` and web `getWatchedCompanies` read the same columns and `health` from one shared fixture; the Sources tab tells never fetched / failed / empty / kept 0 / teaser apart; MCP `add_source` adds only a board whose list (no detail call; smartrecruiters and icims read one list page; recipe boards refused) verifies (404, empty or error rejected, the web dry run first), a web add is not fetched | `test_smartrecruiters.py::test_fetch_skips_the_detail_get_of_a_dropped_stub_and_hydrates_the_rest`, `test_fetch.py` (`test_board_has_listings_*`), `test_run.py` (`test_run_once_gates_browser_sources`, `test_a_failed_disabled_write_does_not_stop_the_pass`), `test_pipeline.py` (`test_run_fetch_records_each_boards_health_on_its_watchlist_row`, `test_a_failing_board_records_its_error_category_and_the_pass_goes_on`, `test_a_health_write_that_fails_does_not_stop_the_pass`, `test_a_failed_health_write_after_a_good_fetch_keeps_the_board_ok`, `test_a_gate_discard_is_not_kept_and_not_measured`, `test_phenom_whose_hydrated_postings_all_came_back_bodyless_is_not_ok`, `test_workday_whose_every_detail_get_was_throttled_reads_details_failed`, `test_smartrecruiters_listing_812_with_every_detail_failing_reads_details_failed`, `test_a_board_mostly_losing_its_details_is_not_healthy`, `test_a_board_whose_every_posting_came_back_bodyless_is_not_kept_zero`, `test_a_stub_gate_board_counts_what_it_listed_not_what_it_returned`), `test_mcp_write.py` (`test_list_sources_returns_each_boards_last_pass_health`, `test_add_source_rejects_a_board_its_fetch_cannot_verify`, `test_add_source_verifies_a_smartrecruiters_board_from_its_list_page_alone`, `test_add_source_without_a_fetcher_refuses_rather_than_adding_unverified`), `web/src/__tests__/watchlist.int.test.ts`, `api-v1.int.test.ts`, `web/src/components/__tests__/SourcesTab.test.tsx` |
+| Per-board last-pass record: run_fetch writes `ok` + figures or the error category (NULL counts) and fetches the next board, a failed record write is logged and neither stops the pass nor fails a fetched board; a skipped browser row reads `disabled`; `kept` excludes gate discards and bodyless; detail failures are counted per board (workday, smartrecruiters through the real adapter); details_failed / bodyless / kept_zero tell nothing-kept apart, and a majority of failures or bodyless is not ok; a stub-gate board counts the stubs it listed; MCP `list_sources` and web `getWatchedCompanies` read the same columns and `health` from one shared fixture; the Sources tab tells never fetched / failed / empty / kept 0 / teaser apart; MCP `add_source` adds only a board whose list (no detail call; smartrecruiters and icims read one list page; recipe boards refused) verifies (404, empty or error rejected, the web dry run first), a web add is not fetched; a browser add warns unless the latest pass recorded browser sources on | `test_smartrecruiters.py::test_fetch_skips_the_detail_get_of_a_dropped_stub_and_hydrates_the_rest`, `test_fetch.py` (`test_board_has_listings_*`), `test_run.py` (`test_run_once_gates_browser_sources`, `test_a_failed_disabled_write_does_not_stop_the_pass`), `test_pipeline.py` (`test_run_fetch_records_each_boards_health_on_its_watchlist_row`, `test_a_failing_board_records_its_error_category_and_the_pass_goes_on`, `test_a_health_write_that_fails_does_not_stop_the_pass`, `test_a_failed_health_write_after_a_good_fetch_keeps_the_board_ok`, `test_a_gate_discard_is_not_kept_and_not_measured`, `test_phenom_whose_hydrated_postings_all_came_back_bodyless_is_not_ok`, `test_workday_whose_every_detail_get_was_throttled_reads_details_failed`, `test_smartrecruiters_listing_812_with_every_detail_failing_reads_details_failed`, `test_a_board_mostly_losing_its_details_is_not_healthy`, `test_a_board_whose_every_posting_came_back_bodyless_is_not_kept_zero`, `test_a_stub_gate_board_counts_what_it_listed_not_what_it_returned`), `test_mcp_write.py` (`test_list_sources_returns_each_boards_last_pass_health`, `test_add_source_rejects_a_board_its_fetch_cannot_verify`, `test_add_source_verifies_a_smartrecruiters_board_from_its_list_page_alone`, `test_add_source_without_a_fetcher_refuses_rather_than_adding_unverified`), `web/src/__tests__/watchlist.int.test.ts`, `api-v1.int.test.ts`, `web/src/components/__tests__/SourcesTab.test.tsx` |
 | Explicit one-shot source refresh stays within 1–25 SmartRecruiters requests without following redirects, selects only unscored/unlinked rows without fit assessment, validates identity and visible core JD content, preserves state on inconclusive/closed results, reopens source availability without relabeling detail-check time, and skips concurrent eligibility changes | `test_source_lifecycle.py`, `test_run.py::test_run_once_unscored_refresh_runs_as_an_isolated_source_only_mode`, `test_smartrecruiters.py` |
 | Explicitly inactive SmartRecruiters details cannot insert or reopen a source observation on normal feed/watchlist ingestion; missing `active` remains compatible and normal ingest never records closure | `test_smartrecruiters.py` (`test_fetch_one_rejects_an_explicitly_inactive_detail`, `test_fetch_skips_explicitly_inactive_detail_but_keeps_missing_active_compatibility`), `test_feed_pipeline.py` (`test_run_feed_does_not_insert_smartrecruiters_explicitly_inactive_detail`, `test_run_fetch_does_not_reopen_closed_smartrecruiters_row_from_inactive_detail`), `test_source_lifecycle.py` |
 | Complete source content is hashed/revisioned; duplicate listings only advance seen time; completed fit and standalone assessments capture the source revision; changed content never triggers a provider rerun | `test_source_lifecycle.py`, `test_db.py`, `test_screen_pipeline.py` |
@@ -2650,8 +2696,8 @@ automated coverage — those rely on code review or the human in the loop, not a
 - **Security:** the JOB text is marked as *data, not instructions* in the screen
   prompt (a posting can't inject directives); secrets live only in the gitignored
   `.env`, read by `run.py`.
-  Watchlist **slugs** are structurally validated at all three write boundaries
-  (`watchlist-actions.ts`, `config.py`, `add_watched.py`); the two sources that pack a hostname
+  Watchlist **slugs** are structurally validated at both write boundaries
+  (`watchlist-actions.ts`, `config.py`; onboard-board's `add_watched.py` writes through the first); the two sources that pack a hostname
   in the slug additionally run the built host through `is_safe_public_url` in their
   `_parts` (`phenom` — the segment *is* the host; `workday` — belt-and-braces, its
   `.myworkdayjobs.com` suffix is hardcoded), so an internal-IP slug raises instead

@@ -4,7 +4,8 @@ import { prisma } from '@/lib/db'
 import { Prisma } from '@prisma/client'
 import { type Actor, STATUSES } from '@/lib/constants'
 import { todayISO } from '@/lib/utils'
-import { applicationAudit, checkedActor, searchClause, syncStatusFromHistory, writeInitialHistory, CATEGORY_FALLBACK } from '@/lib/action-helpers'
+import { duplicateKey } from '@/lib/application-match'
+import { applicationAudit, checkedActor, duplicateError, findDuplicate, linkPosting, searchClause, syncStatusFromHistory, writeInitialHistory, CATEGORY_FALLBACK } from '@/lib/action-helpers'
 
 // Header sort on the Applications table (#205): one column, server-side (paginated).
 export type ApplicationSort = { sort: 'company' | 'date' | 'status'; dir: 'asc' | 'desc' }
@@ -42,6 +43,7 @@ export async function getApplications(params: {
             skip: page * size,
             take: size,
             orderBy: [{ [SORT_FIELD[sortKey]]: dir }, { id: 'desc' }],
+            include: { job_postings: { select: { id: true } } }, // linked or not (#241)
         }),
         prisma.applications.count({ where }),
     ])
@@ -57,6 +59,7 @@ export async function addApplication(data: {
     status?: string
     application_url?: string
     notes?: string
+    job_id?: number // the posting it was made for (#241); refused like any other link
 }, actor: Actor = 'web') {
     try {
         checkedActor(actor)
@@ -68,18 +71,9 @@ export async function addApplication(data: {
         const category = data.category?.trim() || CATEGORY_FALLBACK
 
         const newApp = await prisma.$transaction(async (tx) => {
-            const existing = await tx.applications.findFirst({
-                where: {
-                    company_name: data.company_name,
-                    job_title: data.job_title,
-                },
-            })
-            if (existing) {
-                // Throw to roll back the transaction; surfaced as a failure below.
-                throw new Error(
-                    `Application for ${data.company_name} - ${data.job_title} already exists`
-                )
-            }
+            // Throw to roll back the transaction; surfaced as a failure below.
+            const existing = await findDuplicate(tx, data, data.job_id !== undefined)
+            if (existing) throw duplicateError(existing)
 
             const row = await tx.applications.create({
                 data: {
@@ -96,6 +90,7 @@ export async function addApplication(data: {
             })
             await writeInitialHistory(tx, row)
             await tx.audit_log.create({ data: applicationAudit(actor, 'add', row.id, row) })
+            if (data.job_id !== undefined) await linkPosting(tx, row.id, data.job_id, actor)
             return row
         })
 
@@ -124,8 +119,16 @@ export async function updateApplicationDetails(
         const category = data.category === undefined ? undefined : data.category.trim() || CATEGORY_FALLBACK
 
         const found = await prisma.$transaction(async (tx) => {
-            const before = await tx.applications.findUnique({ where: { id } })
-            if (!before) return false
+            const found = await tx.applications.findUnique({ where: { id }, include: { job_postings: { select: { id: true } } } })
+            if (!found) return false
+            const { job_postings, ...before } = found
+            // Checked only when the edit makes it a different application: a pair stored
+            // before this check existed can still have its notes or spelling edited.
+            const names = { company_name: data.company_name ?? before.company_name, job_title: data.job_title ?? before.job_title }
+            if (duplicateKey(names) !== duplicateKey(before)) {
+                const dup = await findDuplicate(tx, names, job_postings.length > 0)
+                if (dup) throw duplicateError(dup)
+            }
             const after = await tx.applications.update({
                 where: { id },
                 data: {

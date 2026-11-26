@@ -51,9 +51,13 @@ MCP `add_source` adds known-ATS boards only, after one fetch shows the board lis
    takes a recipe), mirrored in the web's `src/lib/constants.ts`.
 4. If the discovery feed should reach it (always, for a feed-only source): a host
    route in `feed/resolve.py:resolve_url`.
-5. A row in the SPEC source-coverage matrix.
+5. If it is watchlist-capable and its board URL names the slug: a board shape in
+   `feed/resolve.py:resolve_board`, the same in web's `src/lib/board-url.ts`, and a case in
+   `tests/fixtures/board-url-cases.json` (both suites run it). onboard-board's `probe.py`
+   recognizes and verifies through these, so it needs no edit of its own.
+6. A row in the SPEC source-coverage matrix.
 
-`test_source_enums_sync.py` fails CI if the source lists in steps 2, 3 and 5 disagree.
+`test_source_enums_sync.py` fails CI if the source lists in steps 2, 3 and 6 disagree.
 Nothing checks step 4 (a feed-only adapter without a route is dead code) or a missing
 stub-gate entry (that only costs a skipped optimization).
 

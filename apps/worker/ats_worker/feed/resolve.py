@@ -21,7 +21,10 @@ record via `classify_reason` as a next-step backlog item.
 """
 from __future__ import annotations
 
+import re
 from urllib.parse import unquote, urlparse, parse_qs
+
+from ..config import VALID_SOURCES
 
 _GREENHOUSE_HOSTS = {
     "boards.greenhouse.io",
@@ -104,6 +107,73 @@ def resolve_url(url: str | None) -> tuple[str, str, str] | None:
     if host.endswith("myworkdayjobs.com"):
         return _resolve_workday(host, parts)
 
+    return None
+
+
+# --- board URLs (no job id needed) -----------------------------------------
+# `resolve_board` widens the shapes above to board URLs, for the sources a watchlist row
+# can hold. The web's lib/board-url.ts is the same resolver in TypeScript; every case of
+# tests/fixtures/board-url-cases.json runs through both. onboard-board's probe.py calls it.
+
+# Board hosts that carry no job URL the feed resolves, and boards named by a subdomain.
+_BOARD_ONLY_HOSTS = {"careers.smartrecruiters.com": "smartrecruiters"}
+_SUBDOMAIN_HOSTS = {"pinpointhq.com": "pinpoint", "icims.com": "icims"}
+# Every host `resolve_board` reads, for a scan of page text.
+FIXED_HOSTS = [*_FIXED_SHAPE_HOSTS, *_BOARD_ONLY_HOSTS]
+SUBDOMAIN_HOSTS = [*_SUBDOMAIN_HOSTS, "myworkdayjobs.com"]
+# A first path segment that is a route on that source's hosts, not a company slug.
+_ROUTE_SEGMENT = {"greenhouse": "embed", "workable": "j", "smartrecruiters": "oneclick-ui"}
+_LOCALE = re.compile(r"[a-z]{2}(-[A-Za-z]{2})?")
+_HOST_LABEL = re.compile(r"[a-z0-9_-]+")
+_SLUG = re.compile(r"[A-Za-z0-9._-]+")
+# Ashby and SmartRecruiters name boards by company name: single inner spaces allowed.
+_SPACED_SLUG = re.compile(r"[A-Za-z0-9._-]+( [A-Za-z0-9._-]+)*")
+_SPACED_SOURCES = {"ashby", "smartrecruiters"}
+
+
+def resolve_board(url: str | None) -> tuple[str, str] | None:
+    """(source, slug) for a board or job URL on a platform a watchlist row can hold, else
+    None (a recipe site, a feed-only source, a slug the watchlist rejects). Pure."""
+    try:
+        p = urlparse((url or "").strip())
+        host = (p.hostname or "").lower()
+    except ValueError:
+        return None
+    if p.scheme not in ("http", "https"):
+        return None
+    parts = _path_parts(p)
+
+    def board(source: str, slug: str) -> tuple[str, str] | None:
+        ok = (_SPACED_SLUG if source in _SPACED_SOURCES else _SLUG).fullmatch(slug)
+        if not ok or ".." in slug or slug.lower() == _ROUTE_SEGMENT.get(source):
+            return None
+        return (source, slug)
+
+    source = _FIXED_SHAPE_HOSTS.get(host, (_BOARD_ONLY_HOSTS.get(host),))[0]
+    if source is not None:
+        if source not in VALID_SOURCES:  # feed-only (jobvite): no board to list
+            return None
+        if source == "greenhouse" and parts[:1] == ["embed"]:
+            # boards.greenhouse.io/embed/job_board?for=acme names the board in the query.
+            return board(source, parse_qs(p.query).get("for", [""])[0])
+        return board(source, unquote(parts[0])) if parts else None
+
+    for suffix, sub_source in _SUBDOMAIN_HOSTS.items():
+        if host.endswith("." + suffix):
+            sub = host[: -len(suffix) - 1]
+            return board(sub_source, sub) if sub != "www" and "." not in sub else None
+
+    # {tenant}.{dc}.myworkdayjobs.com/[locale/]{site}[/job/...]: the site is the segment
+    # before `job` (as _resolve_workday), else the first non-locale segment.
+    if host.endswith(".myworkdayjobs.com"):
+        labels = host.split(".")
+        if len(labels) < 4 or not all(_HOST_LABEL.fullmatch(x) for x in labels[:2]):
+            return None
+        job = parts.index("job") if "job" in parts else -1
+        site = parts[job - 1] if job > 0 else next((s for s in parts if not _LOCALE.fullmatch(s)), "")
+        if _LOCALE.fullmatch(site) or site.lower() == "wday" or board("workday", site) is None:
+            return None
+        return ("workday", f"{labels[0]}/{labels[1]}/{site}")
     return None
 
 

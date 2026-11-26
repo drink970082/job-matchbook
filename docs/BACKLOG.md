@@ -29,9 +29,9 @@ data before selecting it.
 - **Infrastructure:** retain SQLite directory/WAL mounts, health/autoheal verification,
   schema ownership and privacy boundaries.
 - **Data integrity:** application uniqueness/identity (no DB
-  `@@unique(company_name, job_title)`; three transactional code paths hold the dedupe,
-  and the real table may hold legitimate re-applications, so the constraint needs a
-  backup and dedupe migration first), literal URL matches vs normalized requisitions,
+  `@@unique`; the transactional code paths hold the normalized duplicate check, and two
+  applications to different postings may share company and title, so a constraint does not
+  fit), literal URL matches vs normalized requisitions,
   and schema migration strategy (`db push` keeps no history) remain scoped maintenance
   questions, not reasons to alter application history.
 
@@ -120,7 +120,9 @@ data before selecting it.
   `importApplicationsCSV`, `getCategories` and `setCategories` are covered only by the
   excluded integration suite (`*.int.test.ts`); `getApplicationHistory` has no test.
 - `onboard-me` evals are owed a run against the current skill; `onboard-board` eval
-  iteration 1 hit 100% on both configs, so a second iteration needs harder boards.
+  iteration 1 hit 100% on both configs, so a second iteration needs harder boards. Any run
+  must set `ATS_API_URL` to a throwaway web (and its key in `ATS_API_KEY`): `add_watched.py`
+  otherwise adds to the live watchlist whatever checkout it runs from.
 - A **bulk watchlist onboarding** skill (target profile -> company research -> slug
   verification by a separate pass -> per-board cost estimate -> gated insert). Squatted
   slugs (a live board belonging to another company) and render cost are the hazards

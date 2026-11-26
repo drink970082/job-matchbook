@@ -100,7 +100,7 @@ describe('Backend Actions', () => {
 
       // addApplication wraps findFirst + create in a $transaction
       mockPrisma.$transaction.mockImplementation(async (callback: any) => await callback(mockPrisma))
-      mockPrisma.applications.findFirst.mockResolvedValue(null)
+      mockPrisma.applications.findMany.mockResolvedValue([])
       mockPrisma.applications.create.mockResolvedValue({ id: 3, ...newApp } as any)
 
       const result = await addApplication(newApp)
@@ -119,7 +119,7 @@ describe('Backend Actions', () => {
       }
 
       mockPrisma.$transaction.mockImplementation(async (callback: any) => await callback(mockPrisma))
-      mockPrisma.applications.findFirst.mockResolvedValue({ id: 1 } as any)
+      mockPrisma.applications.findMany.mockResolvedValue([{ id: 1, company_name: 'Amazon', job_title: 'SDE', job_postings: [] }] as any)
 
       const result = await addApplication(newApp)
 
@@ -130,7 +130,7 @@ describe('Backend Actions', () => {
 
     it('coerces an out-of-set status to Applied', async () => {
       mockPrisma.$transaction.mockImplementation(async (callback: any) => await callback(mockPrisma))
-      mockPrisma.applications.findFirst.mockResolvedValue(null)
+      mockPrisma.applications.findMany.mockResolvedValue([])
       mockPrisma.applications.create.mockResolvedValue({ id: 1 } as any)
 
       await addApplication({ company_name: 'A', job_title: 'B', date_applied: '2026-01-01', status: 'Hacked' })
@@ -141,7 +141,7 @@ describe('Backend Actions', () => {
 
     it('keeps a free-form category (blank falls back to Others)', async () => {
       mockPrisma.$transaction.mockImplementation(async (callback: any) => await callback(mockPrisma))
-      mockPrisma.applications.findFirst.mockResolvedValue(null)
+      mockPrisma.applications.findMany.mockResolvedValue([])
       mockPrisma.applications.create.mockResolvedValue({ id: 1 } as any)
 
       await addApplication({ company_name: 'A', job_title: 'B', date_applied: '2026-01-01', category: 'Private Equity' })
@@ -158,7 +158,7 @@ describe('Backend Actions', () => {
   describe('updateApplicationDetails', () => {
     it('keeps a free-form category', async () => {
       mockPrisma.$transaction.mockImplementation(async (cb: any) => cb(mockPrisma))
-      mockPrisma.applications.findUnique.mockResolvedValue({ id: 1 } as any)
+      mockPrisma.applications.findUnique.mockResolvedValue({ id: 1, company_name: 'A', job_title: 'B', job_postings: [] } as any)
       mockPrisma.applications.update.mockResolvedValue({ id: 1 } as any)
 
       await updateApplicationDetails(1, { company_name: 'A', job_title: 'B', category: 'Investment Banking' })
@@ -233,7 +233,7 @@ describe('Backend Actions', () => {
       mockPrisma.job_postings.findUnique.mockResolvedValue(posting as any)
       // markJobApplied wraps create + backfill in a $transaction
       mockPrisma.$transaction.mockImplementation(async (cb: any) => cb(mockPrisma))
-      mockPrisma.applications.findFirst.mockResolvedValue(null)
+      mockPrisma.applications.findMany.mockResolvedValue([])
       mockPrisma.applications.create.mockResolvedValue({ id: 42, company_name: 'Acme', job_title: 'Backend Engineer',
         date_applied: '2026-01-05', status: 'Applied', actor: 'web' } as any)
       mockPrisma.job_postings.updateMany.mockResolvedValue({ count: 1 } as any)
@@ -270,7 +270,7 @@ describe('Backend Actions', () => {
       mockPrisma.$queryRaw.mockResolvedValue([{ id: 7 }] as any)
       mockPrisma.job_postings.findUnique.mockResolvedValue(posting as any)
       mockPrisma.$transaction.mockImplementation(async (cb: any) => cb(mockPrisma))
-      mockPrisma.applications.findFirst.mockResolvedValue(null)
+      mockPrisma.applications.findMany.mockResolvedValue([])
       mockPrisma.applications.create.mockResolvedValue({ id: 42 } as any)
       mockPrisma.job_postings.updateMany.mockResolvedValue({ count: 1 } as any)
 
@@ -297,7 +297,8 @@ describe('Backend Actions', () => {
       mockPrisma.$queryRaw.mockResolvedValue([{ id: 7 }] as any)
       mockPrisma.job_postings.findUnique.mockResolvedValue(posting as any)
       mockPrisma.$transaction.mockImplementation(async (cb: any) => cb(mockPrisma))
-      mockPrisma.applications.findFirst.mockResolvedValue({ id: 1 } as any) // duplicate
+      mockPrisma.applications.findMany.mockResolvedValue([{ id: 1, company_name: 'acme inc', job_title: 'Backend engineer',
+        application_url: '', date_applied: '2026-01-01', status: 'Applied' }] as any) // duplicate
 
       const result = await markJobApplied(7, undefined, { stage: 'all' })
 

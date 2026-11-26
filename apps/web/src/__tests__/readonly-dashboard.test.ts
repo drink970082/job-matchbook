@@ -1,6 +1,6 @@
 /**
  * #158 acceptance, widened by #207/#208: Discovered Jobs and Activity are read-only
- * except Mark Applied and Not interested; Sources adds and removes boards. Display
+ * except Mark Applied (or linking the application already recorded, #241) and Not interested; Sources adds and removes boards. Display
  * components import no server action; the views wire exactly these.
  */
 import { readFileSync } from 'node:fs'
@@ -19,6 +19,7 @@ test.each(['components/DiscoveredJobsTable.tsx', 'components/JobDetailModal.tsx'
 test('the Jobs view wires only reads, Mark Applied and Not interested from the job actions', () => {
     const line = src('components/JobsView.tsx').match(/^import \{([^}]*)\} from '@\/lib\/job-actions'/m)
     expect(line?.[1].split(',').map((s) => s.trim()).sort()).toEqual(['clearTriageOverride', 'getJobPostings', 'markJobApplied', 'setTriageOverride'])
+    expect(src('components/JobsView.tsx').match(/^import \{([^}]*)\} from '@\/lib\/link-actions'/m)?.[1].trim()).toBe('linkApplication')
 })
 
 test('job-actions exports no pipeline-status mutation besides markJobApplied', async () => {

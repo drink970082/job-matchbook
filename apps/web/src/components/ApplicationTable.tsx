@@ -18,7 +18,7 @@ import {
     SelectTrigger,
     SelectValue,
 } from '@/components/ui/select'
-import { Trash2, FileText, ArrowUp, ArrowDown } from 'lucide-react'
+import { Trash2, FileText, Link2, ArrowUp, ArrowDown } from 'lucide-react'
 import { Pagination } from './Pagination'
 import { STATUSES, getStatusColor } from '@/lib/constants'
 import { safeHref } from '@/lib/utils'
@@ -33,6 +33,7 @@ interface Application {
     date_applied: string
     notes: string
     application_url?: string | null
+    job_postings?: Array<{ id: number }>
 }
 
 type SortKey = ApplicationSort['sort']
@@ -55,6 +56,7 @@ interface ApplicationTableProps {
     onStatusChange: (id: number, status: string) => void
     onDelete: (id: number) => void
     onHistory: (id: number) => void
+    onLink: (id: number) => void
 }
 
 export function ApplicationTable({
@@ -68,6 +70,7 @@ export function ApplicationTable({
     onStatusChange,
     onDelete,
     onHistory,
+    onLink,
 }: ApplicationTableProps) {
     const [search, setSearch] = useState('')
     const [statusFilter, setStatusFilter] = useState('all')
@@ -201,6 +204,12 @@ export function ApplicationTable({
                                         </TableCell>
                                         <TableCell className="text-right">
                                             <div className="flex justify-end gap-0.5">
+                                                {app.job_postings?.length === 0 && (
+                                                    <Button variant="ghost" size="icon" className="h-7 w-7" title="Link to a posting"
+                                                        aria-label={`Link to a posting: ${app.company_name} - ${app.job_title}`} onClick={() => onLink(app.id)}>
+                                                        <Link2 className="h-3.5 w-3.5" />
+                                                    </Button>
+                                                )}
                                                 <Button
                                                     variant="ghost"
                                                     size="icon"
