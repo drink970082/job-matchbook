@@ -59,7 +59,6 @@ export function ApplyCategoryDialog({ open, categories, companyName, jobTitle, m
         if (open) {
             setCategory(categories[0] ?? '')
             setDate(todayISO())
-            latest.current += 1
             setBusy(false)
         }
     }, [open, categories])
