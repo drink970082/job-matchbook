@@ -1706,7 +1706,8 @@ worker modules are pure and dependency-injected; real services are wired only in
     MCP write API. `lib/board-url.ts` (`resolveBoardUrl`) maps board and job URLs on
     greenhouse, lever, ashby, smartrecruiters, workable, workday, pinpoint and icims to
     `(source, slug)`; `worker/tests/fixtures/board-url-cases.json` runs in both suites, and
-    the worker's `feed/resolve.py` must agree on its job-URL cases. `feed_unresolved` is
+    the worker's `feed/resolve.py` resolves every case alike (`resolve_board`, which onboard-board's
+    `probe.py` recognizes URLs and page embeds with; `resolve_url` agrees on the job-URL cases). `feed_unresolved` is
     read through MCP only.
   - *Activity* (`lib/activity-actions.ts`, #210): `getActivityStatus` (the latest
     `worker_runs` row by `started_at`, its JSON columns parsed (unparseable reads as

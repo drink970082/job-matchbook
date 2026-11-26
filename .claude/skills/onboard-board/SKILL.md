@@ -40,8 +40,9 @@ always prefer the earliest rung that actually works.
 
 ## Step 1 — probe
 
-Run the bundled scout, which tries the known ATS endpoints and reads the page for
-plain-HTTP signals and bot walls:
+Run the bundled scout, which recognizes a known ATS with the worker's own URL resolver,
+checks the board's list through the worker's adapter, and reads the page for plain-HTTP
+signals and bot walls:
 
 ```
 python .claude/skills/onboard-board/scripts/probe.py <careers-url>
@@ -51,7 +52,10 @@ Read its `VERDICT:` line. It is a **scout, not a verdict you must obey** — it 
 the search. In particular, a `plain-http?` result (page fetched, but jobs not in the
 static HTML) means *the jobs load via an XHR you still have to find* — that's normal
 for a JSON board; go find the endpoint (browser DevTools → Network → filter Fetch/XHR,
-or guess a `search.json` / `/api/…` sibling). Don't stop at the probe.
+or guess a `search.json` / `/api/…` sibling). `platform?` means the URL
+names a known ATS but its board did not verify (the reason is printed), or (with no
+plain-HTTP signal) a board the page embeds could not be read: check the slug before trying another rung. A `platform=workday`
+verdict with `{site}` means only the Workday host was found: get the site from a job link. Don't stop at the probe.
 
 ## Step 2 — build the row for the rung the probe pointed you at
 
@@ -74,7 +78,7 @@ date normalizer). Every posting the executors emit has exactly these 8 keys:
 - **workday**: `"tenant/datacenter/site"` (from `{tenant}.{dc}.myworkdayjobs.com/{site}`).
 - **phenom**: `"{host}/{domain}"` (e.g. `apply.careers.microsoft.com/microsoft.com`).
 
-No recipe, no fixture needed beyond confirming the board returns jobs (the probe's count).
+No recipe, no fixture needed beyond the probe's HIT (the board lists postings).
 
 ### 2b. Plain-HTTP → a `custom` recipe
 
@@ -142,7 +146,7 @@ read the card structure, and write CSS selectors:
 
 A row that isn't verified is a guess, and Step 4 adds it to the **live** board list — so
 prove it first. Confirm the recipe yields **≥1 well-formed posting** (a real title, a
-`job_url`, a non-empty `external_id`); a platform row just needs the probe's non-zero count.
+`job_url`, a non-empty `external_id`); a platform row just needs the probe's HIT.
 For a recipe, run its `parse_jobs` against a captured response:
 
 ```bash
