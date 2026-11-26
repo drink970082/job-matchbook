@@ -52,6 +52,7 @@ profile's background and target roles (Step 7).
 | 7 | `apps/worker/.env` | you fill values the user gives (prereqs came from Step 0) |
 | 7 | optional triage: education, experience, target roles in the candidate profile | Settings or MCP `set_candidate_profile` |
 | 8 | first pass | `python -m ats_worker.run --once` |
+| 9 | confirm the profile | the user reviews the intake summary in the web's setup checklist and clicks Confirm; until then no pass runs a screen or triage call |
 
 Steps are **ordered but independent.** A brand-new user wants the whole run; someone
 who says "just fix my profile" or "set up my categories" wants one step — do that

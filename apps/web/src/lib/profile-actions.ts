@@ -3,7 +3,7 @@
 import { prisma } from '@/lib/db'
 import type { Actor } from '@/lib/constants'
 import { checkedActor } from '@/lib/action-helpers'
-import { type ProfileField, profileView, toColumn, validateProfilePatch } from '@/lib/candidate-profile'
+import { type ProfileField, profileView, requirementsConfigured, toColumn, validateProfilePatch } from '@/lib/candidate-profile'
 
 // --- Candidate profile (#224): the one row every worker stage reads -----------------
 // A set merges the given fields over the stored ones; an actual change bumps `version`,
@@ -19,6 +19,28 @@ export async function getCandidateProfile() {
 
 // The audit snapshot: the custom pack texts are private and long, so only their presence.
 const snapshot = (row: Record<string, unknown>) => ({ ...row, custom_packs: row.custom_packs ? '(custom)' : null })
+
+// The confirmation gate (#227): no screen or triage call runs until the operator confirms
+// the profile here, after reading the intake summary. No /api/v1 route and no MCP tool:
+// the human who pays confirms. It needs a hard requirement, as setup completion does;
+// without one every title-filter survivor would go straight to paid triage. Once set it
+// stays set; later edits apply look-forward.
+export async function confirmCandidateProfile() {
+    const now = new Date().toISOString()
+    const error = await prisma.$transaction(async (tx) => {
+        const row = await tx.candidate_profile.findUnique({ where: { id: 1 } })
+        if (!row) return 'Fill in the candidate profile first'
+        if (!requirementsConfigured(profileView(row))) return 'Set at least one hard requirement first'
+        const { count } = await tx.candidate_profile.updateMany({ where: { id: 1, confirmed_at: null },
+            data: { confirmed_at: now } })
+        if (count) {
+            await tx.audit_log.create({ data: { at: now, actor: 'web', action: 'confirm',
+                entity: 'candidate_profile', entity_id: 1, payload: JSON.stringify({ confirmed_at: now }) } })
+        }
+        return null
+    })
+    return error ? { success: false, error } : { success: true }
+}
 
 export async function setCandidateProfile(input: Record<string, unknown>, actor: Actor = 'web') {
     checkedActor(actor)

@@ -280,6 +280,12 @@ def get_candidate_profile(conn: sqlite3.Connection) -> dict | None:
     return dict(row) if row else None
 
 
+def profile_confirmed(conn: sqlite3.Connection) -> bool:
+    """The confirmation gate (#227): the operator confirmed the stored profile."""
+    row = get_candidate_profile(conn)
+    return bool(row and row["confirmed_at"])
+
+
 def write_candidate_profile(conn: sqlite3.Connection, values: dict, *, actor: str, now: str,
                             confirmed_at: str | None = None, changed_at: str | None = None,
                             replace: bool = False) -> bool:

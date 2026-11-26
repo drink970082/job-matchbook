@@ -35,7 +35,7 @@ export async function AppShell({ active, children }: { active: TabPath; children
                     </Link>
                 ))}
             </nav>
-            {!setup.complete && <Onboarding steps={setup.steps} templates={await getMcpTemplates()} />}
+            {!setup.complete && <Onboarding steps={setup.steps} intake={setup.intake} wouldDiscard={setup.wouldDiscard} templates={await getMcpTemplates()} />}
             {children}
         </div>
     )

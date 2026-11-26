@@ -120,6 +120,28 @@ _SAFE_SCREEN_JSON_SQL = "CASE WHEN json_valid(s.result_json) THEN s.result_json 
 _MAX_TIMESTAMP_CHARS = MAX_RFC3339_CHARS
 
 
+def setup_steps(row: dict[str, Any] | None, *, sources: int, has_posting: bool) -> dict[str, bool]:
+    """The one setup rule (#227) over the stored candidate_profile row (raw columns) or
+    None. The web's lib/candidate-profile.ts setupSteps is the same rule; both run the
+    `setup` cases of tests/fixtures/candidate-profile-cases.json. `requirements` is the
+    worker's config.Candidate.is_empty negated; `triage` and `confirmed` are optional to
+    an AI client but `confirmed` gates every model stage."""
+    r = row or {}
+    listed = lambda key: bool(json.loads(r.get(key) or "[]"))  # noqa: E731
+    text = lambda key: bool((r.get(key) or "").strip())  # noqa: E731
+    steps = {
+        "requirements": any((listed("education"), text("work_authorization"),
+                             text("security_clearance"), listed("locations"),
+                             bool(r.get("exclude_internships")), bool(r.get("exclude_contract")))),
+        "triage": listed("target_roles") or bool(r.get("custom_triage_context")),
+        "sources": sources > 0,
+        "first_fetch": has_posting,
+        "confirmed": bool(r.get("confirmed_at")),
+    }
+    steps["complete"] = all(steps[k] for k in ("requirements", "sources", "first_fetch", "confirmed"))
+    return steps
+
+
 def _timestamp_key(value: Any) -> tuple[int, str] | None:
     """Return exact UTC parts for a supported timestamp with an explicit zone."""
     if not isinstance(value, str) or len(value) > _MAX_TIMESTAMP_CHARS:
@@ -917,14 +939,15 @@ class ReadOnlyATSRepository:
         return {"candidate_profile": out}
 
     def get_setup_status(self) -> dict[str, Any]:
-        """What a fresh install still needs, plus screens predating the last profile change."""
+        """What a fresh install still needs (setup_steps), the intake summary the operator
+        reviews before confirming the profile (#227), plus screens predating the last
+        profile change."""
         with self._connection() as conn:
             conn.execute("BEGIN")
-            prof = conn.execute(
-                "SELECT version,changed_at,education,work_authorization,security_clearance,"
-                "locations,exclude_internships,exclude_contract,target_roles,custom_triage_context "
-                "FROM candidate_profile WHERE id=1").fetchone()
+            prof = conn.execute("SELECT * FROM candidate_profile WHERE id=1").fetchone()
             sources = conn.execute("SELECT COUNT(*) FROM watched_companies").fetchone()[0]
+            has_posting = conn.execute("SELECT 1 FROM job_postings LIMIT 1").fetchone() is not None
+            funnel = intake_funnel(conn, self._clock())
             categories = conn.execute(
                 "SELECT COUNT(*) FROM app_settings WHERE key='categories'").fetchone()[0]
             stale = None
@@ -933,24 +956,29 @@ class ReadOnlyATSRepository:
                     "SELECT COUNT(*) FROM job_screenings s JOIN job_postings p ON p.id=s.job_posting_id "
                     "WHERE p.pipeline_status='new' AND s.state='complete' "
                     "AND ats_instant_cmp(s.completed_at, ?) < 0", (prof["changed_at"],)).fetchone()[0]
-        configured = prof is not None and any((
-            json.loads(prof["education"] or "[]"), prof["work_authorization"].strip(),
-            prof["security_clearance"].strip(), json.loads(prof["locations"] or "[]"),
-            prof["exclude_internships"], prof["exclude_contract"]))
-        triage = prof is not None and bool(json.loads(prof["target_roles"] or "[]")
-                                           or prof["custom_triage_context"])
+        steps = setup_steps(dict(prof) if prof else None, sources=int(sources),
+                            has_posting=has_posting)
         missing = [step for step, done in (
             ("candidate profile: set_candidate_profile (hard requirements the screen discards on)",
-             configured),
-            ("sources: add_source (company boards to fetch)", sources > 0)) if not done]
+             steps["requirements"]),
+            ("sources: add_source (company boards to fetch)", steps["sources"]),
+            ("first fetch: wait for the worker's next pass", steps["first_fetch"]),
+            ("confirmation: review intake_funnel with the operator, who confirms the profile in "
+             "the web Settings; no screen or triage call runs before", steps["confirmed"]),
+        ) if not done]
         return {
-            "candidate_profile": {"configured": configured, "triage_configured": triage,
+            "candidate_profile": {"configured": steps["requirements"],
+                                  "triage_configured": steps["triage"],
+                                  "confirmed": steps["confirmed"],
                                   "version": prof["version"] if prof else None,
                                   "changed_at": prof["changed_at"] if prof else None,
+                                  "confirmed_at": prof["confirmed_at"] if prof else None,
                                   "new_postings_screened_before_change": stale},
             "sources": int(sources),
             "categories_customized": bool(categories),
+            "complete": steps["complete"],
             "missing": missing,
+            "intake_funnel": funnel,
         }
 
     def get_ats_overview(self) -> dict[str, Any]:

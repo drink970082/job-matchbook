@@ -193,3 +193,79 @@ def test_the_daemon_refuses_to_start_while_legacy_discards_remain(monkeypatch, t
     with pytest.raises(SystemExit, match="migrate_evaluate_once"):
         run.main(["--config", str(cfg), "--db", dbfile, "--env", str(tmp_path / "none.env")])
     assert started == []
+
+
+@pytest.mark.real_gate
+def test_nothing_is_spent_before_the_profile_is_confirmed(tmp_path, board, provider, monkeypatch):
+    # #227: a fresh install fetches and runs the free gates, but no model stage is built
+    # or called until the operator confirms; the first confirmed pass then evaluates the
+    # pending postings once.
+    monkeypatch.setattr(run, "_run_jev", lambda *_a, **_k: pytest.fail("paid triage before confirmation"))
+    dbfile = bootstrap_db(tmp_path / "a.db")
+    _profile(dbfile)  # confirmed_at NULL, as the web form and set_candidate_profile write it
+    _pass(dbfile)
+    run.run_once(cfgmod.load_config(CFG), db_path=dbfile, env={}, screen_backend="ollama",
+                 jev_enabled=True, jev_backend="openrouter-native")
+    assert provider == []
+    assert {v[0] for v in _state(dbfile).values()} == {"pending"}
+    conn = db.connect(dbfile)
+    counts = json.loads(conn.execute(
+        "SELECT counts_json FROM worker_runs ORDER BY id DESC LIMIT 1").fetchone()[0])
+    assert counts["triage"] == {"skipped": "profile not confirmed"}
+    assert counts["screen"]["skipped"] == "profile not confirmed"
+    conn.execute("UPDATE candidate_profile SET confirmed_at='2026-11-25T00:00:00.000Z'")
+    conn.commit()
+    conn.close()
+
+    _pass(dbfile)
+    assert provider.count("screen") == 2 and "triage" in provider
+    assert {v[0] for v in _state(dbfile).values()} <= {"keep", "skip"}
+    spent = len(provider)
+    _pass(dbfile)
+    assert len(provider) == spent
+
+
+@pytest.mark.real_gate
+def test_before_confirmation_the_gate_is_previewed_not_applied(tmp_path, board, monkeypatch):
+    # Boards watched before the profile existed: the first fetch gated nothing. A
+    # requirement tried out during the review is counted, not applied: an intermediate
+    # profile discards nothing. Nothing is built or called - not even codex's quota GET.
+    # The first confirmed pass then applies the gate under the confirmed profile.
+    monkeypatch.setattr(run, "make_screener", lambda *_a, **_k: pytest.fail("screener built"))
+    monkeypatch.setattr(run, "capture_usage", lambda *_a, **_k: pytest.fail("quota GET"))
+    board.append(make_posting("3", job_title="Software Engineering Intern"))
+    dbfile = bootstrap_db(tmp_path / "a.db")
+
+    def gated_pass():
+        run.run_once(cfgmod.load_config(CFG), db_path=dbfile, env={}, screen_backend="codex",
+                     jev_enabled=True, jev_backend="extract")
+    gated_pass()
+    _profile(dbfile, exclude_internships=1)
+    gated_pass()
+    assert {v[0] for v in _state(dbfile).values()} == {"pending"}
+    conn = db.connect(dbfile)
+    screen = json.loads(conn.execute(
+        "SELECT counts_json FROM worker_runs ORDER BY id DESC LIMIT 1").fetchone()[0])["screen"]
+    assert conn.execute("SELECT COUNT(*) FROM job_screenings").fetchone()[0] == 0
+    assert (screen["checked"], screen["would_discard"], screen["would_discard_by_reason"]) == (
+        3, 1, {"internships": 1})
+    conn.execute("UPDATE candidate_profile SET confirmed_at='2026-11-25T00:00:00.000Z'")
+    conn.commit()
+    conn.close()
+
+    monkeypatch.setattr(run, "make_screener", lambda *_a, **_k: None)
+    monkeypatch.setattr(run, "capture_usage", lambda *_a, **_k: None)
+    gated_pass()
+    assert _state(dbfile)["3"][0] == "discarded"
+
+
+@pytest.mark.real_gate
+def test_profile_confirmed_reads_the_stored_stamp(tmp_path):
+    dbfile = bootstrap_db(tmp_path / "a.db")
+    conn = db.connect(dbfile)
+    assert db.profile_confirmed(conn) is False  # no row
+    conn.execute("INSERT INTO candidate_profile (id, actor, updated_at) VALUES (1, 'web', 'x')")
+    assert db.profile_confirmed(conn) is False
+    conn.execute("UPDATE candidate_profile SET confirmed_at='2026-11-25T00:00:00.000Z'")
+    assert db.profile_confirmed(conn) is True
+    conn.close()

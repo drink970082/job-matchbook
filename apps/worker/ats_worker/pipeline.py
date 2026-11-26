@@ -806,6 +806,24 @@ def _screen_error_category(exc: Exception | None) -> str:
     return "screen_error" if category == "provider_error" else category
 
 
+def preview_gate(conn, *, now: str, candidate) -> dict:
+    """For a pass before the profile is confirmed (#227): what the free deterministic gate
+    would discard among the pending in-window postings under the current profile. A dry
+    run: nothing is written. The first confirmed pass applies the same gate for real
+    (run_screen), so a requirement tried out during the review discards nothing."""
+    tally = {"checked": 0, "would_discard": 0, "would_discard_by_reason": {}}
+    if not candidate:
+        return tally
+    for row in db.get_screen_candidates(conn, window_start(now)):
+        tally["checked"] += 1
+        verdict = screening.deterministic_screen(
+            {"screen": {}, "disqualified": False, "disqualification_reason": ""}, row, candidate)
+        if verdict["disqualified"]:
+            tally["would_discard"] += 1
+            _count_failed_checks(tally["would_discard_by_reason"], verdict)
+    return tally
+
+
 def run_screen(conn, *, now: str, screen_fn, extract, candidate=None, backend: str,
                model: str | None, effort: str | None, limit: int | None = 40,
                screen_workers: int = 1, clock: Callable[[], str] | None = None,

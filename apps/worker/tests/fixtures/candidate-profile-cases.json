@@ -33,5 +33,26 @@
      "value": [{"title": "SWE", "company": "A", "years": 61}], "error": "years"},
     {"name": "a list field that is not a list of strings", "field": "title_include",
      "value": [1], "error": "title_include"}
+  ],
+  "_setup_comment": "The one setup rule (#227): ats_worker/mcp/read_repository.py setup_steps and the web's setupSteps. `row` is the stored candidate_profile row as raw columns (null = none); booleans are 0/1 as SQLite stores them.",
+  "setup": [
+    {"name": "fresh install", "row": null, "sources": 0, "has_posting": false,
+     "steps": {"requirements": false, "triage": false, "sources": false, "first_fetch": false, "confirmed": false, "complete": false}},
+    {"name": "an empty row and whitespace text set no requirement",
+     "row": {"education": "[]", "locations": "[]", "work_authorization": "  ", "security_clearance": "", "exclude_internships": 0, "exclude_contract": 0, "target_roles": "[]", "custom_triage_context": null, "confirmed_at": null},
+     "sources": 3, "has_posting": true,
+     "steps": {"requirements": false, "triage": false, "sources": true, "first_fetch": true, "confirmed": false, "complete": false}},
+    {"name": "one exclusion flag is a requirement; fetched but not confirmed",
+     "row": {"education": "[]", "locations": "[]", "work_authorization": "", "security_clearance": "", "exclude_internships": 0, "exclude_contract": 1, "target_roles": "[]", "custom_triage_context": "{\"profile_text\":\"x\",\"yoe_context\":\"\"}", "confirmed_at": null},
+     "sources": 1, "has_posting": true,
+     "steps": {"requirements": true, "triage": true, "sources": true, "first_fetch": true, "confirmed": false, "complete": false}},
+    {"name": "confirmed before the first fetch is not complete",
+     "row": {"education": "[{\"degree\":\"bachelor's\",\"field\":\"CS\"}]", "locations": "[]", "work_authorization": "", "security_clearance": "", "exclude_internships": 0, "exclude_contract": 0, "target_roles": "[]", "custom_triage_context": null, "confirmed_at": "2026-11-25T00:00:00.000Z"},
+     "sources": 1, "has_posting": false,
+     "steps": {"requirements": true, "triage": false, "sources": true, "first_fetch": false, "confirmed": true, "complete": false}},
+    {"name": "everything set",
+     "row": {"education": "[]", "locations": "[\"remote\"]", "work_authorization": "citizen", "security_clearance": "", "exclude_internships": 1, "exclude_contract": 0, "target_roles": "[\"Backend engineer\"]", "custom_triage_context": null, "confirmed_at": "2026-11-25T00:00:00.000Z"},
+     "sources": 2, "has_posting": true,
+     "steps": {"requirements": true, "triage": true, "sources": true, "first_fetch": true, "confirmed": true, "complete": true}}
   ]
 }

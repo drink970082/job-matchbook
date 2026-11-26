@@ -361,7 +361,11 @@ def create_server(repository: ReadOnlyATSRepository | None = None,
         (`missing` lists the next tools to call), the candidate profile version, whether
         triage is configured, and how many `new` postings were screened before the last
         profile change (they keep their verdict; postings already discarded are not
-        counted). The profile itself is read with get_candidate_profile."""
+        counted). The profile itself is read with get_candidate_profile. Until the
+        operator confirms the profile in the web Settings, no screen or triage call runs:
+        walk them through `intake_funnel` (what the title filters dropped and which
+        requirement discarded what; rescue a wrong discard with override_triage keep, or
+        fix the profile) before they confirm. There is no MCP tool that confirms."""
         return read(repo.get_setup_status)
 
     @server.tool(annotations=_READ_ONLY)

@@ -47,3 +47,12 @@ def db_path(tmp_path) -> str:
     bootstrap is shared with the integration tier via tests._helpers.bootstrap_db.
     """
     return bootstrap_db(tmp_path / "applications.db")
+
+
+@pytest.fixture(autouse=True)
+def _confirmed_profile(monkeypatch, request):
+    """The pass tests model a confirmed install: the confirmation gate (#227) would
+    otherwise stop every pass before the screen. Tests of the gate itself are marked
+    `real_gate` and read the stored `confirmed_at`."""
+    if "real_gate" not in request.keywords:
+        monkeypatch.setattr(run.db, "profile_confirmed", lambda conn: True)

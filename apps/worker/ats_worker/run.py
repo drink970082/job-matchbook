@@ -295,6 +295,21 @@ def run_once(cfg, *, db_path, env,
             db.finish_pass(conn, run_id, now=_now(), counts=counts)
             return
 
+        # The confirmation gate (#227): until the operator confirms the profile (web
+        # Settings, after reading the intake summary), a pass runs fetch and the free
+        # deterministic gates only. No model stage is built or called; the postings stay
+        # pending, and the first confirmed pass evaluates those still in the window. The
+        # pass records what the current profile would discard among them (a dry run).
+        if not db.profile_confirmed(conn):
+            print("[gate] the candidate profile is not confirmed: no screen or triage call "
+                  "this pass (review the intake summary and confirm it in Settings)")
+            record("screen", {"skipped": GATE_SKIPPED,
+                              **pipeline.preview_gate(conn, now=now, candidate=candidate)})
+            if jev_enabled:
+                record("triage", {"skipped": GATE_SKIPPED})
+            db.finish_pass(conn, run_id, now=_now(), counts=counts)
+            return
+
         num_ctx = int(env.get("OLLAMA_NUM_CTX", "8192"))
         screen_extract = make_screener(
             screen_backend, env=env, http=requests, model=ollama_model,
@@ -347,6 +362,8 @@ def run_once(cfg, *, db_path, env,
     finally:
         conn.close()
 
+
+GATE_SKIPPED = "profile not confirmed"
 
 _LEGACY_DISCARDS = (
     "this DB awaits the one-time evaluate-once migration (legacy discards or unsettled "

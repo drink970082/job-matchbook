@@ -214,3 +214,18 @@ export const requirementsConfigured = (p: Pick<ProfileView, 'education' | 'work_
     'security_clearance' | 'locations' | 'exclude_internships' | 'exclude_contract'>) =>
     p.education.length > 0 || !!p.work_authorization.trim() || !!p.security_clearance.trim()
     || p.locations.length > 0 || p.exclude_internships || p.exclude_contract
+
+// The one setup rule (#227) over the stored row (or null). The worker's
+// mcp/read_repository.py setup_steps is the same rule; both run the `setup` cases of
+// worker/tests/fixtures/candidate-profile-cases.json. `confirmed` gates every model stage.
+export function setupSteps(row: Row | null, { sources, hasPosting }: { sources: number; hasPosting: boolean }) {
+    const p = row ? profileView(row) : null
+    const steps = {
+        requirements: !!p && requirementsConfigured(p),
+        triage: !!p?.triage_configured,
+        sources: sources > 0,
+        first_fetch: hasPosting,
+        confirmed: !!p?.confirmed_at,
+    }
+    return { ...steps, complete: steps.requirements && steps.sources && steps.first_fetch && steps.confirmed }
+}

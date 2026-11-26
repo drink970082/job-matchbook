@@ -118,8 +118,11 @@ export function describePass(pass: PassRecord | null, now: number, failure: Pass
     if (c.verdict) lines.push({ stage: 'verdict', warn: false, text: `Aged out unevaluated: ${n(c.verdict.aged_out)}` })
 
     const s = c.screen
-    lines.push(s
-        ? { stage: 'screen', warn: n(s.errors) > 0,
+    lines.push(s?.skipped
+        // The confirmation gate (#227): nothing is spent until the profile is confirmed.
+        ? { stage: 'screen', warn: true, text: `Screen: skipped (${s.skipped})`
+            + (s.would_discard ? `; the current profile would discard ${n(s.would_discard)} waiting posting(s)` : '') }
+        : s ? { stage: 'screen', warn: n(s.errors) > 0,
             text: `Screen: ${n(s.attempted)} screened, ${errors(s)}, ${n(s.uncalled)} deferred by the call cap` }
         : { stage: 'screen', warn: false, text: `Screen: ${pass.fetchOnly ? 'not run (fetch only)' : absent}` })
 

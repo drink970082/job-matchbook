@@ -82,6 +82,13 @@ test('fetch-only and triage-off passes, a skipped triage, a triage stopped early
     expect(fetchOnly.lines.slice(-2).map((l) => l.text)).toEqual(['Screen: not run (fetch only)', 'Triage: off'])
     const skipped = describePass(pass({ counts: { triage: { skipped: 'quota_exhausted' } } }), at(1))
     expect(skipped.lines.at(-1)).toEqual({ stage: 'triage', text: 'Triage: skipped (quota_exhausted)', warn: true })
+    // The confirmation gate (#227) records the screen as skipped, not as zero screened.
+    const gated = describePass(pass({ counts: { screen: { skipped: 'profile not confirmed' } } }), at(1))
+    expect(gated.lines.find((l) => l.stage === 'screen')).toEqual(
+        { stage: 'screen', text: 'Screen: skipped (profile not confirmed)', warn: true })
+    const previewed = describePass(pass({ counts: { screen: { skipped: 'profile not confirmed', checked: 9, would_discard: 4 } } }), at(1))
+    expect(previewed.lines.find((l) => l.stage === 'screen')?.text).toBe(
+        'Screen: skipped (profile not confirmed); the current profile would discard 4 waiting posting(s)')
     const stopped = describePass(pass({ counts: { triage: { ...COUNTS.triage, errors: 0, errors_by_category: {}, deferred: 40, stopped: 'max_usd' } } }), at(1))
     expect(stopped.lines.at(-1)).toEqual({ stage: 'triage', warn: true,
         text: 'Triage: 262 assessed (100 keep, 160 skip), 0 errors, 40 deferred, USD 0.067, stopped: max_usd' })

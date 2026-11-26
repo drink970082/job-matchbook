@@ -1,26 +1,47 @@
 import { getMcpTemplates, getSetupStatus } from '@/lib/setup-actions'
 import { getNewJobsCount } from '@/lib/job-actions'
+import { confirmCandidateProfile } from '@/lib/profile-actions'
 import { prisma, resetDb } from '@/test-utils/db'
 import { makeApplication, makeJobPosting, makeWatchedCompany } from '@/test-utils/factories'
 
 beforeEach(resetDb)
 afterAll(() => prisma.$disconnect())
 
-test('setup is complete once requirements, a board and a posting exist; AI client and triage are optional', async () => {
-    expect(await getSetupStatus()).toEqual({ complete: false,
-        steps: { aiClient: false, requirements: false, sources: false, triage: false, firstFetch: false } })
+test('setup is complete once requirements, a board, a posting and the confirmation exist; AI client and triage are optional', async () => {
+    expect(await getSetupStatus()).toEqual({ complete: false, intake: null, wouldDiscard: null,
+        steps: { aiClient: false, requirements: false, sources: false, triage: false, first_fetch: false, confirmed: false } })
+    expect(await confirmCandidateProfile()).toEqual({ success: false, error: 'Fill in the candidate profile first' })
 
     // A profile with only scope and preferences has no requirement to screen on (same rule
     // as MCP get_setup_status); target roles alone configure triage.
     await prisma.candidate_profile.create({ data: { id: 1, title_include: '["eng"]', target_roles: '["Backend"]', actor: 'web', updated_at: 'x' } })
     expect((await getSetupStatus()).steps).toMatchObject({ requirements: false, triage: true })
+    // Confirming without a requirement would send every title-filter survivor to triage.
+    expect(await confirmCandidateProfile()).toEqual({ success: false, error: 'Set at least one hard requirement first' })
+    expect((await prisma.candidate_profile.findUnique({ where: { id: 1 } }))!.confirmed_at).toBeNull()
     await prisma.candidate_profile.update({ where: { id: 1 }, data: { education: '[{"degree":"phd","field":""}]', target_roles: '[]' } })
     expect((await getSetupStatus()).steps).toMatchObject({ requirements: true, triage: false })
     await prisma.candidate_profile.update({ where: { id: 1 }, data: { education: '[]', locations: '["Canada"]' } })
     await prisma.watched_companies.create({ data: makeWatchedCompany() })
     await prisma.job_postings.create({ data: makeJobPosting() })
-    expect(await getSetupStatus()).toEqual({ complete: true,
-        steps: { aiClient: false, requirements: true, sources: true, triage: false, firstFetch: true } })
+    // Fetched but not confirmed (#227): the intake summary rides along for the review.
+    const review = await getSetupStatus()
+    expect(review).toMatchObject({ complete: false, steps: { first_fetch: true, confirmed: false } })
+    expect(review.intake).toHaveProperty('last_7_days')
+    expect(review.wouldDiscard).toBeNull() // no gated pass recorded yet
+    await prisma.worker_runs.create({ data: { started_at: new Date().toISOString(), status: 'ok', config_json: '{}',
+        counts_json: JSON.stringify({ screen: { skipped: 'profile not confirmed', checked: 3, would_discard: 2 } }) } })
+    expect((await getSetupStatus()).wouldDiscard).toBe(2)
+
+    expect(await confirmCandidateProfile()).toEqual({ success: true })
+    const confirmedAt = (await prisma.candidate_profile.findUnique({ where: { id: 1 } }))!.confirmed_at
+    expect(confirmedAt).toBeTruthy()
+    expect(await confirmCandidateProfile()).toEqual({ success: true }) // a second click changes nothing
+    expect((await prisma.candidate_profile.findUnique({ where: { id: 1 } }))!.confirmed_at).toBe(confirmedAt)
+    expect(await prisma.audit_log.findMany({ where: { entity: 'candidate_profile', action: 'confirm' },
+        select: { actor: true } })).toEqual([{ actor: 'web' }])
+    expect(await getSetupStatus()).toEqual({ complete: true, intake: null, wouldDiscard: null,
+        steps: { aiClient: false, requirements: true, sources: true, triage: false, first_fetch: true, confirmed: true } })
 
     // An mcp application row counts as a connected client even with no audit row.
     await prisma.applications.create({ data: makeApplication({ actor: 'mcp' }) })

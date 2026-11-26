@@ -51,7 +51,7 @@ export async function getActivityStatus() {
 }
 
 // The intake funnel (#248) of the latest pass and the last 7 days: lib/intake-funnel.ts.
-async function readIntakeFunnel(): Promise<IntakeFunnel> {
+export async function readIntakeFunnel(): Promise<IntakeFunnel> {
     const now = Date.now()
     const runs = (await prisma.worker_runs.findMany({ orderBy: [{ started_at: 'asc' }, { id: 'asc' }],
         select: { started_at: true, status: true, counts_json: true } }))
@@ -131,7 +131,7 @@ function auditText(c: { entity: string; action: string; entity_id: number; paylo
         }
         case 'candidate_preferences': return 'Updated hard requirements'
         case 'jev_profile': return 'Updated the JEV profile'
-        case 'candidate_profile': return 'Updated the candidate profile'
+        case 'candidate_profile': return c.action === 'confirm' ? 'Confirmed the candidate profile' : 'Updated the candidate profile'
         default: return `${c.action} ${c.entity}`
     }
 }

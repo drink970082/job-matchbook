@@ -67,6 +67,7 @@ def test_screen_only_pass_avoids_legacy_imports_prompts_and_resume_reads():
                     "degree_levels": ["bachelor's"], "degree_required": False}}}
             return extract
         run.make_screener = fake_make_screener
+        run.db.profile_confirmed = lambda conn: True  # a confirmed install (#227)
         run.fetch_company = lambda *args, **kwargs: [{
             "source": "greenhouse", "external_id": "screen-isolation",
             "company_name": "Synthetic", "job_title": "Software Engineer",
