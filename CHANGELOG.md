@@ -35,6 +35,11 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
   or a fetch error with the reason; a web add stays unverified until the next
   pass. **Operator step:** `make db-push` (eight new nullable columns), then restart
   ats-web and the MCP server.
+- **Browser boards warn at add time (#233)**: adding a `browser` board while the latest
+  worker pass did not record browser sources on returns a
+  `warning` naming `enable_browser_sources`; the board is still added. The check is in the
+  shared add action; of its callers, only an `/api/v1/watchlist` add with a recipe can
+  carry a `browser` board today.
 - **The Activity strip reads the pass record (#249)**: it shows the latest `worker_runs`
   row (when it started, finished in how long or still running, what it ran with, one
   line per stage: fetch board failures, feeds, closures, aged out, screen errors and
