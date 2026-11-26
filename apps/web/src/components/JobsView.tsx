@@ -3,8 +3,9 @@
 import { useCallback, useRef, useState } from 'react'
 import { clearTriageOverride, getJobPostings, markJobApplied, setTriageOverride } from '@/lib/job-actions'
 import type { JobViewScope } from '@/lib/job-actions'
+import { linkApplication } from '@/lib/link-actions'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { DiscoveredJobsTable, type JobTableFilters } from './DiscoveredJobsTable'
+import { DiscoveredJobsTable, type AppliedMatch, type JobTableFilters } from './DiscoveredJobsTable'
 import { JobDetailModal } from './JobDetailModal'
 import { ApplyCategoryDialog } from './ApplyCategoryDialog'
 import { toast } from 'sonner'
@@ -99,20 +100,33 @@ export function JobsView({ initialJobPostings, totalJobPostings, categoryOptions
         setIsJobDetailOpen(false)
     }
 
-    const handleConfirmApply = async (category: string) => {
-        if (!applyJob) return
-        const result = await markJobApplied(applyJob.id, category, applyJob.__viewScope)
+    // A reply that lands after the dialog was cancelled or moved to another job leaves it alone.
+    const settleApply = (jobId: number, next: any) => setApplyJob((cur: any) => (cur?.id === jobId ? next(cur) : cur))
+
+    const finishApply = async (jobId: number, result: { success: boolean; error?: string }, done: string) => {
         if (result.success) {
-            toast.success('Marked as applied')
-            setApplyJob(null)
-            setSelectedJob(null)
-            await refreshJobPostings()
+            toast.success(done)
+            setSelectedJob((cur: any) => (cur?.id === jobId ? null : cur))
         } else {
-            toast.error(result.error)
             // E.g. the first JEV pass changed which postings are "for you" since this loaded.
-            setApplyJob(null)
-            await refreshJobPostings()
+            toast.error(result.error)
         }
+        settleApply(jobId, () => null)
+        await refreshJobPostings()
+    }
+
+    const handleConfirmApply = async (category: string, date: string, createNew: boolean) => {
+        if (!applyJob) return
+        const result = await markJobApplied(applyJob.id, category, applyJob.__viewScope, 'web', { date, createNew })
+        // An application was recorded since this list loaded: offer linking it (#241).
+        const match: AppliedMatch | undefined = 'match' in result ? result.match : undefined
+        if (match) return settleApply(applyJob.id, (cur: any) => ({ ...cur, applied_match: match }))
+        await finishApply(applyJob.id, result, 'Marked as applied')
+    }
+
+    const handleLinkApplied = async (applicationId: number) => {
+        if (!applyJob) return
+        await finishApply(applyJob.id, await linkApplication(applicationId, applyJob.id), `Linked to application #${applicationId}`)
     }
 
     // Not interested (#207): a triage skip override, actor web, with Undo.
@@ -183,7 +197,9 @@ export function JobsView({ initialJobPostings, totalJobPostings, categoryOptions
                 categories={categoryOptions}
                 companyName={applyJob?.company_name}
                 jobTitle={applyJob?.job_title}
+                match={applyJob?.applied_match}
                 onConfirm={handleConfirmApply}
+                onLink={handleLinkApplied}
                 onClose={() => setApplyJob(null)}
             />
             </CardContent>

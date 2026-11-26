@@ -21,6 +21,7 @@ interface ApplicationsTabProps {
     onStatusChange: (id: number, newStatus: string) => void
     onDelete: (id: number) => void
     onHistory: (id: number) => void
+    onLink: (id: number) => void
 }
 
 export function ApplicationsTab({
@@ -37,6 +38,7 @@ export function ApplicationsTab({
     onStatusChange,
     onDelete,
     onHistory,
+    onLink,
 }: ApplicationsTabProps) {
     return (
         <>
@@ -67,6 +69,7 @@ export function ApplicationsTab({
                         onStatusChange={onStatusChange}
                         onDelete={onDelete}
                         onHistory={onHistory}
+                        onLink={onLink}
                     />
                 </div>
             </div>

@@ -52,10 +52,44 @@ export async function writeInitialHistory(tx: Prisma.TransactionClient,
 }
 
 // One audit_log row for an application write (#242). Actions: add | update | status |
-// remove_history | remove. The payload is the row as added/removed, or {before, after}.
+// remove_history | remove | link. The payload is the row as added/removed, or {before, after}.
 export function applicationAudit(actor: Actor, action: string, entityId: number, payload: unknown) {
     return {
         at: new Date().toISOString(), actor, action,
         entity: 'applications', entity_id: entityId, payload: JSON.stringify(payload),
     }
+}
+
+// Applications with no posting: the only ones a link is ever suggested for (#241).
+export function unlinkedApplications(client: Pick<Prisma.TransactionClient, 'applications'>, id?: number) {
+    return client.applications.findMany({
+        where: { job_postings: { none: {} }, ...(id === undefined ? {} : { id }) },
+        select: { id: true, company_name: true, job_title: true, application_url: true, date_applied: true, status: true },
+    })
+}
+
+// Link one application to one posting: the posting becomes `applied` and points at it,
+// audited with what the posting was before. Refuses rather than re-points: neither side
+// may already be linked elsewhere. Linking the same pair again changes nothing.
+export async function linkPosting(tx: Prisma.TransactionClient, applicationId: number, jobId: number, actor: Actor) {
+    const app = await tx.applications.findUnique({ where: { id: applicationId }, include: { job_postings: { select: { id: true } } } })
+    if (!app) throw new Error('Application not found')
+    const job = await tx.job_postings.findUnique({ where: { id: jobId },
+        select: { id: true, company_name: true, job_title: true, pipeline_status: true, application_id: true } })
+    if (!job) throw new Error('Job posting not found')
+    if (job.application_id === applicationId) return
+    if (job.application_id != null) throw new Error(`Job ${jobId} is already linked to application ${job.application_id}`)
+    const { job_postings: linked, ...row } = app
+    if (linked.length) throw new Error(`Application ${applicationId} is already linked to job ${linked[0].id}`)
+    if (job.pipeline_status === 'removed') throw new Error('Job was removed and cannot be linked')
+    const updated = await tx.job_postings.updateMany({ where: { id: jobId, application_id: null }, data: {
+        pipeline_status: 'applied', application_id: applicationId, updated_at: new Date().toISOString() } })
+    if (updated.count !== 1) throw new Error(`Job ${jobId} was linked by another write`)
+    await tx.audit_log.create({ data: applicationAudit(actor, 'link', applicationId, { ...row, job_posting: job }) })
+}
+
+export function checkedDate(date: string): string {
+    const day = /^\d{4}-\d{2}-\d{2}$/.test(date) ? new Date(`${date}T00:00:00Z`) : null
+    if (!day || Number.isNaN(day.getTime()) || day.toISOString().slice(0, 10) !== date) throw new Error('date must be a YYYY-MM-DD date')
+    return date
 }

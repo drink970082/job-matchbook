@@ -9,6 +9,12 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 
 ### Added
 
+- **Link applications to postings (#241)**: an unlinked application shows the postings it
+  may belong to (same posting URL, same company and title, or a same-company picker) on the
+  Applications page and through MCP `suggest_application_links`; one click or
+  `link_application` links it. A posting that matches says "You may have applied already",
+  and Mark Applied then offers linking instead of failing. Mark Applied and
+  `mark_job_applied` take a date; `record_application` takes a `job_id`.
 - **onboard-board's probe uses the worker's resolver and adapters (#237)**: `probe.py`
   recognizes a URL, and the links and embeds in a page, with `feed/resolve.py`
   `resolve_board` (new: board URLs as well as job URLs) instead of its own regex table,
