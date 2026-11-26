@@ -40,8 +40,9 @@ always prefer the earliest rung that actually works.
 
 ## Step 1 — probe
 
-Run the bundled scout, which tries the known ATS endpoints and reads the page for
-plain-HTTP signals and bot walls:
+Run the bundled scout, which recognizes a known ATS with the worker's own URL resolver,
+checks the board's list through the worker's adapter, and reads the page for plain-HTTP
+signals and bot walls:
 
 ```
 python .claude/skills/onboard-board/scripts/probe.py <careers-url>
@@ -51,13 +52,16 @@ Read its `VERDICT:` line. It is a **scout, not a verdict you must obey** — it 
 the search. In particular, a `plain-http?` result (page fetched, but jobs not in the
 static HTML) means *the jobs load via an XHR you still have to find* — that's normal
 for a JSON board; go find the endpoint (browser DevTools → Network → filter Fetch/XHR,
-or guess a `search.json` / `/api/…` sibling). Don't stop at the probe.
+or guess a `search.json` / `/api/…` sibling). `platform?` means the URL
+names a known ATS but its board did not verify (the reason is printed), or (with no
+plain-HTTP signal) a board the page embeds could not be read: check the slug before trying another rung. A `platform=workday`
+verdict with `{site}` means only the Workday host was found: get the site from a job link. Don't stop at the probe.
 
 ## Step 2 — build the row for the rung the probe pointed you at
 
 The authoritative recipe shapes live in the recipe JSON Schema,
 `apps/web/src/lib/recipe.schema.json`: every key each executor reads, with one example
-per mode. Any other key is rejected, so a typo fails `add_watched.py` naming the key.
+per mode. Any other key is rejected, so a typo fails the add naming the key.
 Also skim: `apps/worker/config.yaml.example` (worked examples of every source),
 `apps/worker/ats_worker/fetch/custom.py` + `browser.py` (the executors), and
 `fetch/_recipe.py` (the field extractor: dotted paths, `url` templates, the tolerant
@@ -74,7 +78,7 @@ date normalizer). Every posting the executors emit has exactly these 8 keys:
 - **workday**: `"tenant/datacenter/site"` (from `{tenant}.{dc}.myworkdayjobs.com/{site}`).
 - **phenom**: `"{host}/{domain}"` (e.g. `apply.careers.microsoft.com/microsoft.com`).
 
-No recipe, no fixture needed beyond confirming the board returns jobs (the probe's count).
+No recipe, no fixture needed beyond the probe's HIT (the board lists postings).
 
 ### 2b. Plain-HTTP → a `custom` recipe
 
@@ -142,7 +146,7 @@ read the card structure, and write CSS selectors:
 
 A row that isn't verified is a guess, and Step 4 adds it to the **live** board list — so
 prove it first. Confirm the recipe yields **≥1 well-formed posting** (a real title, a
-`job_url`, a non-empty `external_id`); a platform row just needs the probe's non-zero count.
+`job_url`, a non-empty `external_id`); a platform row just needs the probe's HIT.
 For a recipe, run its `parse_jobs` against a captured response:
 
 ```bash
@@ -160,17 +164,27 @@ add a broken row; write the failure report instead (see below).
 
 The watchlist lives in the DB table `watched_companies`, which the web **Sources tab**
 shows and the Sources tab (add by careers URL, remove) and MCP `add_source`/`remove_source` tools write; a custom/browser recipe row is only added here. `config.yaml` `companies:` is ONLY a one-time seed — editing it after the
-first run does nothing and never reaches the UI. So add the board straight to the DB with the
-bundled helper (deduped on `(source, slug)`):
+first run does nothing and never reaches the UI. Add the board with the bundled helper, which
+goes through the web's write API (`POST /api/v1/watchlist`): the web validates it, refuses a
+duplicate `(source, slug)`, and audits the add. **Never insert the row into the database
+yourself.** It needs the web app running and its write key, from `ATS_API_KEY` or
+`~/.config/ats-mcp/api-key` (docs/SETUP.md, "enable writes"; `ATS_API_URL` overrides the
+address):
 
 ```bash
 python .claude/skills/onboard-board/scripts/add_watched.py \
   --source <source> --slug <slug> --name "<name>" [--recipe /tmp/recipe.json]
 ```
 
-It prints `added` or `already on the watchlist`. Then **tell the user the outcome in one
+A platform board's list is fetched once before the add, and a board that lists nothing or
+fails to fetch is refused; a recipe board is not fetched, so Step 3 is its only check. The
+helper prints `added`, or exits with `error:` and the reason (`not confirmed`: run it once
+more, "already on the watchlist" then means it was added): already on the watchlist, a
+validation message, no key, web unreachable. A missing key or an unreachable web app is the
+user's to fix: relay the reason and stop. Then **tell the user the outcome in one
 line** — added / already there — and, for a `browser` row, that it needs
-`enable_browser_sources: true` + the Playwright extra to actually run. **No success report.**
+`enable_browser_sources: true` + the Playwright extra to actually run (relay any `warning:`
+line). **No success report.**
 The board now shows in the Sources tab; the worker fetches it next cycle. (The user can also
 add or remove boards through their AI client's MCP tools — this skill is the repo-side path.)
 
