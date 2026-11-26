@@ -1,3 +1,4 @@
+import { duplicateKey } from '@/lib/application-match'
 import type { Prisma } from '@prisma/client'
 import { ACTORS, type Actor } from '@/lib/constants'
 
@@ -92,4 +93,19 @@ export function checkedDate(date: string): string {
     const day = /^\d{4}-\d{2}-\d{2}$/.test(date) ? new Date(`${date}T00:00:00Z`) : null
     if (!day || Number.isNaN(day.getTime()) || day.toISOString().slice(0, 10) !== date) throw new Error('date must be a YYYY-MM-DD date')
     return date
+}
+
+// The application that already records this company and title (#244, normalized), or null.
+// `linked`: this one has a posting, so another that has one too is a different application
+// (a posting links once). An edit asks only when the key changes, so it never finds itself.
+// ponytail: reads every application; a stored key column if there are ever thousands.
+export async function findDuplicate(tx: Prisma.TransactionClient, app: { company_name: string; job_title: string }, linked: boolean) {
+    const key = duplicateKey(app)
+    const rows = await tx.applications.findMany({
+        select: { id: true, company_name: true, job_title: true, job_postings: { select: { id: true } } } })
+    return rows.find((r) => !(linked && r.job_postings.length) && duplicateKey(r) === key) ?? null
+}
+
+export function duplicateError(dup: { id: number; company_name: string; job_title: string }) {
+    return new Error(`Application for ${dup.company_name} - ${dup.job_title} already exists (#${dup.id})`)
 }

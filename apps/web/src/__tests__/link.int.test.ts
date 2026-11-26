@@ -151,12 +151,13 @@ test('mark applied offers the matching application instead of failing, and write
     expect((await posting(p.id)).application_id).not.toBe(app.id)
 })
 
-test('mark applied: a tier-3 or already linked application is no match; an exact linked duplicate still fails', async () => {
+test('mark applied: a tier-3 application is no match, and one linked to another posting is another application', async () => {
     const other = await application({ job_title: 'Accountant' })
     const linked = await application({ job_title: 'Engineer' })
     await job({ job_title: 'Engineer', application_id: linked.id, pipeline_status: 'applied' })
     const p = await job({ job_title: 'Engineer' })
-    expect(await markJobApplied(p.id, undefined, { stage: 'all' })).toEqual({ success: false, error: 'Application for Acme - Engineer already exists' })
+    expect((await markJobApplied(p.id, undefined, { stage: 'all' })).success).toBe(true)
+    expect(await prisma.applications.count({ where: { job_title: 'Engineer' } })).toBe(2)
     const q = await job({ job_title: 'Analyst' })
     expect((await markJobApplied(q.id, undefined, { stage: 'all' })).success).toBe(true)
     expect(other.job_title).toBe('Accountant')

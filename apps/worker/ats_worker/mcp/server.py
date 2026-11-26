@@ -108,7 +108,9 @@ def _log_application_prompt(what: str) -> str:
 
 1. If it names a job id, get_job(id); otherwise list_jobs search on the company/title.
 2. list_applications search on the company: if an application with the same company AND
-   title exists and is linked to a posting, say so and stop. Other titles at that company are not duplicates.
+   title exists, say so; stop unless this is a different posting of that title (step 3) or
+   the same job recorded without its posting (step 3 offers the link). Other titles at
+   that company are not duplicates.
 3. If a posting matches, mark_job_applied(job_id, category, date); if it names an
    existing unlinked application, ask whether to link_application or create_new.
    Otherwise record_application(company_name, job_title, date_applied, category,
@@ -414,7 +416,8 @@ def _add_write_tools(server: MCPServer, repo: ReadOnlyATSRepository, writer: ATS
         """Log an application the operator made outside the discovered-jobs queue. For a job
         already in the ATS, use mark_job_applied instead (or give its job_id here, to record
         fields mark_job_applied does not take). date_applied defaults to today.
-        Fails if the same company and title is already recorded."""
+        Fails if the same company and title is already recorded, unless both that
+        application and this one have a posting."""
         return {"application": write("POST", "/api/v1/applications", drop_none(
             company_name=company_name, job_title=job_title,
             date_applied=date_applied or datetime.date.today().isoformat(),

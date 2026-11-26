@@ -7,7 +7,7 @@ import { todayISO } from '@/lib/utils'
 import { legacyScreenEvidence, SCREEN_OUTCOMES, standaloneScreenSummary, type ScreenOutcome } from '@/lib/screen-summary'
 import { sourceLifecycleSummary } from '@/lib/source-lifecycle'
 import { jobTriageSummary } from '@/lib/triage-summary'
-import { applicationAudit, checkedActor, checkedDate, unlinkedApplications, writeInitialHistory, CATEGORY_FALLBACK } from '@/lib/action-helpers'
+import { applicationAudit, checkedActor, checkedDate, duplicateError, findDuplicate, unlinkedApplications, writeInitialHistory, CATEGORY_FALLBACK } from '@/lib/action-helpers'
 import { bestApplication } from '@/lib/application-match'
 import { JOB_STAGES, type JobStage, type JobStageFilter } from '@/lib/job-stages'
 
@@ -355,19 +355,9 @@ export async function markJobApplied(id: number, category: string | undefined, s
                     + `looks like this job. Link it to job ${id}, or mark again as a new application.` }
             }
 
-            // createNew is the answer to a match, so it also answers an equal pair of names.
-            const existing = opts.createNew ? null : await tx.applications.findFirst({
-                where: {
-                    company_name: posting.company_name,
-                    job_title: posting.job_title,
-                },
-            })
-            if (existing) {
-                // Throw to roll back the transaction; surfaced as a failure below.
-                throw new Error(
-                    `Application for ${posting.company_name} - ${posting.job_title} already exists`
-                )
-            }
+            // #244. Only names with no letter or digit, which never match, get this far.
+            const dup = opts.createNew ? null : await findDuplicate(tx, posting, true)
+            if (dup) throw duplicateError(dup)
 
             const newApp = await tx.applications.create({
                 data: {

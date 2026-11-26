@@ -29,9 +29,9 @@ data before selecting it.
 - **Infrastructure:** retain SQLite directory/WAL mounts, health/autoheal verification,
   schema ownership and privacy boundaries.
 - **Data integrity:** application uniqueness/identity (no DB
-  `@@unique(company_name, job_title)`; three transactional code paths hold the dedupe,
-  and the real table may hold legitimate re-applications, so the constraint needs a
-  backup and dedupe migration first), literal URL matches vs normalized requisitions,
+  `@@unique`; the transactional code paths hold the normalized duplicate check, and two
+  applications to different postings may share company and title, so a constraint does not
+  fit), literal URL matches vs normalized requisitions,
   and schema migration strategy (`db push` keeps no history) remain scoped maintenance
   questions, not reasons to alter application history.
 
