@@ -43,7 +43,8 @@ const HEALTH_LABEL: Record<BoardHealth, string> = {
 const ATTENTION: readonly BoardHealth[] = ['fetch_failed', 'empty', 'details_failed', 'bodyless', 'kept_zero', 'teaser']
 
 function LastFetch({ s }: { s: WatchedSource }) {
-    const at = s.last_fetched_at ? `Last pass ${s.last_fetched_at}` : 'Fetched on the next worker pass'
+    const at = s.last_fetched_at ? `Last pass ${s.last_fetched_at}`
+        : `Fetched on the next worker pass${s.source === 'browser' ? ' if browser sources are on' : ''}`
     const reached = reachedHydration(s)
     const lost = [s.last_detail_failed ? `${s.last_detail_failed} detail failed` : '',
         s.last_bodyless ? `${s.last_bodyless} without a description` : ''].filter(Boolean).join(', ')
@@ -93,7 +94,8 @@ function AddBoard({ onAdded }: { onAdded: () => void }) {
         try {
             const result = await addWatchedCompany({ url, name })
             if (!result.success) return toast.error(result.error)
-            toast.success(`Added ${name}: fetched on the next worker pass`)
+            if (result.data?.warning) toast.warning(`Added ${name}. ${result.data.warning}`)
+            else toast.success(`Added ${name}: fetched on the next worker pass`)
             setUrl('')
             setName('')
             setNameEdited(false)

@@ -29,8 +29,8 @@ sys.path.insert(0, WORKER)
 
 from ats_worker import db  # noqa: E402
 
-# <repo>/db/applications.db — the real shared DB (see add_watched.py for why not the
-# gitignored prisma symlink).
+# <repo>/db/applications.db — the real shared DB, not the (gitignored, may-not-exist)
+# apps/web/prisma/applications.db symlink, so the default works on a fresh checkout.
 DEFAULT_DB = os.path.normpath(os.path.join(WORKER, "../../db/applications.db"))
 
 

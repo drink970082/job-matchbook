@@ -15,6 +15,13 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
   `link_application` links it. A posting that matches says "You may have applied already",
   and Mark Applied then offers linking instead of failing. Mark Applied and
   `mark_job_applied` take a date; `record_application` takes a `job_id`.
+- **onboard-board's probe uses the worker's resolver and adapters (#237)**: `probe.py`
+  recognizes a URL, and the links and embeds in a page, with `feed/resolve.py`
+  `resolve_board` (new: board URLs as well as job URLs) instead of its own regex table,
+  and verifies a board through its adapter's list check instead of hard-coded endpoints,
+  so workday is now verified too. Every `board-url-cases.json` case runs through both. A
+  URL that names a known platform whose board does not verify reads `platform?` with the
+  reason, and a Workday host with no site asks for the site.
 - **Intake funnel (#248)**: the Activity page and MCP `get_ats_overview.intake_funnel` show,
   for the latest pass and the last 7 days, what the passes listed and what each stage
   removed and why, down to the open and eligible postings. The fetch tally gains
@@ -41,6 +48,11 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
   or a fetch error with the reason; a web add stays unverified until the next
   pass. **Operator step:** `make db-push` (eight new nullable columns), then restart
   ats-web and the MCP server.
+- **Browser boards warn at add time (#233)**: adding a `browser` board while the latest
+  worker pass did not record browser sources on returns a
+  `warning` naming `enable_browser_sources`; the board is still added. The check is in the
+  shared add action; of its callers, only an `/api/v1/watchlist` add with a recipe can
+  carry a `browser` board today.
 - **The Activity strip reads the pass record (#249)**: it shows the latest `worker_runs`
   row (when it started, finished in how long or still running, what it ran with, one
   line per stage: fetch board failures, feeds, closures, aged out, screen errors and
@@ -122,6 +134,12 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 
 ### Changed
 
+- **onboard-board adds go through `/api/v1` (#235)**: `add_watched.py` calls
+  `POST /api/v1/watchlist` with the MCP write key (`ATS_API_KEY`, else
+  `~/.config/ats-mcp/api-key`) instead of inserting into `watched_companies`, so a skill
+  add gets the web's validation and an `audit_log` row (`actor='mcp'`). A platform board
+  is verified from its list first, as in `add_source`; no key or no reachable web app
+  fails with the reason. `--db` is gone.
 - **One effective status, read from the stored verdict (#226)**: web and MCP read a
   posting's status as the operator override decision if one exists, else
   `job_postings.verdict`, one `CASE` on each side pinned by the shared

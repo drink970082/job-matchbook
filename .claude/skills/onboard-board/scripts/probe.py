@@ -6,6 +6,8 @@ the real endpoint and writes the recipe. It reports which cascade rung fits:
 
   platform    -> a known ATS adapter (greenhouse, lever, ashby, workday, pinpoint,
                  smartrecruiters, workable, icims, phenom) — onboarding = a data row, no recipe
+  platform?   -> the URL is a known ATS board whose list is empty or unreadable, or (with no
+                 plain-HTTP signal) the page embeds one that could not be read
   plain-http  -> a `custom` recipe: a JSON/XHR endpoint, __NEXT_DATA__, or json-ld on the page
   browser     -> a `browser` recipe: the page bot-walls plain HTTP (403 challenge) or renders
                  its jobs only client-side with no discoverable JSON
@@ -14,20 +16,29 @@ Usage:
   python probe.py <careers-url>
 
 Design note: it recognizes an ATS only from the URL structure or an embedded link in the
-page, then VERIFIES the board is non-empty — it deliberately does NOT guess a slug from
+page (the worker's own feed/resolve.py), then VERIFIES through the worker's adapter that the
+board lists a posting — it deliberately does NOT guess a slug from
 generic domain/path words, because shared ATS APIs host squatted accounts for common words
 ("careers", "search", "amazon" with 0 jobs), which would misclassify. Prints a `VERDICT:` line.
 """
 from __future__ import annotations
 
+import html
+import os
 import re
 import sys
-from urllib.parse import urlparse
+from urllib.parse import unquote
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, os.path.normpath(os.path.join(HERE, "../../../../apps/worker")))  # <repo>/apps/worker
 
 try:
     import requests
-except ImportError:
-    sys.exit("probe.py needs `requests` (pip install -r apps/worker/requirements.txt)")
+    from ats_worker.feed.resolve import FIXED_HOSTS, SUBDOMAIN_HOSTS, resolve_board
+    from ats_worker.fetch import board_has_listings
+    from ats_worker.source_lifecycle import verify_board
+except ImportError as exc:
+    sys.exit(f"probe.py needs the worker's dependencies (pip install -r apps/worker/requirements.txt): {exc}")
 
 UA = {"User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
                     "(KHTML, like Gecko) Chrome/137.0 Safari/537.36"}
@@ -41,80 +52,78 @@ def get(url, **kw):
         return None
 
 
-# ATS host patterns -> (name, slug). Matched against the URL AND the page HTML (embeds).
-# The slug comes from the URL structure, never a guess; workday needs its 3-part slug so we
-# only surface the host for a human to complete.
-ATS_PATTERNS = [
-    ("greenhouse", re.compile(r"(?:boards|job-boards)(?:\.eu)?\.greenhouse\.io/(?:embed/job_board\?for=)?([A-Za-z0-9_.-]+)")),
-    ("lever", re.compile(r"jobs\.lever\.co/([A-Za-z0-9_.-]+)")),
-    ("ashby", re.compile(r"jobs\.ashbyhq\.com/([A-Za-z0-9_.-]+)")),
-    ("smartrecruiters", re.compile(r"(?:jobs|careers)\.smartrecruiters\.com/([A-Za-z0-9_.-]+)")),
-    ("workable", re.compile(r"apply\.workable\.com/([A-Za-z0-9_.-]+)")),
-    ("icims", re.compile(r"([a-z0-9-]+)\.icims\.com")),
-    ("pinpoint", re.compile(r"([a-z0-9-]+)\.pinpointhq\.com")),
-    ("workday", re.compile(r"([a-z0-9-]+)\.[a-z0-9]+\.myworkdayjobs\.com")),
-    ("phenom", re.compile(r"/api/pcsx/")),
-]
+MAX_EMBEDS = 5
+# A board host anywhere in a page, whatever surrounds it (a nested or encoded URL, prose), and
+# the path and query after it; resolve_board decides what it names. A subdomain board's first
+# label starts at a boundary or after a percent escape. Every length is bounded, so a minified
+# page scans linearly; the lookahead leaves what follows a host to be scanned too.
+_BOARD_HOST = re.compile(
+    r"(?:(" + "|".join(map(re.escape, FIXED_HOSTS)) + r")"
+    r"|(?:%(?:25){0,3}[0-9a-f]{2}|(?<![a-z0-9_-]))"
+    r"((?:[a-z0-9_-]{1,63}\.){1,2}(?:" + "|".join(map(re.escape, SUBDOMAIN_HOSTS)) + r")))"
+    r"(?![a-z0-9_-]|\.[a-z0-9])"
+    r"(?=((?:(?:/|%(?:25){0,3}2f)[a-z0-9._~%+/-]{0,300})?(?:\?[a-z0-9._~%+/=&\[\]-]{0,300})?))", re.I)
+# /, \x2f or \/ in a script.
+_SCRIPT_ESCAPED = re.compile(r"\\(?:u00|x)([0-9a-f]{2})", re.I)
+# What follows the slug of a URL cut out of text: an escape that is no part of one.
+_TAIL = re.compile(r"(?:%(?!(?:2f|20)[a-z0-9])|[~+ ]).*", re.I)
+_DECODED = re.compile(r"[a-z0-9._~%+/=&?\[\] -]*", re.I)
 
 
-def recognize(text: str) -> list[tuple[str, str]]:
-    """ATS (name, slug) pairs found in a URL or page HTML. Deduped, order-preserving."""
-    out, seen = [], set()
-    for name, pat in ATS_PATTERNS:
-        m = pat.search(text or "")
-        if not m:
-            continue
-        slug = m.group(1) if m.groups() else ""
-        key = (name, slug)
-        if key not in seen:
-            seen.add(key)
-            out.append(key)
+def board_hosts(page: str) -> list[tuple[str, str]]:
+    """(host, the path and query after it) of each board host in a page."""
+    text = _SCRIPT_ESCAPED.sub(lambda m: chr(int(m.group(1), 16)), page or "")
+    text = re.sub(r"(?<!\\)\\+/", "/", html.unescape(text))
+    out = []
+    for m in _BOARD_HOST.finditer(text):
+        rest = m.group(3)
+        while rest.startswith("%"):  # the host was inside a percent-encoded URL
+            rest = unquote(rest)
+        rest = _DECODED.match(rest).group().rstrip()  # decoding can end the URL
+        out.append(((m.group(1) or m.group(2)).lower(), rest))
     return out
 
 
-def verify(name: str, slug: str) -> int | None:
-    """Confirm a recognized ATS points to a NON-EMPTY board. Returns the posting count,
-    0 if empty/unknown, or None if the count can't be checked here (workday/phenom)."""
-    api = {
-        "greenhouse": f"https://boards-api.greenhouse.io/v1/boards/{slug}/jobs",
-        "lever": f"https://api.lever.co/v0/postings/{slug}?mode=json&limit=5",
-        "ashby": f"https://api.ashbyhq.com/posting-api/job-board/{slug}",
-        "smartrecruiters": f"https://api.smartrecruiters.com/v1/companies/{slug}/postings",
-        "workable": f"https://apply.workable.com/api/v1/widget/accounts/{slug}?details=true",
-    }
-    if name in api:
-        r = get(api[name])
-        if r is None or r.status_code != 200:
-            return 0
-        try:
-            data = r.json()
-        except ValueError:
-            return 0
-        if name == "lever":
-            return len(data) if isinstance(data, list) else 0
-        if name == "smartrecruiters":
-            return int(data.get("totalFound", 0)) or len(data.get("content", []))
-        return len(data.get("jobs", []))
-    if name == "icims":
-        r = get(f"https://{slug}.icims.com/jobs/search?in_iframe=1&pr=0")
-        return r.text.count("iCIMS_JobCardItem") if (r and r.status_code == 200) else 0
-    if name == "pinpoint":
-        r = get(f"https://{slug}.pinpointhq.com/postings.json")
-        try:
-            return len(r.json().get("data", [])) if (r and r.status_code == 200) else 0
-        except ValueError:
-            return 0
-    return None  # workday (needs tenant/dc/site) / phenom (host/domain) — can't count here
+def recognize_url(url: str) -> tuple[str, str] | None:
+    """The (source, slug) the worker's own resolver reads from a URL."""
+    return resolve_board(url)
 
 
-def plain_http_signals(html: str) -> list[str]:
+def recognize_page(page: str) -> list[tuple[str, str]]:
+    """Boards a page links to or embeds, each through the same resolver. Deduped, in page
+    order, at most MAX_EMBEDS (each one costs a list request)."""
+    urls = [f"https://{host}{rest.rstrip('.')}" for host, rest in board_hosts(page)]
+    found = (resolve_board(u) or resolve_board(_TAIL.sub("", u)) for u in urls)
+    return list(dict.fromkeys(b for b in found if b))[:MAX_EMBEDS]
+
+
+def workday_hosts(text: str) -> list[str]:
+    """`{tenant}/{dc}` of each Workday host in a URL or page: the slug still needs the site."""
+    labels = [host.split(".") for host, _ in board_hosts(text) if host.endswith(".myworkdayjobs.com")]
+    return [f"{x[0]}/{x[1]}" for x in labels if len(x) == 4]
+
+
+def verify(boards, has_listings=board_has_listings):
+    """Read each board's list through its adapter, the check an add runs too. Returns
+    (the boards that list a posting, [(source, slug, reason)] for the rest)."""
+    hits, misses = [], []
+    for source, slug in boards:
+        reason = verify_board(has_listings, source, slug, slug)
+        if reason:
+            misses.append((source, slug, reason))
+        else:
+            hits.append((source, slug))
+    return hits, misses
+
+
+def plain_http_signals(page: str) -> list[str]:
     signals = []
-    if re.search(r'<script[^>]*id="__NEXT_DATA__"', html or ""):
+    if re.search(r'<script[^>]*id="__NEXT_DATA__"', page or ""):
         signals.append("__NEXT_DATA__ (Next.js data blob — parse it as `next-data` mode)")
-    if re.search(r'"@type"\s*:\s*"JobPosting"', html or ""):
+    if re.search(r'"@type"\s*:\s*"JobPosting"', page or ""):
         signals.append("json-ld JobPosting (schema.org — a `json-ld` recipe target)")
     for hint in ("admin-ajax.php", "/wp-json/", "graphql", "search.json", "/pcsx/"):
-        if hint in (html or ""):
+        if hint in (page or ""):
             signals.append(f"inline API hint: {hint!r} (candidate XHR/JSON endpoint)")
     return signals
 
@@ -125,18 +134,10 @@ def main():
     url = sys.argv[1] if "//" in sys.argv[1] else "https://" + sys.argv[1]
     print(f"# probe {url}")
 
-    def verified(pairs):
-        out = []
-        for name, slug in pairs:
-            n = verify(name, slug)
-            if n is None:              # workday/phenom: surface, human completes the slug
-                out.append((name, slug, "?"))
-            elif n > 0:
-                out.append((name, slug, n))
-        return out
-
     # 1. platform from the URL itself (highest confidence)
-    plat = verified(recognize(url))
+    own = recognize_url(url) or next(iter(recognize_page(url)), None)  # or one inside a redirect URL
+    plat, misses = verify([own] if own else [])
+    own_miss = misses[0] if misses and recognize_url(url) else None
 
     # 2. fetch the page: status -> bot wall; body -> embedded ATS + plain-HTTP signals
     print("\n## page fetch")
@@ -145,17 +146,30 @@ def main():
     print(f"  GET {url} -> {status}")
     bot_walled = r is not None and r.status_code in (403, 429) and \
         bool(re.search(r"just a moment|challenge|cf-|captcha|verify you are human", r.text, re.I))
-    signals, embeds = [], []
+    signals, phenom, workdays = [], "/api/pcsx/" in url, workday_hosts(url)
     if r is not None and r.status_code == 200:
-        embeds = verified([p for p in recognize(r.text) if p not in {(n, s) for n, s, _ in plat}])
+        hits, more = verify([b for b in recognize_page(r.text) if b != own])
+        plat, misses = plat + hits, misses + more
         signals = plain_http_signals(r.text)
-    plat += embeds
+        phenom = phenom or "/api/pcsx/" in r.text
+        workdays += workday_hosts(r.text)
+    # A tenant whose board lists, or whose site the URL names, needs no hint. An embedded miss
+    # may be an asset or login link, so it keeps the hint.
+    read = {slug.rsplit("/", 1)[0] for source, slug, *_ in plat + ([own_miss] if own_miss else []) if source == "workday"}
+    workday = next((w for w in workdays if w not in read), None)
+    # An embed that could not be checked (not an empty one) is still a lead.
+    unread = next((m for m in misses if m[2].startswith("could not verify")), None)
 
     print("\n## platform check")
-    if plat:
-        for name, slug, n in plat:
-            print(f"  HIT  {name}  slug={slug}  ({n} live postings)")
-    else:
+    for source, slug in plat:
+        print(f"  HIT  {source}  slug={slug}  (lists postings)")
+    for source, slug, reason in misses:
+        print(f"  no   {source}  slug={slug}  ({reason})")
+    if phenom:
+        print("  MAYBE  phenom  (/api/pcsx/ seen; slug is {host}/{domain}, not checked here)")
+    if workday:
+        print(f"  MAYBE  workday  (host of {workday}; site not confirmed)")
+    if not (plat or misses or phenom or workday):
         print("  no known ATS recognized in the URL or embedded in the page")
     if bot_walled:
         print("\n  !! bot wall (Cloudflare/challenge) — plain HTTP is blocked")
@@ -165,13 +179,22 @@ def main():
     # verdict — earliest cascade rung that fits
     print()
     if plat:
-        name, slug, n = plat[0]
-        note = "verify tenant/host slug, then " if n == "?" else ""
-        print(f"VERDICT: platform={name} slug={slug} -> {note}data row, NO recipe needed")
+        source, slug = plat[0]
+        print(f"VERDICT: platform={source} slug={slug} -> data row, NO recipe needed")
+    elif phenom:
+        print("VERDICT: platform=phenom -> verify the {host}/{domain} slug, then data row, NO recipe needed")
+    elif workday:
+        print(f"VERDICT: platform=workday -> find or confirm the site for slug {workday}/{{site}}, then data row, NO recipe needed")
+    elif own_miss:
+        source, slug, reason = own_miss
+        print(f"VERDICT: platform? -> the URL is {source} slug={slug}, but {reason}")
     elif bot_walled:
         print("VERDICT: browser -> plain HTTP is blocked; write a `browser` recipe (render + CSS)")
     elif signals:
         print("VERDICT: plain-http -> write a `custom` recipe; start from the signal(s) above")
+    elif unread:
+        source, slug, reason = unread
+        print(f"VERDICT: platform? -> the page embeds {source} slug={slug}, but {reason}")
     elif r is None or status != 200:
         print("VERDICT: browser -> page not fetchable by plain HTTP; try a `browser` recipe")
     else:
