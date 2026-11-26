@@ -53,6 +53,44 @@ def test_record_unresolved_inserts_then_upserts_on_url(db_path):
     assert rows[0]["updated_at"] == LATER       # second pass refreshed it
 
 
+def _row(conn):
+    return tuple(conn.execute("SELECT feed, reason, host FROM feed_unresolved").fetchone())
+
+
+def test_a_feed_never_overwrites_the_watchlist_row_for_a_url(db_path):
+    # run_fetch records before run_feed in one pass: the board's own finding stays.
+    conn = db.connect(db_path)
+    url = "https://acme.example/jobs/1"
+    db.record_unresolved(conn, feed="watchlist", url=url, company_name="Acme", job_title="SWE",
+                         host="acme.example", reason="empty_description", now=NOW)
+    db.record_unresolved(conn, feed="simplify", url=url, company_name="Acme", job_title="SWE",
+                         host="other.example", reason="unsupported_host", now=LATER)
+    assert _row(conn) == ("watchlist", "empty_description", "acme.example")
+    assert conn.execute("SELECT updated_at FROM feed_unresolved").fetchone()[0] == LATER
+
+
+def test_a_watchlist_finding_takes_over_a_feed_row(db_path):
+    conn = db.connect(db_path)
+    url = "https://acme.example/jobs/1"
+    db.record_unresolved(conn, feed="simplify", url=url, company_name="Acme", job_title="SWE",
+                         host="other.example", reason="unsupported_host", now=NOW)
+    db.record_unresolved(conn, feed="watchlist", url=url, company_name="Acme", job_title="SWE",
+                         host="acme.example", reason="empty_description", now=LATER)
+    assert _row(conn) == ("watchlist", "empty_description", "acme.example")
+
+
+def test_clearing_a_served_url_removes_any_watchlist_row_but_not_a_feed_row(db_path):
+    # A row the old upsert left as ('watchlist', 'unsupported_host') is cleared too.
+    conn = db.connect(db_path)
+    conn.execute("INSERT INTO feed_unresolved (feed, url, company_name, job_title, host, reason, "
+                 "created_at) VALUES ('watchlist', 'https://a/1', 'A', 'E', 'a', 'unsupported_host', ?)",
+                 (NOW,))
+    db.record_unresolved(conn, feed="simplify", url="https://a/2", company_name="A", job_title="E",
+                         host="a", reason="unsupported_host", now=NOW)
+    db.clear_empty_descriptions(conn, ["https://a/1", "https://a/2"])
+    assert [r[0] for r in conn.execute("SELECT url FROM feed_unresolved")] == ["https://a/2"]
+
+
 def test_delete_unresolved_removes_row(db_path):
     conn = db.connect(db_path)
     url = "https://acme.wd5.myworkdayjobs.com/External/job/X_R1"
